@@ -1,9 +1,9 @@
 # Manasik Design App - Next.js Implementation Plan
 
 > **Project**: تصميمات مناسك / Manasik Design App
-> **Type**: Web-first design application (Next.js)
+> **Type**: Web-first design application with offline-first sync (Next.js + MongoDB)
 > **Language**: Arabic (RTL) UI
-> **Stack**: Next.js 14 · React 18 · TypeScript · Tailwind CSS · IndexedDB · Framer Motion
+> **Stack**: Next.js 14 · React 18 · TypeScript · Tailwind CSS · IndexedDB · MongoDB · Framer Motion
 > **Target**: Modern web browsers (Chrome, Edge, Safari, Firefox)
 > **Last updated**: July 2026
 
@@ -12,7 +12,14 @@
 ## Project Overview
 
 ### Purpose
-A single-user, offline-first design editor tailored for the مناسك Foundation's marketing operators. It lets non-designers compose Arabic posters, story templates, posts, and PDFs from a web browser, and authors fill-in-the-blanks **booking templates** that will later be auto-generated for every customer order.
+A single-user, offline-first design editor with cloud sync tailored for the مناسك Foundation's marketing operators. It lets non-designers compose Arabic posters, story templates, posts, and PDFs from a web browser, and authors fill-in-the-blanks **booking templates** that will later be auto-generated for every customer order.
+
+### Key Architecture: Offline-First with MongoDB Sync
+- **Local Storage**: IndexedDB for immediate offline access
+- **Cloud Storage**: MongoDB as source of truth and backup
+- **Sync Service**: Background synchronization when online
+- **Operation Queue**: Queue offline operations for later sync
+- **Conflict Resolution**: Automatic and manual conflict handling
 
 ### Who Uses It
 - **Operators** (single role) — create/edit designs, build booking templates, export PNG/PDF.
@@ -21,6 +28,7 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 ### Distribution
 - **Web** deployed to Vercel (or any Node.js hosting platform)
 - **PWA** capabilities for offline usage
+- **MongoDB Atlas** for cloud storage
 
 ---
 
@@ -33,13 +41,13 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 | `expo-router` | Next.js App Router |
 | `react-native-gesture-handler` | Framer Motion gestures |
 | `react-native-reanimated` | Framer Motion animations |
-| `AsyncStorage` | IndexedDB (via idb-keyval) |
+| `AsyncStorage` | IndexedDB (via idb-keyval) + MongoDB sync |
 | `expo-image` | HTML `<img>` with object-fit |
 | `react-native-svg` | lucide-react / react-icons |
 | `expo-image-picker` | HTML file input + FileReader |
 | `react-native-view-shot` | html-to-image / dom-to-image |
 | `expo-file-system` | File API + Blob |
-| `FastAPI` backend | Next.js API routes (optional) |
+| `FastAPI` backend | Next.js API routes + MongoDB |
 
 ### Core Technologies
 
@@ -48,10 +56,13 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 - **Styling**: Tailwind CSS + CSS Modules
 - **Animations**: Framer Motion
 - **State**: React Context + Hooks (Zustand optional)
-- **Storage**: IndexedDB (idb-keyval) for offline-first
+- **Local Storage**: IndexedDB (idb-keyval) for offline-first
+- **Cloud Storage**: MongoDB (MongoDB Atlas) for sync and backup
+- **Sync Service**: Custom sync service with operation queue
 - **Image Processing**: html-to-image, pdf-lib
 - **Icons**: lucide-react / react-icons
 - **Fonts**: Next.js font optimization (Google Fonts)
+- **Network**: Online/offline detection with Network API
 
 ---
 
@@ -84,15 +95,31 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 │   │   ├── AspectRatioPicker.tsx
 │   │   ├── ImageCropModal.tsx
 │   │   └── CollageRenderer.tsx
+│   ├── sync/                   # Sync-related components
+│   │   ├── SyncStatus.tsx      # Sync status indicator
+│   │   ├── ConflictDialog.tsx  # Conflict resolution dialog
+│   │   └── OfflineBanner.tsx    # Offline notification
 │   └── layout/                 # Layout components
 │       ├── Header.tsx
 │       ├── Sidebar.tsx
 │       └── Footer.tsx
 ├── lib/
 │   ├── store/                  # State management
-│   │   ├── projects.ts         # Project CRUD
+│   │   ├── projects.ts         # Project CRUD with sync
 │   │   ├── booking-templates.ts
 │   │   └── exports.ts
+│   ├── sync/                   # Sync service
+│   │   ├── sync-service.ts     # Main sync orchestrator
+│   │   ├── sync-queue.ts       # Operation queue management
+│   │   ├── conflict-resolver.ts # Conflict resolution logic
+│   │   └── network-monitor.ts  # Online/offline detection
+│   ├── db/                     # Database layer
+│   │   ├── indexeddb.ts        # IndexedDB operations
+│   │   ├── mongodb.ts          # MongoDB client
+│   │   └── repositories/       # Data access layer
+│   │       ├── projects.repository.ts
+│   │       ├── booking.repository.ts
+│   │       └── exports.repository.ts
 │   ├── utils/
 │   │   ├── kv-storage.ts       # IndexedDB wrapper
 │   │   ├── canvas-utils.ts     # Canvas helper functions
@@ -108,13 +135,96 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 │       ├── fonts.ts
 │       └── presets.ts
 ├── types/
-│   ├── project.ts              # Project and layer types
-│   ├── booking.ts              # Booking template types
-│   └── common.ts               # Shared types
+│   ├── project.ts              # Project and layer types with sync fields
+│   ├── booking.ts              # Booking template types with sync fields
+│   ├── common.ts               # Shared types with sync fields
+│   ├── storage.ts              # Storage and sync types
+│   └── sync.ts                 # Sync service types
 └── public/
     ├── fonts/                  # Custom fonts
     └── assets/                 # Static assets
 ```
+
+---
+
+## Sync Architecture
+
+### Data Flow
+
+```
+User Action → IndexedDB (immediate) → Sync Queue (if offline) → MongoDB (when online)
+MongoDB Changes → Sync Service → IndexedDB (update local cache)
+```
+
+### Key Components
+
+#### 1. **Local Storage (IndexedDB)**
+- Primary storage for immediate access
+- Stores all documents with sync metadata
+- Works completely offline
+- Fast read/write operations
+
+#### 2. **Cloud Storage (MongoDB)**
+- Source of truth and backup
+- Cross-device synchronization
+- Data persistence and recovery
+- Supports future collaboration features
+
+#### 3. **Sync Service**
+- Background synchronization when online
+- Bidirectional sync (local ↔ remote)
+- Conflict detection and resolution
+- Retry logic for failed operations
+
+#### 4. **Operation Queue**
+- Queues operations when offline
+- Processes queue when connection restored
+- Exponential backoff for retries
+- Operation deduplication
+
+#### 5. **Network Monitor**
+- Detects online/offline status
+- Triggers sync on connection restore
+- Pauses sync when offline
+- Shows connection status to users
+
+### Sync Strategy
+
+#### **Optimistic UI**
+- All updates appear immediately (local)
+- No waiting for server confirmation
+- Background sync processes changes
+- Error handling with rollback if needed
+
+#### **Conflict Resolution**
+- **Automatic**: Last-write-wins based on timestamp
+- **Manual**: User chooses between versions
+- **Merge**: Smart merge for compatible changes
+- **Versioning**: Track document revisions
+
+#### **Sync Metadata**
+Each document includes:
+- `syncStatus`: 'synced' | 'pending' | 'conflict' | 'error'
+- `localModifiedAt`: Last local modification time
+- `syncedAt`: Last successful sync time
+- `_rev`: Document revision for conflict detection
+
+### Offline Capabilities
+
+- ✅ Full CRUD operations offline
+- ✅ Project creation and editing
+- ✅ Image uploads (local storage)
+- ✅ PDF generation
+- ✅ Export functionality
+- ✅ Queue operations for later sync
+
+### Online Capabilities
+
+- ✅ Automatic background sync
+- ✅ Cloud backup
+- ✅ Cross-device access
+- ✅ Conflict resolution
+- ✅ Real-time updates (future)
 
 ---
 
@@ -260,7 +370,8 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 
 **Web Adaptations:**
 - Same data structure as React Native
-- IndexedDB for persistence
+- IndexedDB for local persistence
+- MongoDB for cloud sync
 - Web-based editor interface
 
 ### 11. Dynamic Field Layers
@@ -276,16 +387,33 @@ A single-user, offline-first design editor tailored for the مناسك Foundatio
 - Form input for variable names
 - Template literal substitution
 
+### 12. Sync Service
+
+**Implementation:**
+- Background sync when online
+- Operation queue for offline changes
+- Conflict detection and resolution
+- Network status monitoring
+- Sync status indicators
+
+**Features:**
+- Automatic sync on connection restore
+- Manual sync trigger
+- Conflict resolution UI
+- Sync history and metrics
+- Offline mode indicator
+
 ---
 
 ## Data Structure & Storage
 
-### IndexedDB Schema
+### IndexedDB Schema (Local Storage)
 
 ```typescript
-// Projects
+// Projects (with sync metadata)
 interface Project {
   id: string;
+  _id?: string; // MongoDB ObjectId
   name: string;
   kind: "design" | "booking_template";
   canvasWidth: number;
@@ -295,6 +423,9 @@ interface Project {
   thumbnail?: string;
   createdAt: number;
   updatedAt: number;
+  localModifiedAt: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
+  syncedAt?: number;
   bookingMeta?: {
     productId: string;
     model: "withImage" | "withoutImage";
@@ -302,13 +433,17 @@ interface Project {
   };
 }
 
-// Booking Products
+// Booking Products (with sync metadata)
 interface BookingProduct {
   id: string;
+  _id?: string; // MongoDB ObjectId
   name: string;
   imageUri?: string;
   createdAt: number;
   updatedAt: number;
+  localModifiedAt: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
+  syncedAt?: number;
   defaultCanvas: {
     width: number;
     height: number;
@@ -328,23 +463,54 @@ interface BookingProduct {
   };
 }
 
-// PDF Projects
+// PDF Projects (with sync metadata)
 interface PdfProject {
   id: string;
+  _id?: string; // MongoDB ObjectId
   name: string;
   images: string[];
   pdfUri?: string;
   createdAt: number;
   updatedAt: number;
+  localModifiedAt: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
+  syncedAt?: number;
 }
 
-// Exports
+// Exports (with sync metadata)
 interface ExportedItem {
   id: string;
+  _id?: string; // MongoDB ObjectId
   projectId?: string;
   uri: string;
   type: "png" | "pdf";
   createdAt: number;
+  localModifiedAt: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
+  syncedAt?: number;
+}
+
+// Sync Queue
+interface SyncOperation {
+  id: string;
+  type: 'create' | 'update' | 'delete';
+  collection: string;
+  documentId: string;
+  data: any;
+  timestamp: number;
+  retryCount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string;
+}
+
+// Sync State
+interface SyncState {
+  lastSyncAt: number | null;
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingOperations: number;
+  conflicts: number;
+  lastError?: string;
 }
 ```
 
@@ -352,11 +518,40 @@ interface ExportedItem {
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `manasik:projects` | `Project[]` | All projects (design + booking) |
-| `manasik:exports` | `ExportedItem[]` | Last 30 exports |
-| `manasik:pdf_projects` | `PdfProject[]` | PDF assembly projects |
-| `manasik:booking_products` | `BookingProduct[]` | Product definitions |
+| `manasik:projects` | `Project[]` | All projects (design + booking) with sync metadata |
+| `manasik:exports` | `ExportedItem[]` | Last 30 exports with sync metadata |
+| `manasik:pdf_projects` | `PdfProject[]` | PDF assembly projects with sync metadata |
+| `manasik:booking_products` | `BookingProduct[]` | Product definitions with sync metadata |
 | `manasik:recent_colors` | `string[]` | Last 12 used colors |
+| `manasik:sync-queue` | `SyncOperation[]` | Queued sync operations |
+| `manasik:sync-state` | `SyncState` | Current sync state |
+
+### MongoDB Schema (Cloud Storage)
+
+```typescript
+// Projects Collection
+db.projects {
+  _id: ObjectId;
+  id: string; // Same as local ID
+  name: string;
+  kind: "design" | "booking_template";
+  canvasWidth: number;
+  canvasHeight: number;
+  backgroundUri?: string;
+  layers: AnyLayer[];
+  thumbnail?: string;
+  createdAt: number;
+  updatedAt: number;
+  localModifiedAt: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
+  syncedAt?: number;
+  bookingMeta?: { ... };
+  userId?: string;
+  _rev: string; // Revision for conflict detection
+}
+
+// Similar structure for other collections
+```
 
 ---
 
@@ -431,10 +626,20 @@ interface ExportedItem {
 - [ ] Variable binding system
 - [ ] Template editor integration
 
-### Phase 6: Polish & Optimization (Week 11-12)
+### Phase 6: Sync Service (Week 11-12)
+- [ ] MongoDB integration and setup
+- [ ] Sync service implementation
+- [ ] Operation queue management
+- [ ] Network monitoring
+- [ ] Conflict resolution system
+- [ ] Sync status UI components
+- [ ] Background sync triggers
+- [ ] Sync metrics and monitoring
+
+### Phase 7: Polish & Optimization (Week 13-14)
 - [ ] Performance optimization
 - [ ] PWA configuration
-- [ ] Offline support
+- [ ] Offline support testing
 - [ ] Error handling
 - [ ] User testing feedback
 - [ ] Documentation
@@ -468,7 +673,17 @@ interface ExportedItem {
 ```json
 {
   "idb-keyval": "^6.2.0",
-  "zustand": "^4.4.0"
+  "zustand": "^4.4.0",
+  "mongodb": "^6.0.0",
+  "bson": "^6.0.0"
+}
+```
+
+### Sync & Network
+```json
+{
+  "dexie": "^3.2.0",
+  "dexie-observable": "^0.0.3"
 }
 ```
 
@@ -551,8 +766,22 @@ export default config;
   - Build Command: `npm run build`
   - Output Directory: `.next`
   - Install Command: `npm install`
-- Environment variables (if needed)
+- Environment variables (see below)
 - Automatic deployments on push
+
+### MongoDB Atlas Setup
+- Create MongoDB Atlas account
+- Create a new cluster (free tier available)
+- Create database user with read/write permissions
+- Whitelist IP addresses (0.0.0.0/0 for Vercel)
+- Get connection string
+- Set environment variable `MONGODB_URI`
+
+### Environment Variables
+```env
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/manasik
+NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
+```
 
 ### Alternative Platforms
 - Netlify
@@ -567,8 +796,13 @@ export default config;
 - Sanitize HTML content (if using rich text)
 - Content Security Policy (CSP) headers
 - HTTPS only in production
-- Rate limiting for API routes (if added)
+- MongoDB connection string security (environment variables)
+- MongoDB Atlas network access control
+- MongoDB user authentication
+- Rate limiting for API routes
 - No sensitive data in localStorage
+- Sync data encryption (future)
+- User authentication (future)
 
 ---
 
@@ -613,15 +847,17 @@ export default config;
 - First Contentful Paint: < 1.5s
 - Time to Interactive: < 3.5s
 - Canvas rendering: 60fps
-- Project save: < 500ms
+- Project save: < 500ms (local)
+- Sync operation: < 2s (typical document)
 - Image export: < 2s (typical design)
+- Offline to online sync: < 10s (queue processing)
 
 ---
 
 ## Future Enhancements
 
 ### Phase 2+ Features
-- [ ] Cloud sync (Cloudflare R2 or similar)
+- [x] Cloud sync with MongoDB (Phase 6)
 - [ ] Real-time collaboration
 - [ ] Advanced AI tools
 - [ ] Custom font upload
@@ -629,6 +865,10 @@ export default config;
 - [ ] Advanced export options
 - [ ] Video export support
 - [ ] Animation timeline
+- [ ] User authentication and multi-tenancy
+- [ ] Advanced conflict resolution UI
+- [ ] Sync analytics and monitoring
+- [ ] Selective sync (per project/collection)
 
 ### Technical Debt
 - [ ] Split monolithic editor into smaller components
@@ -636,6 +876,8 @@ export default config;
 - [ ] Implement error boundary system
 - [ ] Add analytics (privacy-focused)
 - [ ] Optimize bundle size
+- [ ] Add sync performance monitoring
+- [ ] Implement sync retry strategies
 
 ---
 
@@ -644,11 +886,127 @@ export default config;
 1. **Functional Parity**: All features from React Native version work in web
 2. **Performance**: Smooth 60fps canvas interactions
 3. **Offline Support**: Full functionality without internet
-4. **RTL Support**: Proper Arabic text rendering and layout
-5. **Cross-Browser**: Works on all major browsers
-6. **Mobile Friendly**: Responsive design works on mobile devices
-7. **Export Quality**: PNG/PDF exports match original design
-8. **Data Persistence**: Reliable IndexedDB storage
+4. **Cloud Sync**: Reliable sync with MongoDB when online
+5. **Conflict Resolution**: Handle sync conflicts gracefully
+6. **RTL Support**: Proper Arabic text rendering and layout
+7. **Cross-Browser**: Works on all major browsers
+8. **Mobile Friendly**: Responsive design works on mobile devices
+9. **Export Quality**: PNG/PDF exports match original design
+10. **Data Persistence**: Reliable IndexedDB storage with MongoDB backup
+
+---
+
+## Sync Service Implementation Details
+
+### Core Components
+
+#### 1. **Sync Service** (`lib/sync/sync-service.ts`)
+```typescript
+class SyncService {
+  // Main sync orchestrator
+  async sync(): Promise<SyncResult>
+  async syncCollection(collection: string): Promise<void>
+  async syncDocument(collection: string, id: string): Promise<void>
+  private handleConflict(document: any): Promise<void>
+  private applyRemoteChanges(document: any): Promise<void>
+  private queueLocalChanges(document: any): Promise<void>
+}
+```
+
+#### 2. **Sync Queue** (`lib/sync/sync-queue.ts`)
+```typescript
+class SyncQueue {
+  // Operation queue management
+  async add(operation: SyncOperation): Promise<void>
+  async process(): Promise<void>
+  async retryFailed(): Promise<void>
+  async clear(): Promise<void>
+  private shouldRetry(operation: SyncOperation): boolean
+}
+```
+
+#### 3. **Conflict Resolver** (`lib/sync/conflict-resolver.ts`)
+```typescript
+class ConflictResolver {
+  // Conflict resolution strategies
+  async resolve(conflict: DocumentDelta): Promise<any>
+  private autoResolve(local: any, remote: any): any
+  private mergeChanges(local: any, remote: any): any
+  private requiresManualResolution(local: any, remote: any): boolean
+}
+```
+
+#### 4. **Network Monitor** (`lib/sync/network-monitor.ts`)
+```typescript
+class NetworkMonitor {
+  // Online/offline detection
+  startMonitoring(): void
+  stopMonitoring(): void
+  isOnline(): boolean
+  onStatusChange(callback: (online: boolean) => void): void
+}
+```
+
+### Sync Flow
+
+#### **Online Sync**
+1. User makes changes → Update IndexedDB (immediate)
+2. Mark document as `syncStatus: 'pending'`
+3. Add operation to sync queue
+4. Background sync processes queue
+5. Update MongoDB
+6. Mark document as `syncStatus: 'synced'`
+7. Update `syncedAt` timestamp
+
+#### **Offline Sync**
+1. User makes changes → Update IndexedDB (immediate)
+2. Mark document as `syncStatus: 'pending'`
+3. Add operation to sync queue
+4. Queue persists in IndexedDB
+5. When connection restored:
+   - Process queued operations
+   - Sync with MongoDB
+   - Handle any conflicts
+
+#### **Conflict Detection**
+1. Compare `localModifiedAt` vs remote `updatedAt`
+2. Check `_rev` (revision) mismatch
+3. If conflict detected:
+   - Mark document as `syncStatus: 'conflict'`
+   - Store both versions
+   - Show conflict resolution UI
+   - Apply user's resolution choice
+
+### Sync Configuration
+
+```typescript
+const SYNC_CONFIG: SyncConfig = {
+  enabled: true,
+  syncInterval: 30000, // 30 seconds
+  retryInterval: 5000, // 5 seconds
+  maxRetries: 3,
+  conflictResolution: 'manual' // 'local' | 'remote' | 'manual'
+};
+```
+
+### API Routes (Next.js)
+
+#### **Sync Endpoint**
+```typescript
+// app/api/sync/route.ts
+export async function POST(request: Request) {
+  // Handle sync requests from client
+  // Return changed documents since last sync
+}
+```
+
+#### **Document Endpoints**
+```typescript
+// app/api/projects/route.ts
+// app/api/booking-products/route.ts
+// app/api/exports/route.ts
+// CRUD operations with sync support
+```
 
 ---
 
