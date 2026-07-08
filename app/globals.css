@@ -1,0 +1,184 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.black, .black *));
+
+/* ─── Light Theme (Default) ──────────────────────────────────── */
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card-bg: #f9fafb;
+  --stroke: #e5e7eb;
+  --secondary: #6b7280;
+  --muted: #f3f4f6;
+  --primary: #0a0a0a;
+  --primary-text: #ffffff;
+  --success: #16a34a;
+  --error: #dc2626;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --radius-site: 0.75rem;
+  --gradient-site: linear-gradient(135deg,
+      #1e3a8a 0%,
+      #2563eb 60%,
+      #3b82f6 100%);
+  --gradient-text: #ffffff;
+}
+
+/* ─── Black Theme ─────────────────────────────────────────────── */
+.black {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card-bg: #141414;
+  --stroke: #262626;
+  --secondary: #a3a3a3;
+  --muted: #1a1a1a;
+  --primary: #fafafa;
+  --primary-text: #0a0a0a;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #f59e0b;
+  --info: #60a5fa;
+  --radius-site: 0.75rem;
+  --gradient-site: linear-gradient(135deg,
+      #1d4ed8 0%,
+      #3b82f6 60%,
+      #60a5fa 100%);
+  --gradient-text: #ffffff;
+}
+
+/* ─── Manasik Theme (Green / Navy) ────────────────────────────── */
+.manasik {
+  --background: rgb(0, 15, 47);
+  --foreground: #fcfcfa;
+  --card-bg: #0a1a3a;
+  --stroke: #1a2e55;
+  --secondary: #8aa5c8;
+  --muted: #0d2040;
+  --primary: #33ad6c;
+  --primary-text: #ffffff;
+  --success: #33ad6c;
+  --error: #ef4444;
+  --warning: #f59e0b;
+  --info: #60a5fa;
+  --radius-site: 0.75rem;
+  --gradient-site: linear-gradient(135deg,
+      #1f8a54 0%,
+      #33ad6c 60%,
+      #5cc48f 100%);
+  --gradient-text: #ffffff;
+}
+
+/* ─── Ghadaq Theme (Green & Gold) ─────────────────────────────── */
+.ghadaq {
+  --background: #134d37;
+  --foreground: #fcfcfa;
+  --card-bg: #1a5f44;
+  --stroke: #2a7a5a;
+  --secondary: #a8d4bf;
+  --muted: #175840;
+  --primary: #ffa401;
+  --primary-text: #0a0a0a;
+  --success: #ffa401;
+  --error: #ef4444;
+  --warning: #ffd84d;
+  --info: #60a5fa;
+  --radius-site: 0.75rem;
+  --gradient-site: linear-gradient(135deg,
+      #ffa401 0%,
+      #ffc001 60%,
+      #ffd84d 100%);
+  --gradient-text: #000f2f;
+}
+
+/* ─── Colors Theme (Vibrant & Playful) ────────────────────────── */
+.colors {
+  --background: #1a1025;
+  --foreground: #f0e6ff;
+  --card-bg: #241538;
+  --stroke: #3d2460;
+  --secondary: #b49ddb;
+  --muted: #1f1230;
+  --primary: #e879f9;
+  --primary-text: #1a1025;
+  --success: #34d399;
+  --error: #fb7185;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  --radius-site: 1rem;
+  --gradient-site: linear-gradient(135deg,
+      #e879f9 0%,
+      #818cf8 33%,
+      #38bdf8 66%,
+      #34d399 100%);
+  --gradient-text: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card-bg: var(--card-bg);
+  --color-stroke: var(--stroke);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --radius-site: var(--radius-site);
+  --font-satoshi: var(--font-satoshi);
+  --font-expo-arabic: var(--font-expo-arabic);
+
+  --breakpoint-xs: 375px
+}
+
+/* ─── Base Styles ─────────────────────────────────────────────── */
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ─── Gradient Utilities ──────────────────────────────────────── */
+.gradient-site {
+  background: var(--gradient-site);
+}
+
+.gradient-text {
+  color: var(--gradient-text);
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--stroke);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary);
+}
+
+/* Hide number input arrows/spinners */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
