@@ -13,6 +13,7 @@ export interface BaseLayer {
   width: number;
   height: number;
   rotation: number;
+  opacity: number;
   zIndex: number;
   visible: boolean;
   locked: boolean;

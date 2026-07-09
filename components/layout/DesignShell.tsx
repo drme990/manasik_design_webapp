@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils/cn';
 import Header from './Header';
 import Sidebar from './Sidebar';
 
@@ -10,6 +12,8 @@ export interface DesignShellProps {
 
 export default function DesignShell({ children }: DesignShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+  const isEditorPage = pathname.startsWith('/editor/');
 
   // Open the sidebar by default on large screens, keep it closed on mobile.
   useEffect(() => {
@@ -22,12 +26,19 @@ export default function DesignShell({ children }: DesignShellProps) {
   }, []);
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Header onMenuClick={() => setSidebarOpen((prev) => !prev)} />
-      <div className="flex flex-1 pt-16">
+    <div className="flex h-svh flex-col overflow-hidden">
+      {!isEditorPage && <Header onMenuClick={() => setSidebarOpen((prev) => !prev)} />}
+      <div className={cn('flex flex-1 overflow-hidden', !isEditorPage && 'pt-16')}>
         {/* Sidebar is first in source order so it sits on the start side: left in LTR, right in RTL. */}
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">{children}</main>
+        {!isEditorPage && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
+        <main
+          className={cn(
+            'flex-1 overflow-auto',
+            !isEditorPage && 'p-4 sm:p-6 lg:p-8'
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

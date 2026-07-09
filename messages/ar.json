@@ -17,7 +17,24 @@
     "recentDesigns": "التصاميم الحديثة",
     "emptyTitle": "لا توجد تصاميم بعد",
     "emptyDescription": "ابدأ أول تصميم لك باختيار أحد الأحجام أدناه.",
-    "createFirst": "إنشاء تصميم"
+    "createFirst": "إنشاء تصميم",
+    "menu": "خيارات",
+    "rename": "إعادة تسمية",
+    "delete": "حذف",
+    "renameTitle": "إعادة تسمية التصميم",
+    "renamePlaceholder": "اسم التصميم",
+    "deleteTitle": "حذف التصميم",
+    "deleteDescription": "هل أنت متأكد أنك تريد حذف هذا التصميم؟ لا يمكن التراجع عن هذا الإجراء.",
+    "deleteConfirm": "حذف",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "create": "إنشاء",
+    "preview": "معاينة",
+    "noPreview": "لا توجد معاينة متاحة",
+    "custom": "مخصص",
+    "customSize": "حجم مخصص",
+    "width": "العرض",
+    "height": "الارتفاع"
   },
   "home": {
     "hero": {
@@ -128,6 +145,23 @@
   },
   "editor": {
     "layers": "الطبقات",
+    "newText": "نص جديد",
+    "notFoundTitle": "التصميم غير موجود",
+    "notFoundDescription": "لم نتمكن من العثور على التصميم المطلوب.",
+    "backToProjects": "العودة إلى المشاريع",
+    "zoomOut": "تصغير",
+    "zoomIn": "تكبير",
+    "save": "حفظ",
+    "addText": "نص",
+    "addImage": "صورة",
+    "addShape": "شكل",
+    "addField": "حقل",
+    "properties": "الخصائص",
+    "duplicate": "نسخ",
+    "delete": "حذف",
+    "undo": "تراجع",
+    "redo": "إعادة",
+    "selectLayer": "اختر طبقة لتحرير خصائصها",
     "toolbars": {
       "text": {
         "title": "إعدادات النص",
@@ -141,7 +175,8 @@
         "italic": "مائل",
         "left": "يسار",
         "center": "وسط",
-        "right": "يمين"
+        "right": "يمين",
+        "opacity": "الشفافية"
       },
       "image": {
         "title": "إعدادات الصورة",
@@ -152,7 +187,8 @@
         "borderWidth": "سمك الإطار",
         "borderColor": "لون الإطار",
         "flipHorizontal": "عكس أفقي",
-        "flipVertical": "عكس رأسي"
+        "flipVertical": "عكس رأسي",
+        "opacity": "الشفافية"
       },
       "shape": {
         "title": "إعدادات الشكل",
@@ -168,7 +204,8 @@
         "fillColor": "لون التعبئة",
         "strokeColor": "لون الإطار",
         "strokeWidth": "سمك الإطار",
-        "cornerRadius": "نصف قطر الزاوية"
+        "cornerRadius": "نصف قطر الزاوية",
+        "opacity": "الشفافية"
       },
       "dynamicField": {
         "title": "إعدادات الحقل الديناميكي",
@@ -184,7 +221,10 @@
         "cover": "تغطية",
         "contain": "احتواء",
         "width": "العرض",
-        "height": "الارتفاع"
+        "height": "الارتفاع",
+        "strokeWidth": "سمك الإطار",
+        "strokeColor": "لون الإطار",
+        "opacity": "الشفافية"
       }
     },
     "modals": {

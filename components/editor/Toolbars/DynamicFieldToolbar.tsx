@@ -2,6 +2,8 @@
 
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import NumberField from '@/components/ui/NumberField';
+import SliderField from '@/components/ui/SliderField';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
 import type { DynamicFieldLayer } from '@/types';
@@ -50,11 +52,12 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
 
       {layer.fieldType === 'text' && (
         <>
-          <Input
+          <NumberField
             label={t('fontSize')}
-            type="number"
             value={layer.fontSize}
-            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+            min={1}
+            max={200}
+            onChange={(v) => onChange({ fontSize: v })}
           />
           <div>
             <label className="mb-1.5 block text-sm font-medium text-foreground">{t('textColor')}</label>
@@ -88,27 +91,39 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
             onChange={(e) => onChange({ imageFit: e.target.value as 'cover' | 'contain' })}
           />
           <div className="grid grid-cols-2 gap-3">
-            <Input
+            <NumberField
               label={t('width')}
-              type="number"
               value={layer.imageWidth || 200}
-              onChange={(e) => onChange({ imageWidth: Number(e.target.value) })}
+              min={10}
+              max={2000}
+              onChange={(v) => onChange({ imageWidth: v })}
             />
-            <Input
+            <NumberField
               label={t('height')}
-              type="number"
               value={layer.imageHeight || 200}
-              onChange={(e) => onChange({ imageHeight: Number(e.target.value) })}
+              min={10}
+              max={2000}
+              onChange={(v) => onChange({ imageHeight: v })}
             />
           </div>
         </>
       )}
 
-      <Input
+      <SliderField
         label={t('strokeWidth')}
-        type="number"
-        value={layer.borderWidth}
-        onChange={(e) => onChange({ borderWidth: Number(e.target.value) })}
+        value={layer.borderWidth ?? 0}
+        min={0}
+        max={50}
+        onChange={(v) => onChange({ borderWidth: v })}
+      />
+
+      <SliderField
+        label={t('opacity')}
+        value={layer.opacity * 100}
+        min={0}
+        max={100}
+        onChange={(v) => onChange({ opacity: v / 100 })}
+        suffix="%"
       />
 
       <div>

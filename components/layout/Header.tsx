@@ -35,7 +35,7 @@ export default function Header({ onMenuClick, className }: HeaderProps) {
           </button>
           <Link href="/projects" className="flex items-center gap-2">
             <div className="gradient-site flex h-9 w-9 items-center justify-center rounded-lg">
-              <span className="gradient-text text-lg font-bold">م</span>
+              <span className="gradient-text text-lg font-bold">M</span>
             </div>
             <span className="hidden text-xl font-bold text-foreground sm:inline">
               {t('appName')}
@@ -46,12 +46,6 @@ export default function Header({ onMenuClick, className }: HeaderProps) {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <LanguageToggle />
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-primary text-primary-text text-sm font-bold"
-            aria-label={t('userAvatar')}
-          >
-            م
-          </div>
         </div>
       </div>
     </header>

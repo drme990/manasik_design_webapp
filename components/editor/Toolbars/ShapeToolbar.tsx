@@ -1,9 +1,11 @@
 'use client';
 
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import NumberField from '@/components/ui/NumberField';
+import SliderField from '@/components/ui/SliderField';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
+import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import type { ShapeLayer } from '@/types';
 
 export interface ShapeToolbarProps {
@@ -12,34 +14,56 @@ export interface ShapeToolbarProps {
   className?: string;
 }
 
+const SHAPES: ShapeLayer['shape'][] = [
+  'rectangle',
+  'rectangle_free',
+  'circle',
+  'triangle',
+  'star_4',
+  'star_5',
+  'star_6',
+  'star_8',
+  'line',
+];
+
+const SHAPE_LABEL_KEYS: Record<ShapeLayer['shape'], string> = {
+  rectangle: 'rectangle',
+  rectangle_free: 'rectangleFree',
+  circle: 'circle',
+  triangle: 'triangle',
+  star_4: 'star4',
+  star_5: 'star5',
+  star_6: 'star6',
+  star_8: 'star8',
+  line: 'line',
+};
+
 export default function ShapeToolbar({ layer, onChange, className }: ShapeToolbarProps) {
   const t = useTranslations('editor.toolbars.shape');
-
-  const shapeOptions = [
-    { value: 'rectangle', label: t('rectangle') },
-    { value: 'rectangle_free', label: t('rectangleFree') },
-    { value: 'circle', label: t('circle') },
-    { value: 'triangle', label: t('triangle') },
-    { value: 'star_4', label: t('star4') },
-    { value: 'star_5', label: t('star5') },
-    { value: 'star_6', label: t('star6') },
-    { value: 'star_8', label: t('star8') },
-    { value: 'line', label: t('line') },
-  ];
 
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
       <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
 
       <div className="grid grid-cols-3 gap-2">
-        {shapeOptions.map((shape) => (
+        {SHAPES.map((shape) => (
           <Button
-            key={shape.value}
-            variant={layer.shape === shape.value ? 'primary' : 'ghost'}
+            key={shape}
+            variant={layer.shape === shape ? 'primary' : 'ghost'}
             size="sm"
-            onClick={() => onChange({ shape: shape.value as ShapeLayer['shape'] })}
+            onClick={() => onChange({ shape })}
+            className="flex h-12 items-center justify-center p-1"
+            aria-label={t(SHAPE_LABEL_KEYS[shape])}
           >
-            {shape.label}
+            <ShapeRenderer
+              shape={shape}
+              width={28}
+              height={28}
+              fillColor={layer.shape === shape ? 'currentColor' : layer.fillColor}
+              strokeColor={layer.shape === shape ? 'currentColor' : layer.strokeColor}
+              strokeWidth={2}
+              cornerRadius={shape === 'rectangle_free' ? 6 : 0}
+            />
           </Button>
         ))}
       </div>
@@ -65,19 +89,30 @@ export default function ShapeToolbar({ layer, onChange, className }: ShapeToolba
         </div>
       </div>
 
-      <Input
+      <SliderField
         label={t('strokeWidth')}
-        type="number"
         value={layer.strokeWidth}
-        onChange={(e) => onChange({ strokeWidth: Number(e.target.value) })}
+        min={0}
+        max={50}
+        onChange={(v) => onChange({ strokeWidth: v })}
+      />
+
+      <SliderField
+        label={t('opacity')}
+        value={layer.opacity * 100}
+        min={0}
+        max={100}
+        onChange={(v) => onChange({ opacity: v / 100 })}
+        suffix="%"
       />
 
       {layer.shape === 'rectangle_free' && (
-        <Input
+        <SliderField
           label={t('cornerRadius')}
-          type="number"
           value={layer.cornerRadius || 20}
-          onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
+          min={0}
+          max={200}
+          onChange={(v) => onChange({ cornerRadius: v })}
         />
       )}
     </div>

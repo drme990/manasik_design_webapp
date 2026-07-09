@@ -17,7 +17,24 @@
     "recentDesigns": "Recent Designs",
     "emptyTitle": "No designs yet",
     "emptyDescription": "Start your first design by choosing a size below.",
-    "createFirst": "Create Design"
+    "createFirst": "Create Design",
+    "menu": "Options",
+    "rename": "Rename",
+    "delete": "Delete",
+    "renameTitle": "Rename design",
+    "renamePlaceholder": "Design name",
+    "deleteTitle": "Delete design",
+    "deleteDescription": "Are you sure you want to delete this design? This action cannot be undone.",
+    "deleteConfirm": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "create": "Create",
+    "preview": "Preview",
+    "noPreview": "No preview available",
+    "custom": "Custom",
+    "customSize": "Custom size",
+    "width": "Width",
+    "height": "Height"
   },
   "home": {
     "hero": {
@@ -128,6 +145,23 @@
   },
   "editor": {
     "layers": "Layers",
+    "newText": "New text",
+    "notFoundTitle": "Design not found",
+    "notFoundDescription": "We couldn't find the design you are looking for.",
+    "backToProjects": "Back to projects",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "save": "Save",
+    "addText": "Text",
+    "addImage": "Image",
+    "addShape": "Shape",
+    "addField": "Field",
+    "properties": "Properties",
+    "duplicate": "Duplicate",
+    "delete": "Delete",
+    "undo": "Undo",
+    "redo": "Redo",
+    "selectLayer": "Select a layer to edit its properties",
     "toolbars": {
       "text": {
         "title": "Text settings",
@@ -141,7 +175,8 @@
         "italic": "Italic",
         "left": "Left",
         "center": "Center",
-        "right": "Right"
+        "right": "Right",
+        "opacity": "Opacity"
       },
       "image": {
         "title": "Image settings",
@@ -152,7 +187,8 @@
         "borderWidth": "Border width",
         "borderColor": "Border color",
         "flipHorizontal": "Flip horizontal",
-        "flipVertical": "Flip vertical"
+        "flipVertical": "Flip vertical",
+        "opacity": "Opacity"
       },
       "shape": {
         "title": "Shape settings",
@@ -168,7 +204,8 @@
         "fillColor": "Fill color",
         "strokeColor": "Stroke color",
         "strokeWidth": "Stroke width",
-        "cornerRadius": "Corner radius"
+        "cornerRadius": "Corner radius",
+        "opacity": "Opacity"
       },
       "dynamicField": {
         "title": "Dynamic field settings",
@@ -184,7 +221,10 @@
         "cover": "Cover",
         "contain": "Contain",
         "width": "Width",
-        "height": "Height"
+        "height": "Height",
+        "strokeWidth": "Border width",
+        "strokeColor": "Border color",
+        "opacity": "Opacity"
       }
     },
     "modals": {

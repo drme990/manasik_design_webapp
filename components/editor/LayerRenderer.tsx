@@ -2,6 +2,7 @@
 
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
+import ShapeRenderer from './ShapeRenderer';
 
 export interface LayerRendererProps {
   layer: AnyLayer;
@@ -23,6 +24,7 @@ export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerR
   );
 
   const commonProps = {
+    'data-layer-id': layer.id,
     className: baseStyles,
     style: {
       left: layer.x,
@@ -30,6 +32,7 @@ export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerR
       width: layer.width,
       height: layer.height,
       transform: `rotate(${layer.rotation}deg)`,
+      opacity: layer.opacity,
       zIndex: layer.zIndex,
     },
     onMouseDown,
@@ -70,6 +73,7 @@ function TextLayerComponent({ layer, className, style, onMouseDown }: LayerCompo
         wordWrap: 'break-word',
       }}
       onMouseDown={onMouseDown}
+      onClick={(e) => e.stopPropagation()}
     >
       {layer.text}
     </div>
@@ -88,6 +92,7 @@ function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComp
         transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
       }}
       onMouseDown={onMouseDown}
+      onClick={(e) => e.stopPropagation()}
     >
       <img
         src={layer.uri}
@@ -104,23 +109,27 @@ function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComp
 }
 
 function ShapeLayerComponent({ layer, className, style, onMouseDown }: LayerComponentProps & { layer: ShapeLayer }) {
-  const getBorderRadius = () => {
-    if (layer.shape === 'circle') return '50%';
-    if (layer.shape === 'rectangle_free') return `${layer.cornerRadius || 20}px`;
-    return '0';
-  };
-
   return (
     <div
       className={className}
       style={{
         ...style,
-        backgroundColor: layer.fillColor,
-        border: `${layer.strokeWidth}px solid ${layer.strokeColor}`,
-        borderRadius: getBorderRadius(),
+        backgroundColor: 'transparent',
       }}
       onMouseDown={onMouseDown}
-    />
+      onClick={(e) => e.stopPropagation()}
+    >
+      <ShapeRenderer
+        shape={layer.shape}
+        width={layer.width}
+        height={layer.height}
+        fillColor={layer.fillColor}
+        strokeColor={layer.strokeColor}
+        strokeWidth={layer.strokeWidth}
+        cornerRadius={layer.cornerRadius}
+        className="h-full w-full"
+      />
+    </div>
   );
 }
 
@@ -141,6 +150,7 @@ function DynamicFieldLayerComponent({ layer, className, style, onMouseDown }: La
         direction: 'rtl',
       }}
       onMouseDown={onMouseDown}
+      onClick={(e) => e.stopPropagation()}
     >
       {layer.placeholder}
     </div>

@@ -3,6 +3,8 @@
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import NumberField from '@/components/ui/NumberField';
+import SliderField from '@/components/ui/SliderField';
 import { cn } from '@/lib/utils/cn';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { useTranslations } from 'next-intl';
@@ -46,20 +48,31 @@ export default function TextToolbar({ layer, onChange, className }: TextToolbarP
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <Input
+        <NumberField
           label={t('size')}
-          type="number"
           value={layer.fontSize}
-          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+          min={1}
+          max={500}
+          onChange={(v) => onChange({ fontSize: v })}
         />
-        <Input
+        <NumberField
           label={t('lineHeight')}
-          type="number"
-          step="0.1"
           value={layer.lineHeight}
-          onChange={(e) => onChange({ lineHeight: Number(e.target.value) })}
+          min={0.1}
+          max={5}
+          step={0.1}
+          onChange={(v) => onChange({ lineHeight: v })}
         />
       </div>
+
+      <SliderField
+        label={t('opacity')}
+        value={layer.opacity * 100}
+        min={0}
+        max={100}
+        onChange={(v) => onChange({ opacity: v / 100 })}
+        suffix="%"
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <Select
