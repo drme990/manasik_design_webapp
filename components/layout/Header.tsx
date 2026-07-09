@@ -39,7 +39,7 @@ export default function Header({ onMenuClick, className }: HeaderProps) {
               </svg>
             </button>
           )}
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/projects" className="flex items-center gap-2">
             <div className="gradient-site flex h-9 w-9 items-center justify-center rounded-lg">
               <span className="gradient-text text-lg font-bold">م</span>
             </div>

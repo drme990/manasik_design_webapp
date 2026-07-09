@@ -4,11 +4,9 @@ export class MongoDBClient {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   private uri: string;
-  private dbName: string;
 
-  constructor(uri: string, dbName: string = 'manasik-design') {
+  constructor(uri: string) {
     this.uri = uri;
-    this.dbName = dbName;
   }
 
   async connect(): Promise<void> {
@@ -17,7 +15,7 @@ export class MongoDBClient {
     try {
       this.client = new MongoClient(this.uri);
       await this.client.connect();
-      this.db = this.client.db(this.dbName);
+      this.db = this.client.db();
       console.log('Connected to MongoDB');
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);
@@ -104,13 +102,13 @@ export class MongoDBClient {
 // Singleton instance (will be initialized with actual connection string)
 let mongoClient: MongoDBClient | null = null;
 
-export function getMongoClient(uri?: string, dbName?: string): MongoDBClient {
+export function getMongoClient(uri?: string): MongoDBClient {
   if (!mongoClient) {
-    const connectionString = uri || process.env.MONGODB_URI || '';
+    const connectionString = uri || process.env.DATA_BASE_URL || process.env.MONGODB_URI || '';
     if (!connectionString) {
       throw new Error('MongoDB URI not provided');
     }
-    mongoClient = new MongoDBClient(connectionString, dbName);
+    mongoClient = new MongoDBClient(connectionString);
   }
   return mongoClient;
 }

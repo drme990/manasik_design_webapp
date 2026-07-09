@@ -5,9 +5,47 @@
   },
   "navigation": {
     "home": "Home",
+    "projects": "Designs",
     "templates": "Templates",
     "pdfTool": "PDF Tool",
     "editor": "Editor"
+  },
+  "projects": {
+    "title": "My Projects",
+    "subtitle": "Access your recent designs or start a new project.",
+    "newProject": "New Project",
+    "recentDesigns": "Recent Designs",
+    "emptyTitle": "No designs yet",
+    "emptyDescription": "Start your first design by choosing a size below.",
+    "createFirst": "Create Design"
+  },
+  "home": {
+    "hero": {
+      "title": "Design Your Events with Elegance",
+      "subtitle": "Create professional designs for events and celebrations in a few simple steps. Choose a template, edit the details, and save your design.",
+      "startDesigning": "Start Designing",
+      "browseTemplates": "Browse Templates"
+    },
+    "quickActions": {
+      "title": "Get Started Quickly",
+      "newDesign": "New Design",
+      "newDesignDesc": "Start from a blank canvas and add text, images, and shapes.",
+      "browseTemplates": "Browse Templates",
+      "browseTemplatesDesc": "Choose from a collection of ready-made templates for various occasions.",
+      "pdfTool": "PDF Tool",
+      "pdfToolDesc": "Easily create custom PDF files from your designs."
+    },
+    "features": {
+      "title": "Why Manasik Design?",
+      "dragDrop": "Drag & Drop Editor",
+      "dragDropDesc": "Freely arrange elements on the canvas without hassle.",
+      "arabicFonts": "Arabic Fonts",
+      "arabicFontsDesc": "A curated selection of Arabic-safe display fonts.",
+      "themes": "Multiple Themes",
+      "themesDesc": "Customize colors and appearance to match your brand.",
+      "dynamicFields": "Dynamic Fields",
+      "dynamicFieldsDesc": "Add variables like customer name and quantity automatically."
+    }
   },
   "themes": {
     "light": "Light",
@@ -50,6 +88,25 @@
       "cancel": "Cancel",
       "useRemote": "Use remote",
       "useLocal": "Use local"
+    }
+  },
+  "auth": {
+    "loginTitle": "Sign In",
+    "loginSubtitle": "Enter your account details to access your designs.",
+    "email": "Email",
+    "emailPlaceholder": "name@example.com",
+    "password": "Password",
+    "passwordPlaceholder": "••••••••",
+    "loginButton": "Sign In",
+    "loggingIn": "Signing in...",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "errors": {
+      "missingCredentials": "Please enter your email and password.",
+      "invalidCredentials": "Invalid email or password.",
+      "tooManyAttempts": "Too many attempts. Please try again later.",
+      "loginFailed": "An error occurred while signing in. Please try again.",
+      "serverError": "An error occurred while signing in. Please try again."
     }
   },
   "ui": {

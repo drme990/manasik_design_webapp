@@ -3,9 +3,9 @@
 > **Project**: تصميمات مناسك / Manasik Design App
 > **Type**: Web-first design application with offline-first sync (Next.js + MongoDB)
 > **Language**: Arabic (RTL) UI
-> **Stack**: Next.js 14 · React 18 · TypeScript · Tailwind CSS · IndexedDB · MongoDB · Framer Motion
+> **Stack**: Next.js 16 · React 19 · TypeScript · Tailwind CSS · IndexedDB · MongoDB · Framer Motion
 > **Target**: Modern web browsers (Chrome, Edge, Safari, Firefox)
-> **Last updated**: July 2026
+> **Last updated**: July 9, 2026
 
 ---
 
@@ -22,7 +22,8 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 - **Conflict Resolution**: Automatic and manual conflict handling
 
 ### Who Uses It
-- **Operators** (single role) — create/edit designs, build booking templates, export PNG/PDF.
+- **Admins** — authenticated operators with the same admin user shape as the backend (`admin` or `super_admin` role, optional `allowedPages`, and `ref`).
+- **Operators** create/edit designs, build booking templates, export PNG/PDF after logging in.
 - **(Future)** A booking pipeline will inflate templates with order data; no end-customer role exists today.
 
 ### Distribution
@@ -51,14 +52,15 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 
 ### Core Technologies
 
-- **Framework**: Next.js 14 (App Router)
-- **UI**: React 18 + TypeScript
+- **Framework**: Next.js 16 (App Router)
+- **UI**: React 19 + TypeScript
 - **Styling**: Tailwind CSS + CSS Modules
 - **Animations**: Framer Motion
 - **State**: React Context + Hooks (Zustand optional)
-- **Local Storage**: IndexedDB (idb-keyval) for offline-first
+- **Local Storage**: IndexedDB (idb) for offline-first
 - **Cloud Storage**: MongoDB (MongoDB Atlas) for sync and backup
 - **Sync Service**: Custom sync service with operation queue
+- **Authentication**: bcryptjs + HS256 JWT + HTTP-only cookies
 - **Image Processing**: html-to-image, pdf-lib
 - **Icons**: lucide-react / react-icons
 - **Fonts**: Next.js font optimization (Google Fonts)
@@ -72,16 +74,26 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 /
 ├── app/                          # Next.js App Router
 │   ├── layout.tsx               # Root layout with fonts, RTL, providers
-│   ├── page.tsx                 # Home screen
-│   ├── pdf-tool/
-│   │   └── page.tsx             # PDF assembly tool
-│   ├── editor/
-│   │   └── [id]/
-│   │       └── page.tsx         # Design editor
-│   └── templates/
-│       ├── page.tsx             # Product list (Booking Templates)
-│       └── [productId]/
-│           └── page.tsx         # 6 templates per product
+│   ├── page.tsx                 # Internal redirect only (not a user-facing page)
+│   ├── login/
+│   │   └── page.tsx             # Admin login page
+│   ├── api/
+│   │   └── auth/
+│   │       └── login/
+│   │           └── route.ts     # Login API route
+│   ├── (design)/
+│   │   ├── layout.tsx           # Protected design layout (requires session)
+│   │   ├── projects/
+│   │   │   └── page.tsx         # Main design page — recent projects list
+│   │   ├── pdf-tool/
+│   │   │   └── page.tsx         # PDF assembly tool
+│   │   ├── editor/
+│   │   │   └── [id]/
+│   │   │       └── page.tsx     # Design editor
+│   │   └── templates/
+│   │       ├── page.tsx         # Product list (Booking Templates)
+│   │       └── [productId]/
+│   │           └── page.tsx     # 6 templates per product
 ├── components/
 │   ├── ui/                      # Reusable UI components (buttons, inputs, etc.)
 │   ├── editor/                  # Editor-specific components
@@ -104,6 +116,13 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 │       ├── Sidebar.tsx
 │       └── Footer.tsx
 ├── lib/
+│   ├── auth/                   # Authentication & authorization
+│   │   ├── actions.ts          # Server actions (logout)
+│   │   ├── constants.ts        # Auth cookie name & max age
+│   │   ├── jwt.ts              # HS256 JWT signing/verification
+│   │   ├── password.ts         # bcrypt password hashing/comparison
+│   │   ├── session.ts          # Cookie-based session verification
+│   │   └── user.repository.ts  # Admin user lookup in MongoDB
 │   ├── store/                  # State management
 │   │   ├── projects.ts         # Project CRUD with sync
 │   │   ├── booking-templates.ts
@@ -135,11 +154,14 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 │       ├── fonts.ts
 │       └── presets.ts
 ├── types/
+│   ├── auth.ts                 # User and session types (matches backend admin user)
 │   ├── project.ts              # Project and layer types with sync fields
 │   ├── booking.ts              # Booking template types with sync fields
 │   ├── common.ts               # Shared types with sync fields
 │   ├── storage.ts              # Storage and sync types
 │   └── sync.ts                 # Sync service types
+├── scripts/
+│   └── seed-user.ts            # Seed/update admin user in users_admin_panel
 └── public/
     ├── fonts/                  # Custom fonts
     └── assets/                 # Static assets
@@ -230,15 +252,15 @@ Each document includes:
 
 ## Key Features Implementation
 
-### 1. Project Management (Home & Persistence)
+### 1. Project Management (Main Design Page & Persistence)
 
 **Implementation:**
-- Home screen (`app/page.tsx`) with three sections:
-  - Recent gallery images (using File System Access API or `<input type="file">`)
-  - Quick tools (PDF & Booking Templates)
-  - Saved projects
+- `app/page.tsx` is an internal redirect only; users never see a landing/home screen.
+- The main user-facing entry point is the **Recent Projects** page (`app/projects/page.tsx`):
+  - Grid of recently saved designs/projects
+  - Quick "New Project" action with presets (Square 1080×1080, Story 1080×1920, Post 1200×1500)
+  - Links to open existing designs in the editor
 - Project CRUD operations via IndexedDB
-- New project creation with presets (Square 1080×1080, Story 1080×1920, Post 1200×1500)
 - Aspect ratio picker
 - Image-derived sizing
 
@@ -405,6 +427,75 @@ Each document includes:
 
 ---
 
+## Authentication & Authorization
+
+The app shares the same admin user collection and password hashing as the backend (`users_admin_panel` in the database named by the MongoDB connection string), so admin users created in the backend can log in here and vice versa.
+
+### User Shape (matches backend admin user)
+
+```typescript
+interface User {
+  _id?: string;                    // MongoDB ObjectId
+  name: string;
+  email: string;
+  password: string;                // bcrypt hash
+  role: 'admin' | 'super_admin';
+  allowedPages?: string[];         // Page-level permissions (same enum as backend)
+  ref?: string;                    // Reference/affiliate code
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'super_admin';
+  allowedPages?: string[];
+  ref?: string;
+}
+```
+
+### Password Hashing
+
+- Uses `bcryptjs` with `bcrypt.genSalt(10)` and `bcrypt.hash()`, identical to the backend user schema.
+- Helper: `lib/auth/password.ts` provides `hashPassword()` and `comparePassword()`.
+- Replaces the previous SHA-256 `passwordHash` field; documents now store the bcrypt hash in the `password` field.
+
+### Login Flow
+
+1. User submits email/password on `app/login/page.tsx`.
+   - The login page UI mirrors the admin panel login page (card layout, controlled inputs, password show/hide toggle, login icon button, error banner) but uses a Manasik Design-specific title. Icons are rendered with `react-icons/lu` to match the admin panel exactly.
+2. `POST /api/auth/login`:
+   - Looks up the user by lowercase email in `users_admin_panel`.
+   - Verifies the password with `bcrypt.compare`.
+   - Signs a JWT containing `id`, `email`, `name`, `role`, `allowedPages`, and `ref`.
+   - Sets the HTTP-only cookie `manasik_design_session`.
+3. Server components verify the session via `lib/auth/session.ts` → `verifySession()`.
+4. Protected routes (e.g., `app/(design)/layout.tsx`) redirect to `/login` when the session is missing.
+
+### JWT & Session
+
+- Algorithm: HS256, signed with `JWT_SECRET`.
+- Token lifetime: 7 days.
+- Cookie: `manasik_design_session`, `httpOnly`, `secure` in production, `sameSite: 'lax'`, `path: '/'`.
+- Logout server action: `lib/auth/actions.ts` calls `destroySession()` to clear the cookie.
+
+### Seeding an Admin User
+
+```bash
+npx tsx scripts/seed-user.ts admin@example.com password "Admin Name"
+```
+
+This creates/updates a `super_admin` user with bcrypt-hashed password in `users_admin_panel`.
+
+### Migration Notes
+
+- Old users seeded with SHA-256 (`passwordHash` field) cannot log in after this change; re-seed them with the updated script.
+- Existing sessions are invalidated because the cookie name changed from `desing_app_session` / `manasik_session` to `manasik_design_session`.
+
+---
+
 ## Data Structure & Storage
 
 ### IndexedDB Schema (Local Storage)
@@ -550,6 +641,19 @@ db.projects {
   _rev: string; // Revision for conflict detection
 }
 
+// Users Collection (shared with backend admin panel)
+db.users_admin_panel {
+  _id: ObjectId;
+  name: string;
+  email: string; // lowercase, unique
+  password: string; // bcrypt hash
+  role: 'admin' | 'super_admin';
+  allowedPages?: string[]; // page-level permissions
+  ref?: string; // reference/affiliate code
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Similar structure for other collections
 ```
 
@@ -679,6 +783,14 @@ db.projects {
 }
 ```
 
+### Authentication
+```json
+{
+  "bcryptjs": "^3.0.3",
+  "react-icons": "^5.7.0"
+}
+```
+
 ### Sync & Network
 ```json
 {
@@ -775,11 +887,13 @@ export default config;
 - Create database user with read/write permissions
 - Whitelist IP addresses (0.0.0.0/0 for Vercel)
 - Get connection string
+- Make sure the connection string includes the **same database name as the backend** (e.g. `manasik`) so the `users_admin_panel` collection is shared
 - Set environment variable `MONGODB_URI`
 
 ### Environment Variables
 ```env
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/manasik
+JWT_SECRET=your-super-secret-jwt-signing-key
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 ```
 
@@ -801,8 +915,11 @@ NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 - MongoDB user authentication
 - Rate limiting for API routes
 - No sensitive data in localStorage
+- Passwords hashed with bcrypt (salt rounds 10)
+- JWT sessions stored in HTTP-only cookies
+- Protected routes redirect unauthenticated users to login
 - Sync data encryption (future)
-- User authentication (future)
+- Page-level authorization via `allowedPages` (future enforcement)
 
 ---
 
@@ -865,7 +982,8 @@ NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 - [ ] Advanced export options
 - [ ] Video export support
 - [ ] Animation timeline
-- [ ] User authentication and multi-tenancy
+- [x] User authentication (admin login with backend-aligned user shape)
+- [ ] Multi-tenancy and page-level authorization enforcement
 - [ ] Advanced conflict resolution UI
 - [ ] Sync analytics and monitoring
 - [ ] Selective sync (per project/collection)
