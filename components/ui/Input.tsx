@@ -1,3 +1,41 @@
-export default function Input() {
-    return <div>Input</div>;
+import { forwardRef, InputHTMLAttributes } from 'react';
+import { cn } from '@/lib/utils/cn';
+
+export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+    label?: string;
+    error?: string;
 }
+
+const Input = forwardRef<HTMLInputElement, InputProps>(
+    ({ label, error, className, ...props }, ref) => {
+        return (
+            <div className="w-full">
+                {label && (
+                    <label className="block text-sm font-medium text-foreground mb-1.5">
+                        {label}
+                    </label>
+                )}
+                <input
+                    ref={ref}
+                    className={cn(
+                        'w-full rounded-lg border bg-background px-4 py-2.5 text-foreground',
+                        'border-stroke placeholder:text-secondary',
+                        'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary',
+                        'transition-all duration-200',
+                        error && 'border-error focus:ring-error focus:border-error',
+                        className
+                    )}
+                    {...props}
+                />
+                {error && (
+                    <p className="mt-1.5 text-sm text-error">{error}</p>
+                )}
+            </div>
+        );
+    }
+);
+
+Input.displayName = 'Input';
+
+export { Input };
+export default Input;

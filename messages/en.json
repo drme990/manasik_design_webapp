@@ -1,0 +1,175 @@
+{
+  "metadata": {
+    "title": "Manasik Design",
+    "description": "Design app for events and celebrations"
+  },
+  "navigation": {
+    "home": "Home",
+    "templates": "Templates",
+    "pdfTool": "PDF Tool",
+    "editor": "Editor"
+  },
+  "themes": {
+    "light": "Light",
+    "black": "Dark",
+    "manasik": "Manasik",
+    "ghadaq": "Ghadaq",
+    "colors": "Colors"
+  },
+  "header": {
+    "appName": "Manasik Design",
+    "openMenu": "Open menu",
+    "notifications": "Notifications",
+    "userAvatar": "User"
+  },
+  "footer": {
+    "tagline": "Manasik Design — Design app for events",
+    "copyright": "All rights reserved"
+  },
+  "sidebar": {
+    "storage": "Storage",
+    "used": "used"
+  },
+  "sync": {
+    "syncing": "Syncing...",
+    "online": "Online",
+    "offline": "Offline",
+    "pending": "pending",
+    "lastSync": "Last sync",
+    "offlineMessage": "You are offline. Changes will be saved locally and synced when connection is restored.",
+    "conflict": {
+      "title": "Sync Conflict",
+      "document": "Document",
+      "description": "A conflict occurred while syncing this document. Choose how to resolve it:",
+      "local": "Local version",
+      "localDescription": "Use the changes made on this device.",
+      "remote": "Remote version",
+      "remoteDescription": "Use the changes from the cloud.",
+      "merge": "Merge",
+      "mergeDescription": "Try to merge changes from both versions.",
+      "cancel": "Cancel",
+      "useRemote": "Use remote",
+      "useLocal": "Use local"
+    }
+  },
+  "ui": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "loading": "Loading...",
+    "emptyState": {
+      "title": "No items",
+      "description": "Start by creating a new item"
+    },
+    "fileUpload": {
+      "title": "Click or drag files here",
+      "subtitle": "JPG, PNG, PDF up to 10MB"
+    }
+  },
+  "editor": {
+    "layers": "Layers",
+    "toolbars": {
+      "text": {
+        "title": "Text settings",
+        "text": "Text",
+        "font": "Font",
+        "size": "Size",
+        "lineHeight": "Line height",
+        "align": "Align",
+        "color": "Color",
+        "bold": "Bold",
+        "italic": "Italic",
+        "left": "Left",
+        "center": "Center",
+        "right": "Right"
+      },
+      "image": {
+        "title": "Image settings",
+        "scale": "Image scale",
+        "offsetX": "Offset X",
+        "offsetY": "Offset Y",
+        "borderRadius": "Border radius",
+        "borderWidth": "Border width",
+        "borderColor": "Border color",
+        "flipHorizontal": "Flip horizontal",
+        "flipVertical": "Flip vertical"
+      },
+      "shape": {
+        "title": "Shape settings",
+        "rectangle": "Rectangle",
+        "rectangleFree": "Rounded rectangle",
+        "circle": "Circle",
+        "triangle": "Triangle",
+        "star4": "Star 4",
+        "star5": "Star 5",
+        "star6": "Star 6",
+        "star8": "Star 8",
+        "line": "Line",
+        "fillColor": "Fill color",
+        "strokeColor": "Stroke color",
+        "strokeWidth": "Stroke width",
+        "cornerRadius": "Corner radius"
+      },
+      "dynamicField": {
+        "title": "Dynamic field settings",
+        "variableName": "Variable name",
+        "placeholder": "Placeholder",
+        "fieldType": "Field type",
+        "text": "Text",
+        "image": "Image",
+        "fontSize": "Font size",
+        "textColor": "Text color",
+        "backgroundColor": "Background color",
+        "imageFit": "Image fit",
+        "cover": "Cover",
+        "contain": "Contain",
+        "width": "Width",
+        "height": "Height"
+      }
+    },
+    "modals": {
+      "colorPicker": {
+        "title": "Pick a color"
+      },
+      "imageCrop": {
+        "title": "Crop image",
+        "x": "X",
+        "y": "Y",
+        "width": "Width",
+        "height": "Height",
+        "cropAndSave": "Crop & save"
+      },
+      "imageFieldSize": {
+        "title": "Image field size"
+      },
+      "textEdit": {
+        "title": "Edit text",
+        "text": "Text",
+        "font": "Font",
+        "size": "Size",
+        "color": "Color"
+      },
+      "variablePicker": {
+        "title": "Select variable",
+        "select": "Select"
+      }
+    },
+    "colorPicker": {
+      "hue": "Hue",
+      "saturation": "Saturation",
+      "value": "Brightness",
+      "pickColor": "Pick color"
+    }
+  },
+  "common": {
+    "aspectRatio": {
+      "title": "Aspect ratio"
+    },
+    "collageCellEditor": {
+      "title": "Edit cell {index}",
+      "clearImage": "Clear image",
+      "selectedImageAlt": "Selected image"
+    }
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "metadata": {
+    "title": "مناسك ديزاين",
+    "description": "تطبيق التصميم للمناسبات والاحتفالات"
+  },
+  "navigation": {
+    "home": "الرئيسية",
+    "templates": "القوالب",
+    "pdfTool": "أداة PDF",
+    "editor": "المحرر"
+  },
+  "themes": {
+    "light": "فاتح",
+    "black": "داكن",
+    "manasik": "مناسك",
+    "ghadaq": "غدق",
+    "colors": "ألوان"
+  },
+  "header": {
+    "appName": "مناسك ديزاين",
+    "openMenu": "فتح القائمة",
+    "notifications": "الإشعارات",
+    "userAvatar": "المستخدم"
+  },
+  "footer": {
+    "tagline": "مناسك ديزاين — تطبيق التصميم للمناسبات",
+    "copyright": "جميع الحقوق محفوظة"
+  },
+  "sidebar": {
+    "storage": "مساحة التخزين",
+    "used": "مستخدم"
+  },
+  "sync": {
+    "syncing": "جاري المزامنة...",
+    "online": "متصل",
+    "offline": "غير متصل",
+    "pending": "معلق",
+    "lastSync": "آخر مزامنة",
+    "offlineMessage": "أنت في وضع عدم الاتصال. سيتم حفظ التغييرات محليًا والمزامنة عند استعادة الاتصال.",
+    "conflict": {
+      "title": "تعارض في المزامنة",
+      "document": "المستند",
+      "description": "حدث تعارض أثناء مزامنة هذا المستند. اختر كيف تريد حل التعارض:",
+      "local": "نسخة محلية",
+      "localDescription": "استخدم التغييرات التي تم إجراؤها على هذا الجهاز.",
+      "remote": "نسخة بعيدة",
+      "remoteDescription": "استخدم التغييرات من السحابة.",
+      "merge": "دمج",
+      "mergeDescription": "حاول دمج التغييرات من النسختين.",
+      "cancel": "إلغاء",
+      "useRemote": "استخدام البعيد",
+      "useLocal": "استخدام المحلي"
+    }
+  },
+  "ui": {
+    "close": "إغلاق",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "save": "حفظ",
+    "loading": "جاري التحميل...",
+    "emptyState": {
+      "title": "لا توجد عناصر",
+      "description": "ابدأ بإنشاء عنصر جديد"
+    },
+    "fileUpload": {
+      "title": "اضغط أو اسحب الملفات هنا",
+      "subtitle": "JPG, PNG, PDF up to 10MB"
+    }
+  },
+  "editor": {
+    "layers": "الطبقات",
+    "toolbars": {
+      "text": {
+        "title": "إعدادات النص",
+        "text": "النص",
+        "font": "الخط",
+        "size": "الحجم",
+        "lineHeight": "تباعد الأسطر",
+        "align": "المحاذاة",
+        "color": "اللون",
+        "bold": "عريض",
+        "italic": "مائل",
+        "left": "يسار",
+        "center": "وسط",
+        "right": "يمين"
+      },
+      "image": {
+        "title": "إعدادات الصورة",
+        "scale": "تكبير الصورة",
+        "offsetX": "الإزاحة X",
+        "offsetY": "الإزاحة Y",
+        "borderRadius": "نصف قطر الزاوية",
+        "borderWidth": "سمك الإطار",
+        "borderColor": "لون الإطار",
+        "flipHorizontal": "عكس أفقي",
+        "flipVertical": "عكس رأسي"
+      },
+      "shape": {
+        "title": "إعدادات الشكل",
+        "rectangle": "مستطيل",
+        "rectangleFree": "مستطيل حواف",
+        "circle": "دائرة",
+        "triangle": "مثلث",
+        "star4": "نجمة 4",
+        "star5": "نجمة 5",
+        "star6": "نجمة 6",
+        "star8": "نجمة 8",
+        "line": "خط",
+        "fillColor": "لون التعبئة",
+        "strokeColor": "لون الإطار",
+        "strokeWidth": "سمك الإطار",
+        "cornerRadius": "نصف قطر الزاوية"
+      },
+      "dynamicField": {
+        "title": "إعدادات الحقل الديناميكي",
+        "variableName": "اسم المتغير",
+        "placeholder": "نص توضيحي",
+        "fieldType": "نوع الحقل",
+        "text": "نص",
+        "image": "صورة",
+        "fontSize": "حجم الخط",
+        "textColor": "لون النص",
+        "backgroundColor": "لون الخلفية",
+        "imageFit": "ملء الصورة",
+        "cover": "تغطية",
+        "contain": "احتواء",
+        "width": "العرض",
+        "height": "الارتفاع"
+      }
+    },
+    "modals": {
+      "colorPicker": {
+        "title": "اختيار اللون"
+      },
+      "imageCrop": {
+        "title": "قص الصورة",
+        "x": "X",
+        "y": "Y",
+        "width": "العرض",
+        "height": "الارتفاع",
+        "cropAndSave": "قص وحفظ"
+      },
+      "imageFieldSize": {
+        "title": "حجم حقل الصورة"
+      },
+      "textEdit": {
+        "title": "تعديل النص",
+        "text": "النص",
+        "font": "الخط",
+        "size": "الحجم",
+        "color": "اللون"
+      },
+      "variablePicker": {
+        "title": "اختيار المتغير",
+        "select": "اختيار"
+      }
+    },
+    "colorPicker": {
+      "hue": "تدرج اللون",
+      "saturation": "التشبع",
+      "value": "الإضاءة",
+      "pickColor": "اختيار اللون"
+    }
+  },
+  "common": {
+    "aspectRatio": {
+      "title": "نسبة العرض"
+    },
+    "collageCellEditor": {
+      "title": "تعديل الخلية {index}",
+      "clearImage": "مسح الصورة",
+      "selectedImageAlt": "الصورة المحددة"
+    }
+  }
+}

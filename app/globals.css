@@ -22,6 +22,21 @@
       #2563eb 60%,
       #3b82f6 100%);
   --gradient-text: #ffffff;
+
+  /* Brand Colors */
+  --brand-primary: #0ea5e9;
+  --brand-primary-dark: #0284c7;
+  --brand-primary-light: #e0f2fe;
+  --brand-secondary: #6366f1;
+  --brand-accent: #f59e0b;
+
+  /* UI Specific */
+  --canvas-bg: #ffffff;
+  --canvas-grid: #e5e7eb;
+  --layer-selected: #0ea5e9;
+  --layer-hover: #e0f2fe;
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #e5e7eb;
 }
 
 /* ─── Black Theme ─────────────────────────────────────────────── */
@@ -44,6 +59,21 @@
       #3b82f6 60%,
       #60a5fa 100%);
   --gradient-text: #ffffff;
+
+  /* Brand Colors */
+  --brand-primary: #38bdf8;
+  --brand-primary-dark: #0284c7;
+  --brand-primary-light: #0c4a6e;
+  --brand-secondary: #818cf8;
+  --brand-accent: #fbbf24;
+
+  /* UI Specific */
+  --canvas-bg: #0a0a0a;
+  --canvas-grid: #262626;
+  --layer-selected: #38bdf8;
+  --layer-hover: #1e3a8a;
+  --toolbar-bg: #141414;
+  --toolbar-border: #262626;
 }
 
 /* ─── Manasik Theme (Green / Navy) ────────────────────────────── */
@@ -66,6 +96,21 @@
       #33ad6c 60%,
       #5cc48f 100%);
   --gradient-text: #ffffff;
+
+  /* Brand Colors */
+  --brand-primary: #33ad6c;
+  --brand-primary-dark: #1f8a54;
+  --brand-primary-light: #5cc48f;
+  --brand-secondary: #60a5fa;
+  --brand-accent: #f59e0b;
+
+  /* UI Specific */
+  --canvas-bg: #0a1a3a;
+  --canvas-grid: #1a2e55;
+  --layer-selected: #33ad6c;
+  --layer-hover: #1f8a54;
+  --toolbar-bg: #0a1a3a;
+  --toolbar-border: #1a2e55;
 }
 
 /* ─── Ghadaq Theme (Green & Gold) ─────────────────────────────── */
@@ -88,6 +133,21 @@
       #ffc001 60%,
       #ffd84d 100%);
   --gradient-text: #000f2f;
+
+  /* Brand Colors */
+  --brand-primary: #ffa401;
+  --brand-primary-dark: #e59400;
+  --brand-primary-light: #ffb84d;
+  --brand-secondary: #60a5fa;
+  --brand-accent: #34d399;
+
+  /* UI Specific */
+  --canvas-bg: #1a5f44;
+  --canvas-grid: #2a7a5a;
+  --layer-selected: #ffa401;
+  --layer-hover: #e59400;
+  --toolbar-bg: #1a5f44;
+  --toolbar-border: #2a7a5a;
 }
 
 /* ─── Colors Theme (Vibrant & Playful) ────────────────────────── */
@@ -111,6 +171,21 @@
       #38bdf8 66%,
       #34d399 100%);
   --gradient-text: #ffffff;
+
+  /* Brand Colors */
+  --brand-primary: #e879f9;
+  --brand-primary-dark: #c026d3;
+  --brand-primary-light: #f0abfc;
+  --brand-secondary: #818cf8;
+  --brand-accent: #fbbf24;
+
+  /* UI Specific */
+  --canvas-bg: #241538;
+  --canvas-grid: #3d2460;
+  --layer-selected: #e879f9;
+  --layer-hover: #c026d3;
+  --toolbar-bg: #241538;
+  --toolbar-border: #3d2460;
 }
 
 @theme inline {
@@ -127,10 +202,24 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
   --radius-site: var(--radius-site);
+
+  /* Brand Colors */
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-dark: var(--brand-primary-dark);
+  --color-brand-primary-light: var(--brand-primary-light);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-accent: var(--brand-accent);
+
+  /* UI Specific */
+  --color-canvas-bg: var(--canvas-bg);
+  --color-canvas-grid: var(--canvas-grid);
+  --color-layer-selected: var(--layer-selected);
+  --color-layer-hover: var(--layer-hover);
+  --color-toolbar-bg: var(--toolbar-bg);
+  --color-toolbar-border: var(--toolbar-border);
+
   --font-satoshi: var(--font-satoshi);
   --font-expo-arabic: var(--font-expo-arabic);
-
-  --breakpoint-xs: 375px
 }
 
 /* ─── Base Styles ─────────────────────────────────────────────── */
