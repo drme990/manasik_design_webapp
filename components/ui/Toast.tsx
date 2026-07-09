@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { useEffect } from 'react';
+import { LuX } from 'react-icons/lu';
 
 export interface ToastProps {
   message: string;
@@ -39,9 +40,7 @@ export default function Toast({ message, variant = 'info', duration = 3000, onCl
           className="ml-2 opacity-80 hover:opacity-100"
           aria-label="Close"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <LuX className="h-4 w-4" />
         </button>
       </div>
     </div>

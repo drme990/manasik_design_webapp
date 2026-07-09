@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import FileUpload from '@/components/ui/FileUpload';
 import { useTranslations } from 'next-intl';
+import { LuX } from 'react-icons/lu';
 import type { CollageCell } from '@/types/collage';
 
 export interface CollageCellEditorModalProps {
@@ -77,9 +78,7 @@ export default function CollageCellEditorModal({
               onClick={() => setUri('')}
               className="absolute top-2 right-2 rounded-full bg-error p-1 text-white"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <LuX className="h-4 w-4" />
             </button>
           </div>
         ) : (

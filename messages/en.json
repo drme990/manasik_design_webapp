@@ -48,6 +48,7 @@
     }
   },
   "themes": {
+    "label": "Theme",
     "light": "Light",
     "black": "Dark",
     "manasik": "Manasik",
@@ -57,6 +58,7 @@
   "header": {
     "appName": "Manasik Design",
     "openMenu": "Open menu",
+    "toggleSidebar": "Toggle sidebar",
     "notifications": "Notifications",
     "userAvatar": "User"
   },

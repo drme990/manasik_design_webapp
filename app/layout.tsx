@@ -3,7 +3,6 @@ import localFont from 'next/font/local';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getLocale } from 'next-intl/server';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
-import Header from '@/components/layout/Header';
 import "./globals.css";
 
 const satoshi = localFont({
@@ -57,7 +56,7 @@ export default async function RootLayout({
       className={`${satoshi.variable} ${expoArabic.variable} h-full antialiased`}
     >
       <body
-        className="min-h-full flex flex-col pt-16"
+        className="min-h-full"
         style={{ fontFamily: isRtl ? 'var(--font-expo-arabic), sans-serif' : 'var(--font-satoshi), sans-serif' }}
       >
         <NextIntlClientProvider messages={messages}>

@@ -1,4 +1,5 @@
 import { forwardRef, InputHTMLAttributes } from 'react';
+import { LuCheck } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 
 export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
@@ -17,14 +18,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             {...props}
           />
           <span className="absolute inset-0 rounded border border-stroke bg-background transition-colors peer-checked:border-brand-primary peer-checked:bg-brand-primary" />
-          <svg
-            className="relative h-3.5 w-3.5 text-primary-text opacity-0 peer-checked:opacity-100 transition-opacity"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
+          <LuCheck className="relative h-3.5 w-3.5 text-primary-text opacity-0 peer-checked:opacity-100 transition-opacity" />
         </div>
         {label && (
           <span className="text-sm font-medium text-foreground">{label}</span>

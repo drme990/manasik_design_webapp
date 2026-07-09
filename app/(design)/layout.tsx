@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { verifySession } from '@/lib/auth/session';
-import Header from '@/components/layout/Header';
+import DesignShell from '@/components/layout/DesignShell';
 
 export default async function DesignLayout({
     children,
@@ -13,10 +13,5 @@ export default async function DesignLayout({
         redirect('/login');
     }
 
-    return (
-        <>
-            <Header />
-            {children}
-        </>
-    )
+    return <DesignShell>{children}</DesignShell>;
 }

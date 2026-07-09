@@ -1,4 +1,5 @@
 import { forwardRef, SelectHTMLAttributes } from 'react';
+import { LuChevronDown } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 
 export interface SelectOption {
@@ -46,14 +47,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
               </option>
             ))}
           </select>
-          <svg
-            className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 h-5 w-5 text-secondary"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          <LuChevronDown className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 h-5 w-5 text-secondary" />
         </div>
         {error && (
           <p className="mt-1.5 text-sm text-error">{error}</p>

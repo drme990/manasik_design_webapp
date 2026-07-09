@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
+import { LuLayoutGrid, LuPalette, LuFileText } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 
 export interface SidebarProps {
@@ -13,13 +14,15 @@ export interface SidebarProps {
 
 export default function Sidebar({ isOpen = false, onClose, className }: SidebarProps) {
   const pathname = usePathname();
+  const locale = useLocale();
   const t = useTranslations('navigation');
   const sidebarT = useTranslations('sidebar');
+  const isRtl = locale === 'ar';
 
   const navItems = [
-    { href: '/projects', label: t('projects'), icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM5 13a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2zM5 21a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2z' },
-    { href: '/templates', label: t('templates'), icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
-    { href: '/pdf-tool', label: t('pdfTool'), icon: 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z' },
+    { href: '/projects', label: t('projects'), icon: LuLayoutGrid },
+    { href: '/templates', label: t('templates'), icon: LuPalette },
+    { href: '/pdf-tool', label: t('pdfTool'), icon: LuFileText },
   ];
 
   return (
@@ -28,14 +31,19 @@ export default function Sidebar({ isOpen = false, onClose, className }: SidebarP
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={onClose}
+          aria-hidden="true"
         />
       )}
       <aside
         className={cn(
-          'fixed top-16 right-0 z-40 h-[calc(100vh-4rem)] w-64',
-          'border-l border-toolbar-border bg-toolbar-bg',
-          'transform transition-transform duration-300 lg:translate-x-0',
-          isOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0',
+          'z-40 shrink-0 bg-toolbar-bg border-toolbar-border transition-all duration-300 ease-in-out',
+          'fixed top-16 h-[calc(100vh-4rem)] lg:static lg:h-auto',
+          // Language-aware placement: sidebar lives on the "start" side.
+          // LTR -> left, RTL -> right.
+          isRtl ? 'right-0 border-l' : 'left-0 border-r',
+          isOpen ? 'w-64 translate-x-0' : 'w-0',
+          !isOpen && (isRtl ? 'translate-x-full' : '-translate-x-full'),
+          !isOpen && 'overflow-hidden lg:hidden',
           className
         )}
       >
@@ -54,9 +62,7 @@ export default function Sidebar({ isOpen = false, onClose, className }: SidebarP
                     : 'text-foreground hover:bg-muted'
                 )}
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
-                </svg>
+                <item.icon className="h-5 w-5" />
                 {item.label}
               </Link>
             );

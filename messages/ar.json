@@ -48,6 +48,7 @@
     }
   },
   "themes": {
+    "label": "الثيم",
     "light": "فاتح",
     "black": "داكن",
     "manasik": "مناسك",
@@ -57,6 +58,7 @@
   "header": {
     "appName": "مناسك ديزاين",
     "openMenu": "فتح القائمة",
+    "toggleSidebar": "إظهار/إخفاء الشريط الجانبي",
     "notifications": "الإشعارات",
     "userAvatar": "المستخدم"
   },

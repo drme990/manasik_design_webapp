@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { useRef, DragEvent, ChangeEvent, ReactNode } from 'react';
+import { LuUpload } from 'react-icons/lu';
 import { useTranslations } from 'next-intl';
 
 export interface FileUploadProps {
@@ -71,9 +72,7 @@ export default function FileUpload({
       />
       {children || (
         <>
-          <svg className="mx-auto h-10 w-10 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-          </svg>
+          <LuUpload className="mx-auto h-10 w-10 text-secondary" />
           <p className="mt-2 text-sm font-medium text-foreground">
             {t('title')}
           </p>
