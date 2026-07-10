@@ -64,6 +64,8 @@ export default function EditorPage() {
     });
     const projectRef = useRef<Project | null>(null);
     const inTransactionRef = useRef(false);
+    const selectedLayerIdRef = useRef<string | null>(null);
+    const deleteLayerRef = useRef<(id: string) => void>(() => { });
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [leftPanelOpen, setLeftPanelOpen] = useState(false);
@@ -216,6 +218,13 @@ export default function EditorPage() {
                 handleRedo();
                 return;
             }
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedLayerIdRef.current) {
+                    e.preventDefault();
+                    deleteLayerRef.current(selectedLayerIdRef.current);
+                }
+                return;
+            }
         };
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.code === 'Space') {
@@ -311,6 +320,10 @@ export default function EditorPage() {
         },
         [updateProjectState, selectedLayerId]
     );
+
+    // Keep refs in sync for the keyboard handler (declared earlier in the component)
+    selectedLayerIdRef.current = selectedLayerId;
+    deleteLayerRef.current = handleDeleteLayer;
 
     const handleDuplicateLayer = useCallback(
         (layerId: string) => {

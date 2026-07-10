@@ -23,11 +23,11 @@ const DELETE_BTN =
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
   { direction: 'nw', className: '-top-3 -left-3', cursor: 'cursor-nw-resize' },
   { direction: 'n', className: '-top-3 left-1/2 -translate-x-1/2', cursor: 'cursor-n-resize' },
-  { direction: 'ne', className: '-top-3 -right-3', cursor: 'cursor-ne-resize' },
-  { direction: 'e', className: 'top-1/2 -right-3 -translate-y-1/2', cursor: 'cursor-e-resize' },
-  { direction: 'se', className: '-bottom-3 -right-3', cursor: 'cursor-se-resize' },
-  { direction: 's', className: '-bottom-3 left-1/2 -translate-x-1/2', cursor: 'cursor-s-resize' },
-  { direction: 'sw', className: '-bottom-3 -left-3', cursor: 'cursor-sw-resize' },
+  { direction: 'ne', className: '-top-3 right-3', cursor: 'cursor-ne-resize' },
+  { direction: 'e', className: 'top-1/2 right-3 -translate-y-1/2', cursor: 'cursor-e-resize' },
+  { direction: 'se', className: 'bottom-3 right-3', cursor: 'cursor-se-resize' },
+  { direction: 's', className: 'bottom-3 left-1/2 -translate-x-1/2', cursor: 'cursor-s-resize' },
+  { direction: 'sw', className: 'bottom-3 -left-3', cursor: 'cursor-sw-resize' },
   { direction: 'w', className: 'top-1/2 -left-3 -translate-y-1/2', cursor: 'cursor-w-resize' },
 ];
 
@@ -62,9 +62,10 @@ export default function SelectionBox({
       <button
         type="button"
         data-action="delete"
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={onDelete}
         onTouchStart={(e) => e.stopPropagation()}
-        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-8 -left-8')}
+        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-16 -left-16')}
         aria-label="Delete"
       >
         <LuTrash2 className="h-7 w-7" />
@@ -74,9 +75,10 @@ export default function SelectionBox({
       <button
         type="button"
         data-action="duplicate"
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={onDuplicate}
         onTouchStart={(e) => e.stopPropagation()}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-8 -right-8')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-16 -right-16')}
         aria-label="Duplicate"
       >
         <LuCopy className="h-7 w-7" />
@@ -87,7 +89,7 @@ export default function SelectionBox({
         type="button"
         data-action="rotate"
         onMouseDown={onRotateStart}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-8 -left-8 cursor-grab active:cursor-grabbing')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -left-16 cursor-grab active:cursor-grabbing')}
         aria-label="Rotate"
       >
         <LuRotateCw className="h-7 w-7" />
@@ -100,7 +102,7 @@ export default function SelectionBox({
         data-direction="se"
         data-mode="proportional"
         onMouseDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-8 -right-8 cursor-nwse-resize')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -right-16 cursor-nwse-resize')}
         aria-label="Scale"
       >
         <LuMaximize className="h-7 w-7" />
