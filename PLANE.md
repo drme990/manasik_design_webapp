@@ -1139,3 +1139,63 @@ export async function POST(request: Request) {
 - Document components and complex logic
 - Use semantic HTML for accessibility
 - Test thoroughly across browsers and devices
+
+---
+
+## Completed Editor Enhancements (Current Session)
+
+### Layer Property Controls
+- **Opacity** slider added to all layer types, with corresponding `SliderField` UI in the Text, Image, Shape, and Dynamic Field toolbars.
+- **Border/stroke width** inputs converted to `SliderField` components in Image, Shape, and Dynamic Field toolbars.
+- **Corner radius** converted to a slider in Image and Shape toolbars.
+- **Image offset X/Y** converted to sliders with a `-500` to `500` range.
+- **Number inputs** fixed to correctly handle and allow editing of `0` values via `NumberField` and `SliderField`.
+- **Flip buttons** in Image toolbar use `LuFlipHorizontal` and `LuFlipVertical` icons instead of text.
+- **Custom `ColorPicker`** implemented with presets, recent colors, and an eyedropper icon, replacing native color inputs in Text, Image, and Shape toolbars. The popover opens to the left to prevent overflow.
+- **Canvas background color** added to `Project` type and editor left panel. `ColorPicker` supports `placement="left"` for the background picker.
+- **Canvas background image** added with set/change/remove controls in the left panel and persisted via `updateProject`.
+
+### Scaling & Resizing
+- The bottom-right scale icon always performs **proportional scaling**.
+- Border resize dots implemented for **free scaling** in the dragged direction.
+- Canvas resize logic updated to support both proportional and free scaling modes.
+- **Drag-to-swap z-index**: while dragging a layer, if it overlaps another visible, unlocked layer by more than 50%, it swaps `zIndex` values (throttled to 300ms).
+
+### Selection & Dragging
+- `SelectionBox` controls are rendered **outside the canvas overflow-hidden area** so corner buttons are fully clickable.
+- Delete, Duplicate, Rotate, and Scale icons are sized larger (`h-14 w-14`) for easier touch interaction.
+- **Delete button** removes the selected layer via mouse/touch, and the **Delete/Backspace keyboard shortcut** also deletes the selected layer.
+- **Duplicate** action available via SelectionBox icon and right panel.
+- Layer drag uses `translate3d(0, 0, 0)` and `will-change: transform` for smoother GPU-accelerated movement.
+- Manual mouse/touch handlers kept in `Canvas` after `use-gesture/react` trial was reverted due to React 19 compatibility issues.
+
+### Shape Enhancements
+- Shapes can be toggled between **filled** and **outline-only** via a new `filled` boolean on `ShapeLayer` and a switch in `ShapeToolbar`.
+- `ShapeRenderer` renders transparent fill when `filled === false`.
+- Shape preview icons in the toolbar use theme `currentColor` instead of the selected layer's colors.
+
+### Project Card & Projects Page
+- Project cards display a live preview using the actual `LayerRenderer` and reflect `backgroundColor` and `backgroundUri`.
+- Project cards dynamically adjust aspect ratio to match the project's canvas dimensions.
+- Standardized preset aspect ratios added (1:1, 4:5, 5:4, 9:16, 16:9, 3:4, 4:3) plus a custom size option for creating projects.
+- "Preview" option removed from the 3-dots menu since the card itself shows the preview.
+
+### Mobile Responsiveness
+- Editor header optimized for mobile; long project names are truncated gracefully.
+- Mobile "Layers" and "Properties" toggles moved from the header to a floating bottom bar.
+- Left and right panels open as full-width drawers on phones.
+- Touch support added to `SelectionBox` resize/rotate/action icons and integrated into `Canvas` touch handlers.
+- Single-finger touch on a layer drags the layer instead of panning the canvas.
+
+### Editor Page Improvements
+- Dynamic fields removed from the editor page; planned for reintroduction in templates only.
+- **Edit** button added next to the project name in the editor header to rename the current project via a modal.
+- Keyboard shortcuts: `Ctrl/Cmd + Z` undo, `Ctrl/Cmd + Shift + Z`/`Ctrl/Cmd + Y` redo, `Space` to pan, `Delete`/`Backspace` to delete selected layer.
+
+### Localization
+- New translation keys added to `messages/en.json` and `messages/ar.json` for editor actions, canvas background controls, and shape fill toggle.
+
+### Schema & Defaults
+- `Project` type updated to include `backgroundColor` and `backgroundUri`.
+- `createProject` in `lib/store/projects.ts` initializes `backgroundColor` to white by default.
+- `ShapeLayer` type updated to include `filled` boolean; new shapes default to `filled: true`.
