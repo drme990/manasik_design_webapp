@@ -645,7 +645,7 @@ export default function EditorPage() {
                 {/* Left: layers & tools */}
                 <div
                     className={cn(
-                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-stroke bg-toolbar-bg p-4',
+                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 border-r border-stroke bg-toolbar-bg p-4',
                         'transition-transform duration-300 ease-in-out',
                         'lg:static lg:w-64 lg:translate-x-0',
                         leftPanelOpen ? 'translate-x-0' : '-translate-x-full',
@@ -677,6 +677,7 @@ export default function EditorPage() {
                         <ColorPicker
                             value={project.backgroundColor ?? '#ffffff'}
                             onChange={handleBackgroundColorChange}
+                            placement="left"
                         />
                         <div className="flex items-center gap-2">
                             <Button

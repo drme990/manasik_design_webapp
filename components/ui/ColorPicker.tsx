@@ -10,6 +10,7 @@ export interface ColorPickerProps {
   label?: string;
   recent?: string[];
   onRecentAdd?: (color: string) => void;
+  placement?: 'left' | 'right';
   className?: string;
 }
 
@@ -25,6 +26,7 @@ export default function ColorPicker({
   label,
   recent = [],
   onRecentAdd,
+  placement = 'right',
   className,
 }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -91,7 +93,10 @@ export default function ColorPicker({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-xl border border-stroke bg-card-bg p-3 shadow-lg">
+        <div className={cn(
+          'absolute top-full z-30 mt-1 w-64 rounded-xl border border-stroke bg-card-bg p-3 shadow-lg',
+          placement === 'left' ? 'left-0' : 'right-0'
+        )}>
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Pick color</span>
             <button
