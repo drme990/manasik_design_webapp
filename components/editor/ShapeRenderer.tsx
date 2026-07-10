@@ -9,6 +9,7 @@ export interface ShapeRendererProps {
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;
+  filled?: boolean;
   cornerRadius?: number;
   className?: string;
 }
@@ -31,12 +32,14 @@ export default function ShapeRenderer({
   fillColor,
   strokeColor,
   strokeWidth,
+  filled = true,
   cornerRadius = 0,
   className,
 }: ShapeRendererProps) {
   const padding = strokeWidth / 2;
   const innerWidth = Math.max(0, width - strokeWidth);
   const innerHeight = Math.max(0, height - strokeWidth);
+  const fill = filled ? fillColor : 'transparent';
 
   if (shape === 'line') {
     return (
@@ -73,7 +76,7 @@ export default function ShapeRenderer({
           cy={height / 2}
           rx={innerWidth / 2}
           ry={innerHeight / 2}
-          fill={fillColor}
+          fill={fill}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
         />
@@ -92,7 +95,7 @@ export default function ShapeRenderer({
       >
         <polygon
           points={points}
-          fill={fillColor}
+          fill={fill}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinejoin="round"
@@ -115,7 +118,7 @@ export default function ShapeRenderer({
       >
         <polygon
           points={points}
-          fill={fillColor}
+          fill={fill}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinejoin="round"
@@ -139,7 +142,7 @@ export default function ShapeRenderer({
         width={innerWidth}
         height={innerHeight}
         rx={rx}
-        fill={fillColor}
+        fill={fill}
         stroke={strokeColor}
         strokeWidth={strokeWidth}
       />

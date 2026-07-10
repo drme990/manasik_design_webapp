@@ -130,6 +130,7 @@ function ShapeLayerComponent({ layer, className, style, onMouseDown }: LayerComp
         fillColor={layer.fillColor}
         strokeColor={layer.strokeColor}
         strokeWidth={layer.strokeWidth}
+        filled={layer.filled}
         cornerRadius={layer.cornerRadius}
         className="h-full w-full"
       />

@@ -122,6 +122,7 @@ export function buildShapeLayer(options: {
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
+  filled?: boolean;
 }): ShapeLayer {
   const {
     shape = 'rectangle',
@@ -131,7 +132,8 @@ export function buildShapeLayer(options: {
     height = 200,
     fillColor = DEFAULT_FILL_COLOR,
     strokeColor = DEFAULT_STROKE_COLOR,
-    strokeWidth = 2
+    strokeWidth = 2,
+    filled = true
   } = options;
 
   let points: number | undefined;
@@ -155,6 +157,7 @@ export function buildShapeLayer(options: {
     name: `شكل (${shape})`,
     shape,
     fillColor,
+    filled,
     strokeColor,
     strokeWidth,
     cornerRadius: shape === 'rectangle_free' ? 20 : 0,

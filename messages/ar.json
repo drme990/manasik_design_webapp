@@ -209,6 +209,7 @@
         "star8": "نجمة 8",
         "line": "خط",
         "fillColor": "لون التعبئة",
+        "filled": "تعبئة الشكل",
         "strokeColor": "لون الإطار",
         "strokeWidth": "سمك الإطار",
         "cornerRadius": "نصف قطر الزاوية",

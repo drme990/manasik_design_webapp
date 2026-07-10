@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
+import Switch from '@/components/ui/Switch';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
@@ -70,14 +71,21 @@ export default function ShapeToolbar({ layer, onChange, onSliderStart, className
               shape={shape}
               width={28}
               height={28}
-              fillColor={layer.shape === shape ? 'currentColor' : layer.fillColor}
-              strokeColor={layer.shape === shape ? 'currentColor' : layer.strokeColor}
+              fillColor="currentColor"
+              strokeColor="currentColor"
               strokeWidth={2}
+              filled={layer.filled ?? true}
               cornerRadius={shape === 'rectangle_free' ? 6 : 0}
             />
           </Button>
         ))}
       </div>
+
+      <Switch
+        label={t('filled')}
+        checked={layer.filled ?? true}
+        onChange={(e) => onChange({ filled: e.target.checked })}
+      />
 
       <ColorPicker
         label={t('fillColor')}

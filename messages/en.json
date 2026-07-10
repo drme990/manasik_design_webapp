@@ -209,6 +209,7 @@
         "star8": "Star 8",
         "line": "Line",
         "fillColor": "Fill color",
+        "filled": "Fill shape",
         "strokeColor": "Stroke color",
         "strokeWidth": "Stroke width",
         "cornerRadius": "Corner radius",

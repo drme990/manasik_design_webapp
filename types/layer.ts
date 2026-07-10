@@ -71,6 +71,7 @@ export interface ShapeLayer extends BaseLayer {
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;
+  filled: boolean;
   cornerRadius?: number;
   points?: number;
 }
