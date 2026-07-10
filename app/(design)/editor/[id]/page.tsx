@@ -21,6 +21,7 @@ import {
     LuUndo2,
     LuRedo2,
     LuPencil,
+    LuText,
 } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -31,18 +32,29 @@ import DraggableLayerList from '@/components/common/DraggableLayerList';
 import TextToolbar from '@/components/editor/Toolbars/TextToolbar';
 import ImageToolbar from '@/components/editor/Toolbars/ImageToolbar';
 import ShapeToolbar from '@/components/editor/Toolbars/ShapeToolbar';
+import DynamicFieldToolbar from '@/components/editor/Toolbars/DynamicFieldToolbar';
 import { getProject, updateProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
     buildImageLayer,
     buildShapeLayer,
+    buildDynamicFieldLayer,
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
-import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer } from '@/types';
+import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
 const MIN_ZOOM = 0.25;
+
+function generateFieldId(project: Project): string {
+    const existing = project.layers
+        .filter((l) => l.type === 'dynamic_field')
+        .map((l) => parseInt((l as DynamicFieldLayer).variableId.replace(/^field_/, ''), 10))
+        .filter((n) => !isNaN(n));
+    const max = existing.length > 0 ? Math.max(...existing) : 0;
+    return `field_${max + 1}`;
+}
 const MAX_ZOOM = 2;
 
 export default function EditorPage() {
@@ -368,6 +380,20 @@ export default function EditorPage() {
         });
     }, [updateProjectState]);
 
+    const handleAddDynamicField = useCallback(() => {
+        updateProjectState((prev) => {
+            const layer = buildDynamicFieldLayer({
+                variableId: generateFieldId(prev),
+                variableName: t('newField') || 'حقل جديد',
+                fieldType: 'text',
+                x: prev.canvasWidth * 0.1,
+                y: prev.canvasHeight * 0.1,
+            });
+            layer.zIndex = nextZIndex(prev.layers);
+            return { ...prev, layers: [...prev.layers, layer] };
+        });
+    }, [updateProjectState, t]);
+
     const handleFileSelect = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
@@ -670,6 +696,12 @@ export default function EditorPage() {
                             <LuShapes className="h-4 w-4" />
                             {t('addShape')}
                         </Button>
+                        {project?.kind === 'booking_template' && (
+                            <Button variant="outline" size="sm" onClick={handleAddDynamicField} className="gap-1">
+                                <LuText className="h-4 w-4" />
+                                {t('addField')}
+                            </Button>
+                        )}
                     </div>
 
                     <div className="space-y-3 rounded-lg border border-stroke bg-card-bg p-3">
@@ -841,6 +873,12 @@ export default function EditorPage() {
                                     layer={selectedLayer as ShapeLayer}
                                     onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
                                     onSliderStart={startChangeTransaction}
+                                />
+                            )}
+                            {selectedLayer.type === 'dynamic_field' && (
+                                <DynamicFieldToolbar
+                                    layer={selectedLayer as DynamicFieldLayer}
+                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
                                 />
                             )}
                         </div>

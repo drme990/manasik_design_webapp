@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
+import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
 import type { DynamicFieldLayer } from '@/types';
@@ -59,25 +60,17 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
             max={200}
             onChange={(v) => onChange({ fontSize: v })}
           />
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">{t('textColor')}</label>
-            <input
-              type="color"
-              value={layer.color}
-              onChange={(e) => onChange({ color: e.target.value })}
-              className="h-10 w-full cursor-pointer rounded-lg border border-stroke bg-background p-1"
-            />
-          </div>
+          <ColorPicker
+            label={t('textColor')}
+            value={layer.color}
+            onChange={(color) => onChange({ color })}
+          />
           {layer.backgroundColor !== undefined && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">{t('backgroundColor')}</label>
-              <input
-                type="color"
-                value={layer.backgroundColor}
-                onChange={(e) => onChange({ backgroundColor: e.target.value })}
-                className="h-10 w-full cursor-pointer rounded-lg border border-stroke bg-background p-1"
-              />
-            </div>
+            <ColorPicker
+              label={t('backgroundColor')}
+              value={layer.backgroundColor}
+              onChange={(color) => onChange({ backgroundColor: color })}
+            />
           )}
         </>
       )}
@@ -126,15 +119,11 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
         suffix="%"
       />
 
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">{t('strokeColor')}</label>
-        <input
-          type="color"
-          value={layer.borderColor}
-          onChange={(e) => onChange({ borderColor: e.target.value })}
-          className="h-10 w-full cursor-pointer rounded-lg border border-stroke bg-background p-1"
-        />
-      </div>
+      <ColorPicker
+        label={t('strokeColor')}
+        value={layer.borderColor ?? '#cccccc'}
+        onChange={(color) => onChange({ borderColor: color })}
+      />
     </div>
   );
 }

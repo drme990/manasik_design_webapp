@@ -36,6 +36,41 @@
     "width": "العرض",
     "height": "الارتفاع"
   },
+  "templates": {
+    "title": "قوالب الحجز",
+    "subtitle": "إدارة منتجات القوالب وستة تخطيطات لكل منتج.",
+    "newProduct": "منتج جديد",
+    "createProductTitle": "إنشاء منتج قوالب",
+    "productName": "اسم المنتج",
+    "productNamePlaceholder": "مثال: بوستر عقيقة",
+    "width": "العرض",
+    "height": "الارتفاع",
+    "create": "إنشاء",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "deleteTitle": "حذف المنتج",
+    "deleteDescription": "هل أنت متأكد أنك تريد حذف هذا المنتج؟ سيتم حذف جميع قوالبه.",
+    "emptyTitle": "لا توجد منتجات بعد",
+    "emptyDescription": "أنشئ أول منتج قوالب للحجز للبدء.",
+    "createFirst": "إنشاء منتج",
+    "noTemplates": "لم يتم إنشاء قوالب بعد",
+    "templatesCount": "{count} قوالب تم إنشاؤها",
+    "manageTemplates": "إدارة القوالب",
+    "backToTemplates": "العودة للمنتجات",
+    "productNotFound": "المنتج غير موجود",
+    "productNotFoundDesc": "المنتج الذي تبحث عنه غير موجود.",
+    "createTemplate": "إنشاء قالب",
+    "editTemplate": "تعديل القالب",
+    "model": {
+      "withImage": "مع صورة",
+      "withoutImage": "بدون صورة"
+    },
+    "variant": {
+      "single": "قطعة واحدة",
+      "double": "قطعتين",
+      "multiple": "أكثر من قطعتين"
+    }
+  },
   "home": {
     "hero": {
       "title": "صمم مناسباتك بأناقة",
@@ -146,6 +181,7 @@
   "editor": {
     "layers": "الطبقات",
     "newText": "نص جديد",
+    "newField": "حقل جديد",
     "notFoundTitle": "التصميم غير موجود",
     "notFoundDescription": "لم نتمكن من العثور على التصميم المطلوب.",
     "backToProjects": "العودة إلى المشاريع",
