@@ -65,6 +65,7 @@ export async function createProject(input: ProjectCreateInput): Promise<Project>
     kind: input.kind,
     canvasWidth: input.canvasWidth,
     canvasHeight: input.canvasHeight,
+    backgroundColor: input.backgroundColor ?? '#ffffff',
     backgroundUri: input.backgroundUri,
     layers: [],
     bookingMeta: input.bookingMeta,

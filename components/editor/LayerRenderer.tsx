@@ -17,7 +17,7 @@ interface LayerComponentProps extends LayerRendererProps {
 
 export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerRendererProps) {
   const baseStyles = cn(
-    'absolute cursor-move',
+    'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
     layer.locked && 'cursor-not-allowed',
     isSelected && 'ring-2 ring-layer-selected'
@@ -31,9 +31,10 @@ export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerR
       top: layer.y,
       width: layer.width,
       height: layer.height,
-      transform: `rotate(${layer.rotation}deg)`,
+      transform: `translate3d(0, 0, 0) rotate(${layer.rotation}deg)`,
       opacity: layer.opacity,
       zIndex: layer.zIndex,
+      willChange: 'transform',
     },
     onMouseDown,
   };
@@ -97,11 +98,14 @@ function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComp
       <img
         src={layer.uri}
         alt="Layer"
+        draggable={false}
+        className="pointer-events-none select-none"
         style={{
           width: layer.naturalWidth * layer.imageScale,
           height: layer.naturalHeight * layer.imageScale,
           objectFit: 'cover',
           transform: `translate(${layer.offsetX}px, ${layer.offsetY}px)`,
+          userSelect: 'none',
         }}
       />
     </div>

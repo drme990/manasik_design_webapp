@@ -11,25 +11,24 @@ export interface SelectionBoxProps {
   onMouseDown?: (e: React.MouseEvent) => void;
   onDuplicate?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
-  onResizeStart?: (e: React.MouseEvent, direction: ResizeDirection) => void;
-  onProportionalResizeStart?: (e: React.MouseEvent) => void;
+  onResizeStart?: (e: React.MouseEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
   onRotateStart?: (e: React.MouseEvent) => void;
 }
 
 const ICON_BTN =
-  'flex h-8 w-8 items-center justify-center rounded-full border border-layer-selected bg-white text-layer-selected shadow-sm transition-colors hover:bg-layer-selected hover:text-white';
+  'flex h-14 w-14 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 const DELETE_BTN =
-  'flex h-8 w-8 items-center justify-center rounded-full border border-error bg-white text-error shadow-sm transition-colors hover:bg-error hover:text-white';
+  'flex h-14 w-14 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
 
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
-  { direction: 'nw', className: '-top-1.5 -left-1.5', cursor: 'cursor-nw-resize' },
-  { direction: 'n', className: '-top-1.5 left-1/2 -translate-x-1/2', cursor: 'cursor-n-resize' },
-  { direction: 'ne', className: '-top-1.5 -right-1.5', cursor: 'cursor-ne-resize' },
-  { direction: 'e', className: 'top-1/2 -right-1.5 -translate-y-1/2', cursor: 'cursor-e-resize' },
-  { direction: 'se', className: '-bottom-1.5 -right-1.5', cursor: 'cursor-se-resize' },
-  { direction: 's', className: '-bottom-1.5 left-1/2 -translate-x-1/2', cursor: 'cursor-s-resize' },
-  { direction: 'sw', className: '-bottom-1.5 -left-1.5', cursor: 'cursor-sw-resize' },
-  { direction: 'w', className: 'top-1/2 -left-1.5 -translate-y-1/2', cursor: 'cursor-w-resize' },
+  { direction: 'nw', className: '-top-3 -left-3', cursor: 'cursor-nw-resize' },
+  { direction: 'n', className: '-top-3 left-1/2 -translate-x-1/2', cursor: 'cursor-n-resize' },
+  { direction: 'ne', className: '-top-3 -right-3', cursor: 'cursor-ne-resize' },
+  { direction: 'e', className: 'top-1/2 -right-3 -translate-y-1/2', cursor: 'cursor-e-resize' },
+  { direction: 'se', className: '-bottom-3 -right-3', cursor: 'cursor-se-resize' },
+  { direction: 's', className: '-bottom-3 left-1/2 -translate-x-1/2', cursor: 'cursor-s-resize' },
+  { direction: 'sw', className: '-bottom-3 -left-3', cursor: 'cursor-sw-resize' },
+  { direction: 'w', className: 'top-1/2 -left-3 -translate-y-1/2', cursor: 'cursor-w-resize' },
 ];
 
 export default function SelectionBox({
@@ -38,12 +37,12 @@ export default function SelectionBox({
   onDuplicate,
   onDelete,
   onResizeStart,
-  onProportionalResizeStart,
   onRotateStart,
 }: SelectionBoxProps) {
   if (!layer) return null;
 
-  const handle = 'absolute h-3 w-3 rounded-full bg-layer-selected border-2 border-white shadow-sm';
+  const canFreeScale = layer.type === 'shape' || layer.type === 'image';
+  const handle = 'absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   return (
     <div
@@ -62,52 +61,63 @@ export default function SelectionBox({
       {/* Delete — top-left */}
       <button
         type="button"
+        data-action="delete"
         onClick={onDelete}
-        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-5 -left-5')}
+        onTouchStart={(e) => e.stopPropagation()}
+        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-8 -left-8')}
         aria-label="Delete"
       >
-        <LuTrash2 className="h-4 w-4" />
+        <LuTrash2 className="h-7 w-7" />
       </button>
 
       {/* Duplicate — top-right */}
       <button
         type="button"
+        data-action="duplicate"
         onClick={onDuplicate}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-5 -right-5')}
+        onTouchStart={(e) => e.stopPropagation()}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-8 -right-8')}
         aria-label="Duplicate"
       >
-        <LuCopy className="h-4 w-4" />
+        <LuCopy className="h-7 w-7" />
       </button>
 
       {/* Rotate — bottom-left */}
       <button
         type="button"
+        data-action="rotate"
         onMouseDown={onRotateStart}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-5 -left-5 cursor-grab active:cursor-grabbing')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-8 -left-8 cursor-grab active:cursor-grabbing')}
         aria-label="Rotate"
       >
-        <LuRotateCw className="h-4 w-4" />
+        <LuRotateCw className="h-7 w-7" />
       </button>
 
       {/* Proportional resize — bottom-right */}
       <button
         type="button"
-        onMouseDown={onProportionalResizeStart}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-5 -right-5 cursor-nwse-resize')}
+        data-action="resize"
+        data-direction="se"
+        data-mode="proportional"
+        onMouseDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-8 -right-8 cursor-nwse-resize')}
         aria-label="Scale"
       >
-        <LuMaximize className="h-4 w-4" />
+        <LuMaximize className="h-7 w-7" />
       </button>
 
-      {/* Border resize dots — free scaling (shapes only) */}
-      {layer.type === 'shape' && HANDLES.map(({ direction, className, cursor }) => (
+      {/* Border resize dots — free scaling (shapes & images) */}
+      {canFreeScale && HANDLES.map(({ direction, className, cursor }) => (
         <div
           key={direction}
+          data-action="resize"
+          data-direction={direction}
+          data-mode="free"
           className={cn('pointer-events-auto absolute', className, cursor)}
         >
           <div
             className={handle}
-            onMouseDown={(e) => onResizeStart?.(e, direction)}
+            onMouseDown={(e) => onResizeStart?.(e, direction, 'free')}
           />
         </div>
       ))}

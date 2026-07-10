@@ -10,6 +10,7 @@ export interface SliderFieldProps {
   max?: number;
   step?: number;
   onChange: (value: number) => void;
+  onDragStart?: () => void;
   className?: string;
   suffix?: string;
 }
@@ -21,6 +22,7 @@ export default function SliderField({
   max = 100,
   step = 1,
   onChange,
+  onDragStart,
   className,
   suffix,
 }: SliderFieldProps) {
@@ -37,16 +39,10 @@ export default function SliderField({
   };
 
   const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setInputValue(raw);
-    if (raw === '') return;
-    const num = Number(raw);
-    if (!Number.isNaN(num)) {
-      onChange(Math.max(min, Math.min(max, num)));
-    }
+    setInputValue(e.target.value);
   };
 
-  const handleNumberBlur = () => {
+  const commitNumber = () => {
     if (inputValue === '') {
       setInputValue(String(min));
       onChange(min);
@@ -62,6 +58,13 @@ export default function SliderField({
     onChange(clamped);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      commitNumber();
+      (e.currentTarget as HTMLInputElement).blur();
+    }
+  };
+
   return (
     <div className={cn('w-full space-y-2', className)}>
       {label && (
@@ -75,6 +78,8 @@ export default function SliderField({
           step={step}
           value={value}
           onChange={handleRangeChange}
+          onMouseDown={onDragStart}
+          onTouchStart={onDragStart}
           className={cn(
             'h-2 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-brand-primary',
             'focus:outline-none focus:ring-2 focus:ring-brand-primary'
@@ -86,7 +91,8 @@ export default function SliderField({
             inputMode="decimal"
             value={inputValue}
             onChange={handleNumberChange}
-            onBlur={handleNumberBlur}
+            onBlur={commitNumber}
+            onKeyDown={handleKeyDown}
             className={cn(
               'w-full rounded-lg border border-stroke bg-background px-2 py-1.5 text-center text-sm text-foreground',
               'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary'

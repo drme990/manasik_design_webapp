@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
     // caused by an extra package-lock.json in the parent directory.
     root: path.resolve(process.cwd()),
   },
+  allowedDevOrigins: ['dayana-nondepressing-probingly.ngrok-free.dev'],
 };
 
 export default nextIntlConfig(nextConfig);

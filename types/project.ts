@@ -25,6 +25,7 @@ export interface Project extends SyncableDocument {
   kind: ProjectKind;
   canvasWidth: number;
   canvasHeight: number;
+  backgroundColor?: string;
   backgroundUri?: string;
   layers: AnyLayer[];
   thumbnail?: string;
@@ -42,6 +43,7 @@ export interface ProjectCreateInput {
   kind: ProjectKind;
   canvasWidth: number;
   canvasHeight: number;
+  backgroundColor?: string;
   backgroundUri?: string;
   bookingMeta?: BookingMeta;
   userId?: string;
@@ -51,6 +53,7 @@ export interface ProjectUpdateInput {
   name?: string;
   canvasWidth?: number;
   canvasHeight?: number;
+  backgroundColor?: string;
   backgroundUri?: string;
   layers?: AnyLayer[];
   thumbnail?: string;

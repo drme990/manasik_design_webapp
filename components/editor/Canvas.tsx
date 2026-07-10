@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
+import { getLayerIdFromPoint, getActionFromPoint } from '@/lib/utils/touch-utils';
 import type { AnyLayer } from '@/types';
 import { useRef, useCallback, useState } from 'react';
 import LayerRenderer from './LayerRenderer';
@@ -22,11 +23,10 @@ export interface CanvasProps {
   className?: string;
 }
 
-function getLayerIdFromPoint(x: number, y: number): string | null {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return null;
-  const layerEl = el.closest('[data-layer-id]');
-  return layerEl?.getAttribute('data-layer-id') || null;
+function getOverlapArea(a: AnyLayer, b: AnyLayer): number {
+  const xOverlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const yOverlap = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  return xOverlap * yOverlap;
 }
 
 export default function Canvas({
@@ -45,6 +45,7 @@ export default function Canvas({
   className,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const lastSwapRef = useRef<number>(0);
   const [dragState, setDragState] = useState<{
     isDragging: boolean;
     layerId: string | null;
@@ -119,14 +120,9 @@ export default function Canvas({
     [selectedLayerId, layers, onLayerDragStart]
   );
 
-  const handleProportionalResizeStart = useCallback(
-    (e: React.MouseEvent) => startResize(e, 'proportional', 'se'),
-    [startResize]
-  );
-
   const handleResizeStart = useCallback(
-    (e: React.MouseEvent, direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w') =>
-      startResize(e, 'free', direction),
+    (e: React.MouseEvent, direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w', mode: 'free' | 'proportional' = 'free') =>
+      startResize(e, mode, direction),
     [startResize]
   );
 
@@ -163,56 +159,103 @@ export default function Canvas({
     if (selectedLayerId) onDeleteLayer?.(selectedLayerId);
   }, [selectedLayerId, onDeleteLayer]);
 
+  const updateLayerPosition = useCallback((layerId: string, newX: number, newY: number) => {
+    onLayerChange(layerId, { x: newX, y: newY }, false);
+
+    const currentLayer = layers.find((l) => l.id === layerId);
+    if (currentLayer && !currentLayer.locked) {
+      const draggedArea = currentLayer.width * currentLayer.height;
+      const now = Date.now();
+      if (now - lastSwapRef.current > 300) {
+        const overlapping = layers
+          .filter((l) => l.id !== layerId && l.visible && !l.locked)
+          .find((l) => {
+            const overlap = getOverlapArea({ ...currentLayer, x: newX, y: newY }, l);
+            return overlap > draggedArea * 0.5;
+          });
+        if (overlapping) {
+          onLayerChange(layerId, { zIndex: overlapping.zIndex }, false);
+          onLayerChange(overlapping.id, { zIndex: currentLayer.zIndex }, false);
+          lastSwapRef.current = now;
+        }
+      }
+    }
+  }, [onLayerChange, layers]);
+
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (dragState.isDragging && dragState.layerId) {
       const deltaX = (e.clientX - dragState.startX) / scale;
       const deltaY = (e.clientY - dragState.startY) / scale;
-
-      onLayerChange(dragState.layerId, {
-        x: dragState.initialX + deltaX,
-        y: dragState.initialY + deltaY,
-      }, false);
+      updateLayerPosition(dragState.layerId, dragState.initialX + deltaX, dragState.initialY + deltaY);
       return;
     }
 
     if (resizeState) {
       const deltaX = (e.clientX - resizeState.startX) / scale;
       const deltaY = (e.clientY - resizeState.startY) / scale;
-      let newWidth = resizeState.startWidth;
-      let newHeight = resizeState.startHeight;
+      const { direction } = resizeState;
+      const minSize = 10;
+      const ratio = resizeState.startWidth / resizeState.startHeight;
+
+      let rawWidth = resizeState.startWidth;
+      let rawHeight = resizeState.startHeight;
       let newX = resizeState.startXPos;
       let newY = resizeState.startYPos;
 
       if (resizeState.mode === 'proportional') {
-        const ratio = resizeState.startWidth / resizeState.startHeight;
-        const sizeDelta = Math.max(deltaX, deltaY);
-        newWidth = Math.max(10, resizeState.startWidth + sizeDelta);
-        newHeight = newWidth / ratio;
-      } else {
-        const { direction } = resizeState;
-        const minSize = 10;
+        // Calculate size change from the dragged handle
+        let sizeDelta = 0;
+        if (direction.includes('e') || direction.includes('w')) {
+          sizeDelta = Math.abs(deltaX);
+        } else if (direction.includes('n') || direction.includes('s')) {
+          sizeDelta = Math.abs(deltaY);
+        } else {
+          sizeDelta = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+        }
 
-        if (direction.includes('e')) {
-          newWidth = Math.max(minSize, resizeState.startWidth + deltaX);
+        const signX = direction.includes('w') ? -1 : 1;
+        const signY = direction.includes('n') ? -1 : 1;
+        const widthDelta = signX * deltaX;
+        const heightDelta = signY * deltaY;
+
+        // Use the axis that has moved more to drive proportional scaling
+        if (Math.abs(widthDelta / ratio) > Math.abs(heightDelta)) {
+          rawWidth = Math.max(minSize, resizeState.startWidth + widthDelta);
+          rawHeight = rawWidth / ratio;
+        } else {
+          rawHeight = Math.max(minSize, resizeState.startHeight + heightDelta);
+          rawWidth = rawHeight * ratio;
         }
+
+        // Anchor to the opposite corner
         if (direction.includes('w')) {
-          newWidth = Math.max(minSize, resizeState.startWidth - deltaX);
-          newX = resizeState.startXPos + (resizeState.startWidth - newWidth);
-        }
-        if (direction.includes('s')) {
-          newHeight = Math.max(minSize, resizeState.startHeight + deltaY);
+          newX = resizeState.startXPos + resizeState.startWidth - rawWidth;
         }
         if (direction.includes('n')) {
-          newHeight = Math.max(minSize, resizeState.startHeight - deltaY);
-          newY = resizeState.startYPos + (resizeState.startHeight - newHeight);
+          newY = resizeState.startYPos + resizeState.startHeight - rawHeight;
+        }
+      } else {
+        if (direction.includes('e')) {
+          rawWidth = Math.max(minSize, resizeState.startWidth + deltaX);
+        }
+        if (direction.includes('w')) {
+          rawWidth = Math.max(minSize, resizeState.startWidth - deltaX);
+          newX = resizeState.startXPos + (resizeState.startWidth - rawWidth);
+        }
+        if (direction.includes('s')) {
+          rawHeight = Math.max(minSize, resizeState.startHeight + deltaY);
+        }
+        if (direction.includes('n')) {
+          rawHeight = Math.max(minSize, resizeState.startHeight - deltaY);
+          newY = resizeState.startYPos + (resizeState.startHeight - rawHeight);
         }
       }
 
       onLayerChange(resizeState.layerId, {
         x: newX,
         y: newY,
-        width: newWidth,
-        height: newHeight,
+        width: rawWidth,
+        height: rawHeight,
       }, false);
       return;
     }
@@ -228,7 +271,7 @@ export default function Canvas({
         rotation: rotateState.startRotation + delta,
       }, false);
     }
-  }, [dragState, resizeState, rotateState, onLayerChange, scale]);
+  }, [dragState, resizeState, rotateState, onLayerChange, scale, updateLayerPosition]);
 
   const handleMouseUp = useCallback(() => {
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
@@ -242,6 +285,23 @@ export default function Canvas({
 
     const touch = e.touches[0];
     const layerId = getLayerIdFromPoint(touch.clientX, touch.clientY);
+    const action = getActionFromPoint(touch.clientX, touch.clientY);
+
+    if (action?.action === 'resize' && selectedLayerId && action.direction && action.mode) {
+      e.stopPropagation();
+      handleResizeStart(
+        { clientX: touch.clientX, clientY: touch.clientY, stopPropagation: () => { }, preventDefault: () => { } } as React.MouseEvent,
+        action.direction as 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w',
+        action.mode as 'free' | 'proportional'
+      );
+      return;
+    }
+
+    if (action?.action === 'rotate' && selectedLayerId) {
+      e.stopPropagation();
+      handleRotateStart({ clientX: touch.clientX, clientY: touch.clientY, stopPropagation: () => { }, preventDefault: () => { } } as React.MouseEvent);
+      return;
+    }
 
     if (layerId) {
       e.stopPropagation();
@@ -251,21 +311,87 @@ export default function Canvas({
     } else {
       onSelectLayer(null);
     }
-  }, [onSelectLayer, onLayerDragStart, startDrag]);
+  }, [onSelectLayer, onLayerDragStart, startDrag, handleResizeStart, handleRotateStart, selectedLayerId]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!dragState.isDragging || !dragState.layerId || e.touches.length !== 1) return;
+    if (e.touches.length !== 1) return;
     e.preventDefault();
 
     const touch = e.touches[0];
-    const deltaX = (touch.clientX - dragState.startX) / scale;
-    const deltaY = (touch.clientY - dragState.startY) / scale;
 
-    onLayerChange(dragState.layerId, {
-      x: dragState.initialX + deltaX,
-      y: dragState.initialY + deltaY,
-    }, false);
-  }, [dragState, onLayerChange, scale]);
+    if (dragState.isDragging && dragState.layerId) {
+      const deltaX = (touch.clientX - dragState.startX) / scale;
+      const deltaY = (touch.clientY - dragState.startY) / scale;
+      updateLayerPosition(dragState.layerId, dragState.initialX + deltaX, dragState.initialY + deltaY);
+      return;
+    }
+
+    if (resizeState) {
+      const deltaX = (touch.clientX - resizeState.startX) / scale;
+      const deltaY = (touch.clientY - resizeState.startY) / scale;
+      const { direction } = resizeState;
+      const minSize = 10;
+      const ratio = resizeState.startWidth / resizeState.startHeight;
+
+      let rawWidth = resizeState.startWidth;
+      let rawHeight = resizeState.startHeight;
+      let newX = resizeState.startXPos;
+      let newY = resizeState.startYPos;
+
+      if (resizeState.mode === 'proportional') {
+        const signX = direction.includes('w') ? -1 : 1;
+        const signY = direction.includes('n') ? -1 : 1;
+        const widthDelta = signX * deltaX;
+        const heightDelta = signY * deltaY;
+
+        if (Math.abs(widthDelta / ratio) > Math.abs(heightDelta)) {
+          rawWidth = Math.max(minSize, resizeState.startWidth + widthDelta);
+          rawHeight = rawWidth / ratio;
+        } else {
+          rawHeight = Math.max(minSize, resizeState.startHeight + heightDelta);
+          rawWidth = rawHeight * ratio;
+        }
+
+        if (direction.includes('w')) {
+          newX = resizeState.startXPos + resizeState.startWidth - rawWidth;
+        }
+        if (direction.includes('n')) {
+          newY = resizeState.startYPos + resizeState.startHeight - rawHeight;
+        }
+      } else {
+        if (direction.includes('e')) rawWidth = Math.max(minSize, resizeState.startWidth + deltaX);
+        if (direction.includes('w')) {
+          rawWidth = Math.max(minSize, resizeState.startWidth - deltaX);
+          newX = resizeState.startXPos + (resizeState.startWidth - rawWidth);
+        }
+        if (direction.includes('s')) rawHeight = Math.max(minSize, resizeState.startHeight + deltaY);
+        if (direction.includes('n')) {
+          rawHeight = Math.max(minSize, resizeState.startHeight - deltaY);
+          newY = resizeState.startYPos + (resizeState.startHeight - rawHeight);
+        }
+      }
+
+      onLayerChange(resizeState.layerId, {
+        x: newX,
+        y: newY,
+        width: rawWidth,
+        height: rawHeight,
+      }, false);
+      return;
+    }
+
+    if (rotateState && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const mouseX = (touch.clientX - rect.left) / scale;
+      const mouseY = (touch.clientY - rect.top) / scale;
+      const currentAngle = Math.atan2(mouseY - rotateState.centerY, mouseX - rotateState.centerX);
+      const delta = (currentAngle - rotateState.startAngle) * (180 / Math.PI);
+
+      onLayerChange(rotateState.layerId, {
+        rotation: rotateState.startRotation + delta,
+      }, false);
+    }
+  }, [dragState, resizeState, rotateState, onLayerChange, scale, updateLayerPosition]);
 
   const handleTouchEnd = useCallback(() => {
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
@@ -279,7 +405,7 @@ export default function Canvas({
     <div
       ref={canvasRef}
       className={cn(
-        'relative overflow-hidden shadow-2xl',
+        'relative select-none overflow-hidden shadow-2xl',
         className
       )}
       style={{
@@ -326,7 +452,6 @@ export default function Canvas({
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onResizeStart={handleResizeStart}
-          onProportionalResizeStart={handleProportionalResizeStart}
           onRotateStart={handleRotateStart}
         />
       )}

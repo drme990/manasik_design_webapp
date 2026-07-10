@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { LuPlus, LuImageOff, LuEllipsisVertical, LuPencil, LuTrash2, LuEye } from 'react-icons/lu';
+import { LuPlus, LuEllipsisVertical, LuPencil, LuTrash2 } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -15,9 +15,13 @@ import { listProjects, createProject, deleteProject, renameProject } from '@/lib
 import type { Project } from '@/types';
 
 const PRESETS = [
-  { name: 'Square', width: 1080, height: 1080 },
-  { name: 'Story', width: 1080, height: 1920 },
-  { name: 'Post', width: 1200, height: 1500 },
+  { name: '1:1 Square', width: 1080, height: 1080 },
+  { name: '4:5 Portrait', width: 1080, height: 1350 },
+  { name: '5:4 Landscape', width: 1350, height: 1080 },
+  { name: '9:16 Story', width: 1080, height: 1920 },
+  { name: '16:9 Widescreen', width: 1920, height: 1080 },
+  { name: '3:4 Portrait', width: 1080, height: 1440 },
+  { name: '4:3 Landscape', width: 1440, height: 1080 },
 ];
 
 export default function ProjectsPage() {
@@ -29,7 +33,6 @@ export default function ProjectsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [previewProject, setPreviewProject] = useState<Project | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
@@ -105,13 +108,6 @@ export default function ProjectsPage() {
     e.stopPropagation();
     setMenuProjectId(null);
     setDeleteProjectId(projectId);
-  };
-
-  const handleOpenPreview = (e: React.MouseEvent, project: Project) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuProjectId(null);
-    setPreviewProject(project);
   };
 
   const handleDelete = async () => {
@@ -215,14 +211,6 @@ export default function ProjectsPage() {
                       <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-stroke bg-card-bg py-1 shadow-lg">
                         <button
                           type="button"
-                          onClick={(e) => handleOpenPreview(e, project)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
-                        >
-                          <LuEye className="h-4 w-4" />
-                          {t('preview')}
-                        </button>
-                        <button
-                          type="button"
                           onClick={(e) => handleOpenRename(e, project)}
                           className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
                         >
@@ -315,27 +303,6 @@ export default function ProjectsPage() {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={!!previewProject}
-        onClose={() => setPreviewProject(null)}
-        title={previewProject?.name}
-        size="lg"
-      >
-        <div className="flex items-center justify-center rounded-lg bg-muted p-4">
-          {previewProject?.thumbnail ? (
-            <img
-              src={previewProject.thumbnail}
-              alt={previewProject.name}
-              className="max-h-[70vh] max-w-full rounded-lg object-contain shadow-lg"
-            />
-          ) : (
-            <div className="flex h-64 w-full flex-col items-center justify-center gap-3 text-secondary">
-              <LuImageOff className="h-12 w-12" />
-              <p>{t('noPreview')}</p>
-            </div>
-          )}
-        </div>
-      </Modal>
     </main>
   );
 }

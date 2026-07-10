@@ -4,12 +4,12 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils/cn';
+import { getLayerIdFromPoint, getActionFromPoint } from '@/lib/utils/touch-utils';
 import {
     LuArrowLeft,
     LuType,
     LuImage,
     LuShapes,
-    LuVariable,
     LuTrash2,
     LuCopy,
     LuSave,
@@ -20,25 +20,27 @@ import {
     LuSlidersHorizontal,
     LuUndo2,
     LuRedo2,
+    LuPencil,
 } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import Modal from '@/components/ui/Modal';
+import ColorPicker from '@/components/ui/ColorPicker';
 import Canvas from '@/components/editor/Canvas';
 import DraggableLayerList from '@/components/common/DraggableLayerList';
 import TextToolbar from '@/components/editor/Toolbars/TextToolbar';
 import ImageToolbar from '@/components/editor/Toolbars/ImageToolbar';
 import ShapeToolbar from '@/components/editor/Toolbars/ShapeToolbar';
-import DynamicFieldToolbar from '@/components/editor/Toolbars/DynamicFieldToolbar';
 import { getProject, updateProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
     buildImageLayer,
     buildShapeLayer,
-    buildDynamicFieldLayer,
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
-import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
+import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer } from '@/types';
+import Input from '@/components/ui/Input';
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
@@ -48,6 +50,7 @@ export default function EditorPage() {
     const router = useRouter();
     const t = useTranslations('editor');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const bgFileInputRef = useRef<HTMLInputElement>(null);
 
     const [project, setProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(true);
@@ -60,6 +63,9 @@ export default function EditorPage() {
         future: [],
     });
     const projectRef = useRef<Project | null>(null);
+    const inTransactionRef = useRef(false);
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [renameValue, setRenameValue] = useState('');
     const [leftPanelOpen, setLeftPanelOpen] = useState(false);
     const [rightPanelOpen, setRightPanelOpen] = useState(false);
     const [panState, setPanState] = useState<{ isPanning: boolean; startX: number; startY: number }>({
@@ -72,6 +78,14 @@ export default function EditorPage() {
     useEffect(() => {
         projectRef.current = project;
     }, [project]);
+
+    useEffect(() => {
+        const endTransaction = () => {
+            inTransactionRef.current = false;
+        };
+        window.addEventListener('mouseup', endTransaction);
+        return () => window.removeEventListener('mouseup', endTransaction);
+    }, []);
 
     useEffect(() => {
         getProject(id).then((p) => {
@@ -99,12 +113,45 @@ export default function EditorPage() {
         []
     );
 
+    const handleRenameProject = useCallback(async () => {
+        if (!project || !renameValue.trim()) return;
+        const trimmed = renameValue.trim();
+        await updateProject(project.id, { name: trimmed });
+        setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
+        setRenameOpen(false);
+    }, [project, renameValue]);
+
+    const handleBackgroundColorChange = useCallback(async (color: string) => {
+        if (!project) return;
+        await updateProject(project.id, { backgroundColor: color });
+        setProject((prev) => (prev ? { ...prev, backgroundColor: color } : prev));
+    }, [project]);
+
+    const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !project) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const uri = event.target?.result as string;
+            await updateProject(project.id, { backgroundUri: uri });
+            setProject((prev) => (prev ? { ...prev, backgroundUri: uri } : prev));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    }, [project]);
+
+    const handleRemoveBackgroundImage = useCallback(async () => {
+        if (!project) return;
+        await updateProject(project.id, { backgroundUri: undefined });
+        setProject((prev) => (prev ? { ...prev, backgroundUri: undefined } : prev));
+    }, [project]);
+
     const updateProjectState = useCallback(
         (updater: (prev: Project) => Project, recordHistory = true) => {
             setProject((prev) => {
                 if (!prev) return prev;
                 const updated = updater(prev);
-                if (recordHistory) {
+                if (recordHistory && !inTransactionRef.current) {
                     setHistory((h) => ({
                         past: [...h.past, prev.layers],
                         future: [],
@@ -189,6 +236,17 @@ export default function EditorPage() {
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [handleUndo, handleRedo]);
+
+    const startChangeTransaction = useCallback(() => {
+        if (inTransactionRef.current) return;
+        inTransactionRef.current = true;
+        const current = projectRef.current;
+        if (!current) return;
+        setHistory((h) => ({
+            past: [...h.past, current.layers],
+            future: [],
+        }));
+    }, []);
 
     const handleLayerChange = useCallback(
         (layerId: string, updates: Partial<AnyLayer>, recordHistory = true) => {
@@ -297,20 +355,6 @@ export default function EditorPage() {
         });
     }, [updateProjectState]);
 
-    const handleAddDynamicField = useCallback(() => {
-        updateProjectState((prev) => {
-            const layer = buildDynamicFieldLayer({
-                variableId: 'guest-name',
-                variableName: 'guest-name',
-                fieldType: 'text',
-                x: prev.canvasWidth * 0.1,
-                y: prev.canvasHeight * 0.1,
-            });
-            layer.zIndex = nextZIndex(prev.layers);
-            return { ...prev, layers: [...prev.layers, layer] };
-        });
-    }, [updateProjectState]);
-
     const handleFileSelect = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
@@ -409,6 +453,12 @@ export default function EditorPage() {
         (e: React.TouchEvent) => {
             if (e.touches.length === 1) {
                 const touch = e.touches[0];
+                const action = getActionFromPoint(touch.clientX, touch.clientY);
+                const layerId = getLayerIdFromPoint(touch.clientX, touch.clientY);
+                if (action?.action || layerId) {
+                    // Let the Canvas component handle layer drag / resize / rotate
+                    return;
+                }
                 setTouchState({
                     isTouching: true,
                     isPinching: false,
@@ -495,18 +545,29 @@ export default function EditorPage() {
     return (
         <div className="flex h-full flex-col">
             {/* Top toolbar */}
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-stroke bg-toolbar-bg px-4">
-                <div className="flex items-center gap-3">
+            <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                     <Button variant="ghost" size="sm" onClick={() => router.push('/projects')}>
                         <LuArrowLeft className="h-4 w-4" />
                     </Button>
-                    <h1 className="max-w-xs truncate text-sm font-semibold text-foreground sm:text-base">
+                    <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground sm:text-base">
                         {project.name}
                     </h1>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            setRenameValue(project.name);
+                            setRenameOpen(true);
+                        }}
+                        aria-label={t('renameProject')}
+                    >
+                        <LuPencil className="h-4 w-4" />
+                    </Button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+                    <div className="hidden items-center gap-1 sm:flex">
                         <Button
                             variant="ghost"
                             size="sm"
@@ -527,27 +588,7 @@ export default function EditorPage() {
                         </Button>
                     </div>
 
-                    {/* Mobile panel toggles */}
-                    <div className="flex items-center gap-1 lg:hidden">
-                        <Button
-                            variant={leftPanelOpen ? 'primary' : 'ghost'}
-                            size="sm"
-                            onClick={() => setLeftPanelOpen((v) => !v)}
-                            aria-label={t('layers')}
-                        >
-                            <LuLayers className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant={rightPanelOpen ? 'primary' : 'ghost'}
-                            size="sm"
-                            onClick={() => setRightPanelOpen((v) => !v)}
-                            aria-label={t('properties')}
-                        >
-                            <LuSlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                    </div>
-
-                    <div className="flex items-center gap-1 rounded-lg border border-stroke bg-background px-2 py-1">
+                    <div className="flex items-center gap-1 rounded-lg border border-stroke bg-background px-1.5 py-1 sm:px-2">
                         <button
                             type="button"
                             onClick={handleZoomOut}
@@ -556,7 +597,7 @@ export default function EditorPage() {
                         >
                             <LuZoomOut className="h-4 w-4" />
                         </button>
-                        <span className="min-w-12 text-center text-xs font-medium text-foreground">
+                        <span className="min-w-9 text-center text-xs font-medium text-foreground sm:min-w-12">
                             {Math.round(zoom * 100)}%
                         </span>
                         <button
@@ -574,7 +615,7 @@ export default function EditorPage() {
                         size="sm"
                         onClick={() => persistProject(project)}
                         loading={saving}
-                        className="gap-1"
+                        className="gap-1 px-2 sm:px-3"
                     >
                         {saving ? (
                             <LuLoader className="h-4 w-4 animate-spin" />
@@ -591,9 +632,9 @@ export default function EditorPage() {
                 {/* Left: layers & tools */}
                 <div
                     className={cn(
-                        'z-30 flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-stroke bg-toolbar-bg p-4',
+                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-stroke bg-toolbar-bg p-4',
                         'transition-transform duration-300 ease-in-out',
-                        'lg:static lg:translate-x-0',
+                        'lg:static lg:w-64 lg:translate-x-0',
                         leftPanelOpen ? 'translate-x-0' : '-translate-x-full',
                         'fixed bottom-0 left-0 top-14'
                     )}
@@ -616,10 +657,42 @@ export default function EditorPage() {
                             <LuShapes className="h-4 w-4" />
                             {t('addShape')}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleAddDynamicField} className="gap-1">
-                            <LuVariable className="h-4 w-4" />
-                            {t('addField')}
-                        </Button>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border border-stroke bg-card-bg p-3">
+                        <h4 className="text-sm font-semibold text-foreground">{t('canvasBackground')}</h4>
+                        <ColorPicker
+                            value={project.backgroundColor ?? '#ffffff'}
+                            onChange={handleBackgroundColorChange}
+                        />
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => bgFileInputRef.current?.click()}
+                                className="flex-1 gap-1"
+                            >
+                                <LuImage className="h-4 w-4" />
+                                {project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
+                            </Button>
+                            {project.backgroundUri && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleRemoveBackgroundImage}
+                                    aria-label={t('removeBgImage')}
+                                >
+                                    <LuTrash2 className="h-4 w-4 text-error" />
+                                </Button>
+                            )}
+                        </div>
+                        <input
+                            ref={bgFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleBackgroundImageChange}
+                        />
                     </div>
 
                     <input
@@ -672,7 +745,7 @@ export default function EditorPage() {
                             <Canvas
                                 width={project.canvasWidth}
                                 height={project.canvasHeight}
-                                backgroundColor="#ffffff"
+                                backgroundColor={project.backgroundColor ?? '#ffffff'}
                                 backgroundUri={project.backgroundUri}
                                 layers={project.layers}
                                 selectedLayerId={selectedLayerId || undefined}
@@ -704,9 +777,9 @@ export default function EditorPage() {
                 {/* Right: properties */}
                 <div
                     className={cn(
-                        'z-30 flex w-72 shrink-0 flex-col overflow-y-auto border-l border-stroke bg-toolbar-bg p-4',
+                        'z-30 flex w-full sm:w-80 shrink-0 flex-col overflow-y-auto border-l border-stroke bg-toolbar-bg p-4',
                         'transition-transform duration-300 ease-in-out',
-                        'lg:static lg:translate-x-0',
+                        'lg:static lg:w-72 lg:translate-x-0',
                         rightPanelOpen ? 'translate-x-0' : 'translate-x-full',
                         'fixed bottom-0 right-0 top-14'
                     )}
@@ -739,24 +812,21 @@ export default function EditorPage() {
                                 <TextToolbar
                                     layer={selectedLayer as TextLayer}
                                     onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
+                                    onSliderStart={startChangeTransaction}
                                 />
                             )}
                             {selectedLayer.type === 'image' && (
                                 <ImageToolbar
                                     layer={selectedLayer as ImageLayer}
                                     onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
+                                    onSliderStart={startChangeTransaction}
                                 />
                             )}
                             {selectedLayer.type === 'shape' && (
                                 <ShapeToolbar
                                     layer={selectedLayer as ShapeLayer}
                                     onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
-                                />
-                            )}
-                            {selectedLayer.type === 'dynamic_field' && (
-                                <DynamicFieldToolbar
-                                    layer={selectedLayer as DynamicFieldLayer}
-                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
+                                    onSliderStart={startChangeTransaction}
                                 />
                             )}
                         </div>
@@ -765,6 +835,74 @@ export default function EditorPage() {
                     )}
                 </div>
             </div>
+
+            {/* Mobile floating controls */}
+            <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 gap-2 rounded-full border border-stroke bg-card-bg p-2 shadow-xl lg:hidden">
+                <button
+                    type="button"
+                    onClick={handleUndo}
+                    disabled={history.past.length === 0}
+                    className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                    aria-label={t('undo')}
+                >
+                    <LuUndo2 className="h-5 w-5" />
+                </button>
+                <button
+                    type="button"
+                    onClick={handleRedo}
+                    disabled={history.future.length === 0}
+                    className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                    aria-label={t('redo')}
+                >
+                    <LuRedo2 className="h-5 w-5" />
+                </button>
+                <div className="w-px bg-stroke" />
+                <button
+                    type="button"
+                    onClick={() => setLeftPanelOpen((v) => !v)}
+                    className={cn(
+                        'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
+                        leftPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
+                    )}
+                    aria-label={t('layers')}
+                >
+                    <LuLayers className="h-5 w-5" />
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setRightPanelOpen((v) => !v)}
+                    className={cn(
+                        'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
+                        rightPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
+                    )}
+                    aria-label={t('properties')}
+                >
+                    <LuSlidersHorizontal className="h-5 w-5" />
+                </button>
+            </div>
+
+            <Modal
+                isOpen={renameOpen}
+                onClose={() => setRenameOpen(false)}
+                title={t('renameProject')}
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setRenameOpen(false)}>
+                            {t('cancel')}
+                        </Button>
+                        <Button variant="primary" onClick={handleRenameProject}>
+                            {t('save')}
+                        </Button>
+                    </>
+                }
+            >
+                <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    placeholder={t('renameProjectPlaceholder')}
+                    autoFocus
+                />
+            </Modal>
         </div>
     );
 }

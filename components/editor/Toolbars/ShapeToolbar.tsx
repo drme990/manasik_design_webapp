@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
+import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
@@ -11,6 +13,7 @@ import type { ShapeLayer } from '@/types';
 export interface ShapeToolbarProps {
   layer: ShapeLayer;
   onChange: (updates: Partial<ShapeLayer>) => void;
+  onSliderStart?: () => void;
   className?: string;
 }
 
@@ -38,8 +41,16 @@ const SHAPE_LABEL_KEYS: Record<ShapeLayer['shape'], string> = {
   line: 'line',
 };
 
-export default function ShapeToolbar({ layer, onChange, className }: ShapeToolbarProps) {
+export default function ShapeToolbar({ layer, onChange, onSliderStart, className }: ShapeToolbarProps) {
   const t = useTranslations('editor.toolbars.shape');
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+
+  const addRecentColor = (color: string) => {
+    setRecentColors((prev) => {
+      const filtered = prev.filter((c) => c.toLowerCase() !== color.toLowerCase());
+      return [color, ...filtered].slice(0, 10);
+    });
+  };
 
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
@@ -68,26 +79,21 @@ export default function ShapeToolbar({ layer, onChange, className }: ShapeToolba
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">{t('fillColor')}</label>
-          <input
-            type="color"
-            value={layer.fillColor}
-            onChange={(e) => onChange({ fillColor: e.target.value })}
-            className="h-10 w-full cursor-pointer rounded-lg border border-stroke bg-background p-1"
-          />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">{t('strokeColor')}</label>
-          <input
-            type="color"
-            value={layer.strokeColor}
-            onChange={(e) => onChange({ strokeColor: e.target.value })}
-            className="h-10 w-full cursor-pointer rounded-lg border border-stroke bg-background p-1"
-          />
-        </div>
-      </div>
+      <ColorPicker
+        label={t('fillColor')}
+        value={layer.fillColor}
+        onChange={(color) => onChange({ fillColor: color })}
+        recent={recentColors}
+        onRecentAdd={addRecentColor}
+      />
+
+      <ColorPicker
+        label={t('strokeColor')}
+        value={layer.strokeColor}
+        onChange={(color) => onChange({ strokeColor: color })}
+        recent={recentColors}
+        onRecentAdd={addRecentColor}
+      />
 
       <SliderField
         label={t('strokeWidth')}
@@ -95,6 +101,7 @@ export default function ShapeToolbar({ layer, onChange, className }: ShapeToolba
         min={0}
         max={50}
         onChange={(v) => onChange({ strokeWidth: v })}
+        onDragStart={onSliderStart}
       />
 
       <SliderField
@@ -103,6 +110,7 @@ export default function ShapeToolbar({ layer, onChange, className }: ShapeToolba
         min={0}
         max={100}
         onChange={(v) => onChange({ opacity: v / 100 })}
+        onDragStart={onSliderStart}
         suffix="%"
       />
 
