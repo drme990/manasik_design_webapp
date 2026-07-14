@@ -16,7 +16,6 @@ import {
     LuSave,
     LuZoomIn,
     LuZoomOut,
-    LuLoader,
     LuLayers,
     LuSlidersHorizontal,
     LuUndo2,
@@ -88,6 +87,7 @@ export default function EditorPage() {
     const [isExporting, setIsExporting] = useState(false);
     const [leftPanelOpen, setLeftPanelOpen] = useState(false);
     const [rightPanelOpen, setRightPanelOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
     const [panState, setPanState] = useState<{ isPanning: boolean; startX: number; startY: number }>({
         isPanning: false,
         startX: 0,
@@ -115,6 +115,13 @@ export default function EditorPage() {
             setZoom(Math.max(fit, MIN_ZOOM));
         });
     }, [id]);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 640);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
     const pendingPersistRef = useRef<Project | null>(null);
     const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -930,10 +937,10 @@ export default function EditorPage() {
                     >
                         <div
                             style={{
-                                width: project.canvasWidth,
-                                height: project.canvasHeight,
+                                width: project.canvasWidth * zoom,
+                                height: project.canvasHeight * zoom,
                                 transform: `scale(${zoom})`,
-                                transformOrigin: 'top left',
+                                transformOrigin: isMobile ? 'top right' : 'top left',
                             }}
                         >
                             <Canvas
