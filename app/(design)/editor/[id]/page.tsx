@@ -464,6 +464,9 @@ export default function EditorPage() {
                 canvasHeight: prev.canvasHeight,
             });
             layer.zIndex = nextZIndex(prev.layers);
+            setSelectedLayerId(layer.id);
+            setLeftPanelOpen(false);
+            setRightPanelOpen(true);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState, t]);
@@ -478,6 +481,9 @@ export default function EditorPage() {
                 height: prev.canvasWidth * 0.25,
             });
             layer.zIndex = nextZIndex(prev.layers);
+            setSelectedLayerId(layer.id);
+            setLeftPanelOpen(false);
+            setRightPanelOpen(true);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState]);
@@ -492,6 +498,9 @@ export default function EditorPage() {
                 y: prev.canvasHeight * 0.1,
             });
             layer.zIndex = nextZIndex(prev.layers);
+            setSelectedLayerId(layer.id);
+            setLeftPanelOpen(false);
+            setRightPanelOpen(true);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState, t]);
@@ -517,6 +526,9 @@ export default function EditorPage() {
                             canvasHeight: prev.canvasHeight,
                         });
                         layer.zIndex = nextZIndex(prev.layers);
+                        setSelectedLayerId(layer.id);
+                        setLeftPanelOpen(false);
+                        setRightPanelOpen(true);
                         return { ...prev, layers: [...prev.layers, layer] };
                     });
                 };
@@ -1061,7 +1073,7 @@ export default function EditorPage() {
                 <div className="w-px bg-stroke" />
                 <button
                     type="button"
-                    onClick={() => setLeftPanelOpen((v) => !v)}
+                    onClick={() => { setLeftPanelOpen((v) => !v); setRightPanelOpen(false); }}
                     className={cn(
                         'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
                         leftPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
@@ -1072,7 +1084,7 @@ export default function EditorPage() {
                 </button>
                 <button
                     type="button"
-                    onClick={() => setRightPanelOpen((v) => !v)}
+                    onClick={() => { setRightPanelOpen((v) => !v); setLeftPanelOpen(false); }}
                     className={cn(
                         'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
                         rightPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
