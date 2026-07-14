@@ -24,6 +24,7 @@ import {
     LuPencil,
     LuText,
     LuDownload,
+    LuX,
 } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -103,9 +104,12 @@ export default function EditorPage() {
             setProject(p);
             setLoading(false);
             if (!p) return;
+            const isMobile = window.innerWidth < 640;
+            const widthRatio = isMobile ? 0.9 : 0.45;
+            const heightRatio = isMobile ? 0.6 : 0.65;
             const fit = Math.min(
-                (window.innerWidth * 0.45) / p.canvasWidth,
-                (window.innerHeight * 0.65) / p.canvasHeight,
+                (window.innerWidth * widthRatio) / p.canvasWidth,
+                (window.innerHeight * heightRatio) / p.canvasHeight,
                 1
             );
             setZoom(Math.max(fit, MIN_ZOOM));
@@ -626,6 +630,14 @@ export default function EditorPage() {
 
     const handleContainerTouchMove = useCallback(
         (e: React.TouchEvent) => {
+            if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                const action = getActionFromPoint(touch.clientX, touch.clientY);
+                const layerId = getLayerIdFromPoint(touch.clientX, touch.clientY);
+                if (action?.action || layerId) {
+                    return;
+                }
+            }
             e.preventDefault();
             if (!touchState.isTouching) return;
 
@@ -649,7 +661,7 @@ export default function EditorPage() {
                 setPan({ x: touchState.startPanX + dx, y: touchState.startPanY + dy });
             }
         },
-        [touchState, getTouchDistance]
+        [touchState, getTouchDistance, getActionFromPoint, getLayerIdFromPoint]
     );
 
     const handleContainerTouchEnd = useCallback(() => {
@@ -658,7 +670,7 @@ export default function EditorPage() {
 
     if (loading) {
         return (
-            <div className="flex h-full items-center justify-center">
+            <div className="flex h-svh items-center justify-center">
                 <LoadingSpinner size="lg" />
             </div>
         );
@@ -666,7 +678,7 @@ export default function EditorPage() {
 
     if (!project) {
         return (
-            <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+            <div className="flex h-svh flex-col items-center justify-center gap-4 text-center">
                 <h2 className="text-xl font-semibold text-foreground">{t('notFoundTitle')}</h2>
                 <p className="text-secondary">{t('notFoundDescription')}</p>
                 <Button onClick={() => router.push('/projects')}>
@@ -680,7 +692,7 @@ export default function EditorPage() {
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
 
     return (
-        <div className="flex h-full flex-col">
+        <div className="flex h-svh flex-col">
             {/* Top toolbar */}
             <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -772,16 +784,36 @@ export default function EditorPage() {
 
             {/* Main editor area */}
             <div className="flex flex-1 overflow-hidden">
+                {/* Mobile backdrop for panels */}
+                {(leftPanelOpen || rightPanelOpen) && (
+                    <div
+                        className="fixed inset-0 top-14 z-20 bg-black/40 lg:hidden"
+                        onClick={() => { setLeftPanelOpen(false); setRightPanelOpen(false); }}
+                    />
+                )}
+
                 {/* Left: layers & tools */}
                 <div
                     className={cn(
-                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 border-r border-stroke bg-toolbar-bg p-4',
+                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-stroke bg-toolbar-bg p-4',
                         'transition-transform duration-300 ease-in-out',
                         'lg:static lg:w-64 lg:translate-x-0',
                         leftPanelOpen ? 'translate-x-0' : '-translate-x-full',
                         'fixed bottom-0 left-0 top-14'
                     )}
                 >
+                    <div className="flex items-center justify-between lg:hidden">
+                        <h3 className="text-sm font-semibold text-foreground">{t('layers')}</h3>
+                        <button
+                            type="button"
+                            onClick={() => setLeftPanelOpen(false)}
+                            className="p-1 text-secondary hover:text-foreground"
+                            aria-label={t('cancel')}
+                        >
+                            <LuX className="h-5 w-5" />
+                        </button>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                         <Button variant="outline" size="sm" onClick={handleAddText} className="gap-1">
                             <LuType className="h-4 w-4" />
@@ -936,9 +968,21 @@ export default function EditorPage() {
                         'fixed bottom-0 right-0 top-14'
                     )}
                 >
+                    <div className="flex items-center justify-between lg:hidden">
+                        <h3 className="text-sm font-semibold text-foreground">{t('properties')}</h3>
+                        <button
+                            type="button"
+                            onClick={() => setRightPanelOpen(false)}
+                            className="p-1 text-secondary hover:text-foreground"
+                            aria-label={t('cancel')}
+                        >
+                            <LuX className="h-5 w-5" />
+                        </button>
+                    </div>
+
                     {selectedLayer ? (
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            <div className="hidden items-center justify-between lg:flex">
                                 <h3 className="text-sm font-semibold text-foreground">{t('properties')}</h3>
                                 <div className="flex gap-1">
                                     <Button

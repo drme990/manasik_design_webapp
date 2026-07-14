@@ -337,6 +337,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const touch = e.touches[0];
 
     if (dragState.isDragging && dragState.layerId) {
+      e.stopPropagation();
       const deltaX = (touch.clientX - dragState.startX) / scale;
       const deltaY = (touch.clientY - dragState.startY) / scale;
       updateLayerPosition(dragState.layerId, dragState.initialX + deltaX, dragState.initialY + deltaY);
@@ -344,6 +345,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     }
 
     if (resizeState) {
+      e.stopPropagation();
       const deltaX = (touch.clientX - resizeState.startX) / scale;
       const deltaY = (touch.clientY - resizeState.startY) / scale;
       const { direction } = resizeState;
@@ -398,6 +400,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     }
 
     if (rotateState && canvasRef.current) {
+      e.stopPropagation();
       const rect = canvasRef.current.getBoundingClientRect();
       const mouseX = (touch.clientX - rect.left) / scale;
       const mouseY = (touch.clientY - rect.top) / scale;
@@ -410,11 +413,14 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     }
   }, [dragState, resizeState, rotateState, onLayerChange, scale, updateLayerPosition]);
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (dragState.isDragging || resizeState || rotateState) {
+      e.stopPropagation();
+    }
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
     setResizeState(null);
     setRotateState(null);
-  }, []);
+  }, [dragState.isDragging, resizeState, rotateState]);
 
   const sortedLayers = [...layers].sort((a, b) => a.zIndex - b.zIndex);
 

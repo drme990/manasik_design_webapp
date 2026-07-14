@@ -33,7 +33,8 @@ export default function DesignShell({ children }: DesignShellProps) {
         {!isEditorPage && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
         <main
           className={cn(
-            'flex-1 overflow-auto',
+            'flex-1',
+            isEditorPage ? 'overflow-hidden' : 'overflow-auto',
             !isEditorPage && 'p-4 sm:p-6 lg:p-8'
           )}
         >
