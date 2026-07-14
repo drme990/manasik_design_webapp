@@ -5,70 +5,108 @@ import { createProject, getProject, saveProject } from './projects';
 
 const STORAGE_KEY = 'manasik:booking_products';
 
+async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'unknown' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function mergeLocalProduct(product: BookingProduct): Promise<void> {
+  const products = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY) || [];
+  const index = products.findIndex((p) => p.id === product.id);
+  if (index >= 0) {
+    products[index] = product;
+  } else {
+    products.push(product);
+  }
+  await kvStorage.setItem(STORAGE_KEY, products);
+}
+
 export async function listBookingProducts(): Promise<BookingProduct[]> {
   try {
+    const result = await fetchWithAuth('/api/booking-products');
+    const products = (result.data || []) as BookingProduct[];
+    await kvStorage.setItem(STORAGE_KEY, products);
+    return products;
+  } catch (error) {
+    console.warn('Failed to fetch booking products from API, falling back to local cache:', error);
     const data = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY);
     return data || [];
-  } catch (error) {
-    console.error('Failed to list booking products:', error);
-    return [];
   }
 }
 
 export async function getBookingProduct(id: string): Promise<BookingProduct | null> {
   try {
-    const products = await listBookingProducts();
-    return products.find(p => p.id === id) || null;
+    const result = await fetchWithAuth(`/api/booking-products/${id}`);
+    const product = result.data as BookingProduct;
+    await mergeLocalProduct(product);
+    return product;
   } catch (error) {
-    console.error('Failed to get booking product:', error);
-    return null;
+    console.warn('Failed to fetch booking product from API, falling back to local cache:', error);
+    const products = await listBookingProducts();
+    return products.find((p) => p.id === id) || null;
   }
 }
 
 export async function createBookingProduct(input: BookingProductCreateInput): Promise<BookingProduct> {
-  const product: BookingProduct = {
-    id: generateId(),
-    name: input.name,
-    imageUri: input.imageUri,
-    defaultCanvas: input.defaultCanvas,
-    templates: {
-      withImage: { single: null, double: null, multiple: null },
-      withoutImage: { single: null, double: null, multiple: null }
-    },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    localModifiedAt: Date.now(),
-    syncStatus: 'pending',
-    userId: input.userId
-  };
-
-  await saveBookingProduct(product);
-  return product;
+  try {
+    const result = await fetchWithAuth('/api/booking-products', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    const product = result.data as BookingProduct;
+    await mergeLocalProduct(product);
+    return product;
+  } catch (error) {
+    console.warn('Failed to create booking product on API, creating locally only:', error);
+    const product: BookingProduct = {
+      id: generateId(),
+      name: input.name,
+      imageUri: input.imageUri,
+      defaultCanvas: input.defaultCanvas,
+      templates: {
+        withImage: { single: null, double: null, multiple: null },
+        withoutImage: { single: null, double: null, multiple: null },
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      localModifiedAt: Date.now(),
+      syncStatus: 'pending',
+      userId: input.userId,
+    };
+    await mergeLocalProduct(product);
+    return product;
+  }
 }
 
 export async function saveBookingProduct(product: BookingProduct): Promise<void> {
   try {
-    const products = await listBookingProducts();
-    const index = products.findIndex(p => p.id === product.id);
-
-    const updatedProduct = {
-      ...product,
-      updatedAt: Date.now(),
-      localModifiedAt: Date.now(),
-      syncStatus: 'pending' as const
-    };
-
-    if (index >= 0) {
-      products[index] = updatedProduct;
-    } else {
-      products.push(updatedProduct);
-    }
-
-    await kvStorage.setItem(STORAGE_KEY, products);
+    await fetchWithAuth(`/api/booking-products/${product.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(product),
+    });
   } catch (error) {
-    console.error('Failed to save booking product:', error);
-    throw error;
+    console.warn('Failed to save booking product to API, saving locally only:', error);
   }
+
+  await mergeLocalProduct({
+    ...product,
+    updatedAt: Date.now(),
+    localModifiedAt: Date.now(),
+    syncStatus: 'pending',
+  });
 }
 
 export async function updateBookingProduct(id: string, updates: BookingProductUpdateInput): Promise<BookingProduct | null> {
@@ -78,9 +116,9 @@ export async function updateBookingProduct(id: string, updates: BookingProductUp
   const updated = {
     ...product,
     ...updates,
-    id, // Ensure ID doesn't change
+    id,
     localModifiedAt: Date.now(),
-    syncStatus: 'pending' as const
+    syncStatus: 'pending' as const,
   };
 
   await saveBookingProduct(updated);
@@ -89,13 +127,16 @@ export async function updateBookingProduct(id: string, updates: BookingProductUp
 
 export async function deleteBookingProduct(id: string): Promise<void> {
   try {
-    const products = await listBookingProducts();
-    const filtered = products.filter(p => p.id !== id);
-    await kvStorage.setItem(STORAGE_KEY, filtered);
+    await fetchWithAuth(`/api/booking-products/${id}`, {
+      method: 'DELETE',
+    });
   } catch (error) {
-    console.error('Failed to delete booking product:', error);
-    throw error;
+    console.warn('Failed to delete booking product from API, deleting locally only:', error);
   }
+
+  const products = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY) || [];
+  const filtered = products.filter((p) => p.id !== id);
+  await kvStorage.setItem(STORAGE_KEY, filtered);
 }
 
 export async function getOrCreateTemplateProject(
@@ -117,7 +158,6 @@ export async function getOrCreateTemplateProject(
     }
   }
 
-  // Create new template project
   const projectName = `${product.name} — ${model === 'withImage' ? 'بصورة' : 'بدون صورة'} — ${getVariantLabel(variant)}`;
 
   const project = await createProject({
@@ -129,17 +169,16 @@ export async function getOrCreateTemplateProject(
     bookingMeta: {
       productId,
       model,
-      variant
-    }
+      variant,
+    },
   });
 
-  // Update product with new template ID
   const updatedTemplates = {
     ...product.templates,
     [model]: {
       ...product.templates[model],
-      [variant]: project.id
-    }
+      [variant]: project.id,
+    },
   };
 
   await updateBookingProduct(productId, { templates: updatedTemplates });
@@ -151,32 +190,15 @@ function getVariantLabel(variant: 'single' | 'double' | 'multiple'): string {
   const labels = {
     single: 'قطعة واحدة',
     double: 'قطعتين',
-    multiple: 'أكثر من قطعتين'
+    multiple: 'أكثر من قطعتين',
   };
   return labels[variant];
 }
 
-// Pre-seed default products
 export async function seedDefaultProducts(): Promise<void> {
-  const existing = await listBookingProducts();
-  if (existing.length > 0) return;
-
-  const defaultProducts = [
-    {
-      name: 'خروف عقيقة بالطعام',
-      defaultCanvas: { width: 1080, height: 1080 }
-    },
-    {
-      name: 'خروف كبير عقيقة بالطعام',
-      defaultCanvas: { width: 1080, height: 1080 }
-    },
-    {
-      name: 'كبش عقيقة بالطعام',
-      defaultCanvas: { width: 1080, height: 1080 }
-    }
-  ];
-
-  for (const productData of defaultProducts) {
-    await createBookingProduct(productData);
+  try {
+    await fetchWithAuth('/api/booking-products/seed', { method: 'POST' });
+  } catch (error) {
+    console.warn('Failed to seed booking products via API:', error);
   }
 }

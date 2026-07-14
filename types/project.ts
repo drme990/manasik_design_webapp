@@ -45,6 +45,7 @@ export interface ProjectCreateInput {
   canvasHeight: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  layers?: AnyLayer[];
   bookingMeta?: BookingMeta;
   userId?: string;
 }

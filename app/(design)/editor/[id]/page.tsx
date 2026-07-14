@@ -33,7 +33,7 @@ import TextToolbar from '@/components/editor/Toolbars/TextToolbar';
 import ImageToolbar from '@/components/editor/Toolbars/ImageToolbar';
 import ShapeToolbar from '@/components/editor/Toolbars/ShapeToolbar';
 import DynamicFieldToolbar from '@/components/editor/Toolbars/DynamicFieldToolbar';
-import { getProject, updateProject } from '@/lib/store/projects';
+import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -56,6 +56,7 @@ function generateFieldId(project: Project): string {
     return `field_${max + 1}`;
 }
 const MAX_ZOOM = 2;
+const SYNC_INTERVAL_MS = 10_000;
 
 export default function EditorPage() {
     const { id } = useParams<{ id: string }>();
@@ -94,14 +95,6 @@ export default function EditorPage() {
     }, [project]);
 
     useEffect(() => {
-        const endTransaction = () => {
-            inTransactionRef.current = false;
-        };
-        window.addEventListener('mouseup', endTransaction);
-        return () => window.removeEventListener('mouseup', endTransaction);
-    }, []);
-
-    useEffect(() => {
         getProject(id).then((p) => {
             setProject(p);
             setLoading(false);
@@ -115,29 +108,82 @@ export default function EditorPage() {
         });
     }, [id]);
 
+    const pendingPersistRef = useRef<Project | null>(null);
+    const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const saveLocal = useCallback(async (projectToSave: Project) => {
+        try {
+            await saveProject(projectToSave);
+        } catch (error) {
+            console.error('Failed to save project locally:', error);
+        }
+    }, []);
+
     const persistProject = useCallback(
-        async (updated: Project) => {
-            setSaving(true);
-            await updateProject(updated.id, {
-                layers: updated.layers,
-                thumbnail: updated.thumbnail,
-            });
-            setSaving(false);
+        (updated: Project) => {
+            pendingPersistRef.current = updated;
+
+            if (inTransactionRef.current) {
+                return;
+            }
+
+            saveLocal(updated);
         },
-        []
+        [saveLocal]
     );
+
+    const flushPersist = useCallback(async (updated: Project) => {
+        pendingPersistRef.current = null;
+        setSaving(true);
+        await saveLocal(updated);
+        if (projectRef.current) {
+            await syncProject(projectRef.current.id);
+        }
+        setSaving(false);
+    }, [saveLocal]);
+
+    useEffect(() => {
+        const endTransaction = () => {
+            if (inTransactionRef.current) {
+                inTransactionRef.current = false;
+                const current = pendingPersistRef.current;
+                if (current) {
+                    saveLocal(current);
+                    pendingPersistRef.current = null;
+                }
+            }
+        };
+        window.addEventListener('mouseup', endTransaction);
+        return () => window.removeEventListener('mouseup', endTransaction);
+    }, [saveLocal]);
+
+    useEffect(() => {
+        syncIntervalRef.current = setInterval(async () => {
+            const currentId = projectRef.current?.id;
+            if (!currentId) return;
+            setSaving(true);
+            await syncProject(currentId);
+            setSaving(false);
+        }, SYNC_INTERVAL_MS);
+
+        return () => {
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+            }
+        };
+    }, []);
 
     const handleRenameProject = useCallback(async () => {
         if (!project || !renameValue.trim()) return;
         const trimmed = renameValue.trim();
-        await updateProject(project.id, { name: trimmed });
+        await updateProjectLocal(project.id, { name: trimmed });
         setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
         setRenameOpen(false);
     }, [project, renameValue]);
 
     const handleBackgroundColorChange = useCallback(async (color: string) => {
         if (!project) return;
-        await updateProject(project.id, { backgroundColor: color });
+        await updateProjectLocal(project.id, { backgroundColor: color });
         setProject((prev) => (prev ? { ...prev, backgroundColor: color } : prev));
     }, [project]);
 
@@ -147,7 +193,7 @@ export default function EditorPage() {
         const reader = new FileReader();
         reader.onload = async (event) => {
             const uri = event.target?.result as string;
-            await updateProject(project.id, { backgroundUri: uri });
+            await updateProjectLocal(project.id, { backgroundUri: uri });
             setProject((prev) => (prev ? { ...prev, backgroundUri: uri } : prev));
         };
         reader.readAsDataURL(file);
@@ -156,7 +202,7 @@ export default function EditorPage() {
 
     const handleRemoveBackgroundImage = useCallback(async () => {
         if (!project) return;
-        await updateProject(project.id, { backgroundUri: undefined });
+        await updateProjectLocal(project.id, { backgroundUri: undefined });
         setProject((prev) => (prev ? { ...prev, backgroundUri: undefined } : prev));
     }, [project]);
 
@@ -251,10 +297,27 @@ export default function EditorPage() {
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
         window.addEventListener('mouseup', handleMouseUp);
+        const flushBeforeLeave = () => {
+            const current = pendingPersistRef.current || projectRef.current;
+            if (!current) return;
+            saveProject(current).catch((err) =>
+                console.error('Failed to save project locally before leaving:', err)
+            );
+            syncProject(current.id).catch((err) =>
+                console.error('Failed to sync project before leaving:', err)
+            );
+        };
+        window.addEventListener('beforeunload', flushBeforeLeave);
+
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('beforeunload', flushBeforeLeave);
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+            }
+            flushBeforeLeave();
         };
     }, [handleUndo, handleRedo]);
 
@@ -285,6 +348,7 @@ export default function EditorPage() {
         (layerId: string) => {
             const current = projectRef.current;
             if (!current) return;
+            inTransactionRef.current = true;
             setHistory((h) => ({
                 past: [...h.past, current.layers],
                 future: [],
@@ -652,15 +716,11 @@ export default function EditorPage() {
                     <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => persistProject(project)}
+                        onClick={() => flushPersist(project)}
                         loading={saving}
                         className="gap-1 px-2 sm:px-3"
                     >
-                        {saving ? (
-                            <LuLoader className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <LuSave className="h-4 w-4" />
-                        )}
+                        <LuSave className="h-4 w-4" />
                         <span className="hidden sm:inline">{t('save')}</span>
                     </Button>
                 </div>
