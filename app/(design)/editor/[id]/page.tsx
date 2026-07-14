@@ -35,6 +35,7 @@ import TextToolbar from '@/components/editor/Toolbars/TextToolbar';
 import ImageToolbar from '@/components/editor/Toolbars/ImageToolbar';
 import ShapeToolbar from '@/components/editor/Toolbars/ShapeToolbar';
 import DynamicFieldToolbar from '@/components/editor/Toolbars/DynamicFieldToolbar';
+import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
@@ -85,6 +86,7 @@ export default function EditorPage() {
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [isExporting, setIsExporting] = useState(false);
+    const [isCropOpen, setIsCropOpen] = useState(false);
     const [leftPanelOpen, setLeftPanelOpen] = useState(false);
     const [rightPanelOpen, setRightPanelOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
@@ -401,6 +403,27 @@ export default function EditorPage() {
         (verticalAlign: 'top' | 'middle' | 'bottom') => {
             if (!selectedLayerId) return;
             handleLayerChange(selectedLayerId, { verticalAlign } as Partial<AnyLayer>);
+        },
+        [selectedLayerId, handleLayerChange]
+    );
+
+    const handleCropApply = useCallback(
+        (croppedUri: string, newWidth: number, newHeight: number) => {
+            if (!selectedLayerId) return;
+            const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
+            if (!layer) return;
+            const ratio = newWidth / newHeight;
+            handleLayerChange(selectedLayerId, {
+                uri: croppedUri,
+                naturalWidth: newWidth,
+                naturalHeight: newHeight,
+                maskWidth: newWidth,
+                maskHeight: newHeight,
+                height: layer.width / ratio,
+                offsetX: 0,
+                offsetY: 0,
+                imageScale: 1,
+            } as Partial<AnyLayer>);
         },
         [selectedLayerId, handleLayerChange]
     );
@@ -1053,6 +1076,7 @@ export default function EditorPage() {
                                     layer={selectedLayer as ImageLayer}
                                     onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
                                     onSliderStart={startChangeTransaction}
+                                    onCrop={() => setIsCropOpen(true)}
                                 />
                             )}
                             {selectedLayer.type === 'shape' && (
@@ -1142,6 +1166,18 @@ export default function EditorPage() {
                     autoFocus
                 />
             </Modal>
+
+            {/* Image crop modal — rendered at page level to avoid panel overflow clipping */}
+            {selectedLayer?.type === 'image' && (
+                <ImageCropModal
+                    isOpen={isCropOpen}
+                    onClose={() => setIsCropOpen(false)}
+                    imageUri={(selectedLayer as ImageLayer).uri}
+                    naturalWidth={(selectedLayer as ImageLayer).naturalWidth}
+                    naturalHeight={(selectedLayer as ImageLayer).naturalHeight}
+                    onApply={handleCropApply}
+                />
+            )}
         </div>
     );
 }

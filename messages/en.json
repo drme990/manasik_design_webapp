@@ -228,6 +228,7 @@
       },
       "image": {
         "title": "Image settings",
+        "crop": "Crop image",
         "scale": "Image scale",
         "offsetX": "Offset X",
         "offsetY": "Offset Y",
@@ -286,7 +287,14 @@
         "y": "Y",
         "width": "Width",
         "height": "Height",
-        "cropAndSave": "Crop & save"
+        "cropAndSave": "Crop & save",
+        "apply": "Apply",
+        "reset": "Reset",
+        "rotate": "Rotate",
+        "aspectRatio": "Aspect ratio",
+        "hint": "Drag to select crop area",
+        "cropSize": "Crop size",
+        "rotation": "Rotation"
       },
       "imageFieldSize": {
         "title": "Image field size"

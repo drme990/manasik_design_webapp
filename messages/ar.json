@@ -228,6 +228,7 @@
       },
       "image": {
         "title": "إعدادات الصورة",
+        "crop": "قص الصورة",
         "scale": "تكبير الصورة",
         "offsetX": "الإزاحة X",
         "offsetY": "الإزاحة Y",
@@ -286,7 +287,14 @@
         "y": "Y",
         "width": "العرض",
         "height": "الارتفاع",
-        "cropAndSave": "قص وحفظ"
+        "cropAndSave": "قص وحفظ",
+        "apply": "تطبيق",
+        "reset": "إعادة تعيين",
+        "rotate": "تدوير",
+        "aspectRatio": "نسبة العرض",
+        "hint": "اسحب لتحديد منطقة القص",
+        "cropSize": "حجم القص",
+        "rotation": "التدوير"
       },
       "imageFieldSize": {
         "title": "حجم حقل الصورة"

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
-import { LuFlipHorizontal, LuFlipVertical } from 'react-icons/lu';
+import { LuFlipHorizontal, LuFlipVertical, LuCrop } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
 import type { ImageLayer } from '@/types';
@@ -13,10 +13,11 @@ export interface ImageToolbarProps {
   layer: ImageLayer;
   onChange: (updates: Partial<ImageLayer>) => void;
   onSliderStart?: () => void;
+  onCrop?: () => void;
   className?: string;
 }
 
-export default function ImageToolbar({ layer, onChange, onSliderStart, className }: ImageToolbarProps) {
+export default function ImageToolbar({ layer, onChange, onSliderStart, onCrop, className }: ImageToolbarProps) {
   const t = useTranslations('editor.toolbars.image');
   const [recentColors, setRecentColors] = useState<string[]>([]);
 
@@ -30,6 +31,18 @@ export default function ImageToolbar({ layer, onChange, onSliderStart, className
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
       <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
+
+      {/* Crop button */}
+      {onCrop && (
+        <Button
+          variant="ghost"
+          onClick={onCrop}
+          className="w-full gap-2"
+        >
+          <LuCrop className="h-4 w-4" />
+          {t('crop')}
+        </Button>
+      )}
 
       <SliderField
         label={t('scale')}
