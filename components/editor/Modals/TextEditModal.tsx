@@ -4,9 +4,14 @@ import { useState, useEffect } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { TextArea } from '@/components/ui/TextArea';
-import { Select } from '@/components/ui/Select';
+import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
+import { resolveFontFamily } from '@/lib/constants/fonts';
 import { useTranslations } from 'next-intl';
+import { LuChevronDown, LuCheck } from 'react-icons/lu';
+
+const TRIGGER_BTN =
+  'flex w-full items-center justify-between rounded-lg border border-stroke bg-background px-4 py-2.5 text-foreground transition-all duration-200 hover:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary';
 
 export interface TextEditModalProps {
   isOpen: boolean;
@@ -41,10 +46,13 @@ export default function TextEditModal({
     setColor(initialColor);
   }, [isOpen, initialText, initialFontFamily, initialFontSize, initialColor]);
 
-  const fontOptions = ARABIC_SAFE_FONTS.map((font) => ({
-    value: font.id,
+  const fontItems: DropdownItem[] = ARABIC_SAFE_FONTS.map((font) => ({
+    id: font.id,
     label: font.name,
+    onClick: () => setFontFamily(font.id),
   }));
+
+  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.id === fontFamily);
 
   const handleSave = () => {
     onSave(text, fontFamily, fontSize, color);
@@ -75,12 +83,37 @@ export default function TextEditModal({
           onChange={(e) => setText(e.target.value)}
           rows={4}
         />
-        <Select
-          label={t('font')}
-          value={fontFamily}
-          options={fontOptions}
-          onChange={(e) => setFontFamily(e.target.value)}
-        />
+
+        {/* Font dropdown */}
+        <div className="w-full">
+          <label className="mb-1.5 block text-sm font-medium text-foreground">{t('font')}</label>
+          <Dropdown
+            align="left"
+            className="w-full"
+            trigger={
+              <button type="button" className={TRIGGER_BTN}>
+                <span
+                  className="truncate text-left"
+                  style={{ fontFamily: resolveFontFamily(fontFamily) }}
+                >
+                  {selectedFont?.name || fontFamily}
+                </span>
+                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+              </button>
+            }
+            items={fontItems.map((item) => ({
+              ...item,
+              label: undefined as unknown as string,
+              icon: (
+                <span className="flex w-full items-center justify-between">
+                  <span style={{ fontFamily: resolveFontFamily(item.id) }}>{item.label}</span>
+                  {item.id === fontFamily && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+                </span>
+              ),
+            }))}
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-foreground">{t('size')}</label>

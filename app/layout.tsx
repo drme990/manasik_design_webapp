@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from 'next/font/local';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getLocale } from 'next-intl/server';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import { editorFontVariables } from '@/lib/constants/fonts';
 import "./globals.css";
 
 const satoshi = localFont({
@@ -39,6 +40,13 @@ export const metadata: Metadata = {
   description: "Design app for events and celebrations",
 };
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -53,7 +61,7 @@ export default async function RootLayout({
       lang={locale}
       dir={isRtl ? 'rtl' : 'ltr'}
       suppressHydrationWarning
-      className={`${satoshi.variable} ${expoArabic.variable} h-full antialiased`}
+      className={`${satoshi.variable} ${expoArabic.variable} ${editorFontVariables} h-full antialiased`}
     >
       <body
         className="min-h-full"

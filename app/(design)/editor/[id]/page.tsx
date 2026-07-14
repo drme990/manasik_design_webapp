@@ -397,6 +397,14 @@ export default function EditorPage() {
         [selectedLayerId, handleLayerChange]
     );
 
+    const handleVerticalAlign = useCallback(
+        (verticalAlign: 'top' | 'middle' | 'bottom') => {
+            if (!selectedLayerId) return;
+            handleLayerChange(selectedLayerId, { verticalAlign } as Partial<AnyLayer>);
+        },
+        [selectedLayerId, handleLayerChange]
+    );
+
     const handleLayerDragStart = useCallback(
         (layerId: string) => {
             const current = projectRef.current;
@@ -967,6 +975,7 @@ export default function EditorPage() {
                                 scale={zoom}
                                 showGrid={!isExporting}
                                 onAlign={handleAlign}
+                                onVerticalAlign={handleVerticalAlign}
                             />
                         </div>
                     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
-import { LuCopy, LuTrash2, LuMaximize, LuRotateCw, LuAlignLeft, LuAlignCenter, LuAlignRight } from 'react-icons/lu';
+import { LuCopy, LuTrash2, LuMaximize, LuRotateCw, LuAlignLeft, LuAlignCenter, LuAlignRight, LuAlignStartVertical, LuAlignCenterVertical, LuAlignEndVertical } from 'react-icons/lu';
 import type { AnyLayer, TextLayer } from '@/types';
 
 export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -14,6 +14,7 @@ export interface SelectionBoxProps {
   onResizeStart?: (e: React.MouseEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
   onRotateStart?: (e: React.MouseEvent) => void;
   onAlign?: (align: 'left' | 'center' | 'right') => void;
+  onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
 }
 
 const ICON_BTN =
@@ -40,12 +41,14 @@ export default function SelectionBox({
   onResizeStart,
   onRotateStart,
   onAlign,
+  onVerticalAlign,
 }: SelectionBoxProps) {
   if (!layer) return null;
 
-  const canFreeScale = layer.type === 'shape' || layer.type === 'image';
+  const canFreeScale = layer.type === 'shape' || layer.type === 'image' || layer.type === 'text';
   const isText = layer.type === 'text';
   const currentAlign = isText ? (layer as TextLayer).align : undefined;
+  const currentVAlign = isText ? (layer as TextLayer).verticalAlign : undefined;
   const handle = 'absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   const ALIGN_BTN =
@@ -55,6 +58,12 @@ export default function SelectionBox({
     { align: 'left', icon: LuAlignLeft, label: 'Left' },
     { align: 'center', icon: LuAlignCenter, label: 'Center' },
     { align: 'right', icon: LuAlignRight, label: 'Right' },
+  ];
+
+  const vAlignButtons: { align: 'top' | 'middle' | 'bottom'; icon: typeof LuAlignStartVertical; label: string }[] = [
+    { align: 'top', icon: LuAlignStartVertical, label: 'Top' },
+    { align: 'middle', icon: LuAlignCenterVertical, label: 'Middle' },
+    { align: 'bottom', icon: LuAlignEndVertical, label: 'Bottom' },
   ];
 
   return (
@@ -85,6 +94,29 @@ export default function SelectionBox({
               className={cn(
                 ALIGN_BTN,
                 currentAlign === align && 'bg-layer-selected text-white'
+              )}
+              aria-label={label}
+            >
+              <Icon className="h-5 w-5" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Text vertical alignment — bottom-center */}
+      {isText && onVerticalAlign && (
+        <div className="pointer-events-auto absolute -bottom-14 left-1/2 flex -translate-x-1/2 gap-1.5">
+          {vAlignButtons.map(({ align, icon: Icon, label }) => (
+            <button
+              key={align}
+              type="button"
+              data-action="valign"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onVerticalAlign(align); }}
+              className={cn(
+                ALIGN_BTN,
+                currentVAlign === align && 'bg-layer-selected text-white'
               )}
               aria-label={label}
             >

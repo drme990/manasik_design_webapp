@@ -41,7 +41,8 @@ export default function Dropdown({ trigger, items, align = 'right', className }:
       {isOpen && (
         <div
           className={cn(
-            'absolute top-full mt-2 min-w-50 rounded-lg border border-stroke bg-card-bg shadow-lg z-50',
+            'absolute top-full mt-2 min-w-50 max-w-80 rounded-lg border border-stroke bg-card-bg shadow-lg z-50',
+            'max-h-72 overflow-y-auto',
             alignClass
           )}
         >
@@ -57,8 +58,8 @@ export default function Dropdown({ trigger, items, align = 'right', className }:
                 item.danger && 'text-error hover:bg-error/10'
               )}
             >
-              {item.icon && <span className="h-4 w-4">{item.icon}</span>}
-              <span>{item.label}</span>
+              {item.icon && <span className="flex min-w-0 flex-1 items-center gap-2">{item.icon}</span>}
+              {item.label && <span className="truncate">{item.label}</span>}
             </button>
           ))}
         </div>

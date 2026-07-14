@@ -1,12 +1,13 @@
 'use client';
 
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from 'next-intl';
+import { LuChevronDown, LuCheck } from 'react-icons/lu';
 import type { DynamicFieldLayer } from '@/types';
 
 export interface DynamicFieldToolbarProps {
@@ -15,18 +16,31 @@ export interface DynamicFieldToolbarProps {
   className?: string;
 }
 
+const TRIGGER_BTN =
+  'flex w-full items-center justify-between rounded-lg border border-stroke bg-background px-4 py-2.5 text-foreground transition-all duration-200 hover:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary';
+
 export default function DynamicFieldToolbar({ layer, onChange, className }: DynamicFieldToolbarProps) {
   const t = useTranslations('editor.toolbars.dynamicField');
 
-  const fieldTypeOptions = [
-    { value: 'text', label: t('text') },
-    { value: 'image', label: t('image') },
+  const fieldTypeItems: DropdownItem[] = [
+    { id: 'text', label: t('text'), onClick: () => onChange({ fieldType: 'text' }) },
+    { id: 'image', label: t('image'), onClick: () => onChange({ fieldType: 'image' }) },
   ];
 
-  const imageFitOptions = [
-    { value: 'cover', label: t('cover') },
-    { value: 'contain', label: t('contain') },
+  const imageFitItems: DropdownItem[] = [
+    { id: 'cover', label: t('cover'), onClick: () => onChange({ imageFit: 'cover' }) },
+    { id: 'contain', label: t('contain'), onClick: () => onChange({ imageFit: 'contain' }) },
   ];
+
+  const renderItem = (item: DropdownItem, isSelected: boolean) => (
+    <span className="flex w-full items-center justify-between">
+      <span>{item.label}</span>
+      {isSelected && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+    </span>
+  );
+
+  const selectedFieldType = layer.fieldType;
+  const selectedImageFit = layer.imageFit;
 
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
@@ -44,12 +58,27 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
         onChange={(e) => onChange({ placeholder: e.target.value })}
       />
 
-      <Select
-        label={t('fieldType')}
-        value={layer.fieldType}
-        options={fieldTypeOptions}
-        onChange={(e) => onChange({ fieldType: e.target.value as 'text' | 'image' })}
-      />
+      {/* Field type dropdown */}
+      <div className="w-full">
+        <label className="mb-1.5 block text-sm font-medium text-foreground">{t('fieldType')}</label>
+        <Dropdown
+          align="left"
+          className="w-full"
+          trigger={
+            <button type="button" className={TRIGGER_BTN}>
+              <span className="truncate text-left">
+                {selectedFieldType === 'text' ? t('text') : t('image')}
+              </span>
+              <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+            </button>
+          }
+          items={fieldTypeItems.map((item) => ({
+            ...item,
+            label: undefined as unknown as string,
+            icon: renderItem(item, item.id === selectedFieldType),
+          }))}
+        />
+      </div>
 
       {layer.fieldType === 'text' && (
         <>
@@ -77,12 +106,27 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
 
       {layer.fieldType === 'image' && (
         <>
-          <Select
-            label={t('imageFit')}
-            value={layer.imageFit}
-            options={imageFitOptions}
-            onChange={(e) => onChange({ imageFit: e.target.value as 'cover' | 'contain' })}
-          />
+          {/* Image fit dropdown */}
+          <div className="w-full">
+            <label className="mb-1.5 block text-sm font-medium text-foreground">{t('imageFit')}</label>
+            <Dropdown
+              align="left"
+              className="w-full"
+              trigger={
+                <button type="button" className={TRIGGER_BTN}>
+                  <span className="truncate text-left">
+                    {selectedImageFit === 'cover' ? t('cover') : t('contain')}
+                  </span>
+                  <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+                </button>
+              }
+              items={imageFitItems.map((item) => ({
+                ...item,
+                label: undefined as unknown as string,
+                icon: renderItem(item, item.id === selectedImageFit),
+              }))}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <NumberField
               label={t('width')}

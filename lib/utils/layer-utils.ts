@@ -50,6 +50,7 @@ export function buildTextLayer(options: {
     bold: false,
     italic: false,
     align: 'center',
+    verticalAlign: 'middle',
     lineHeight: 1.3,
     direction: 'auto'
   };

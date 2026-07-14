@@ -2,14 +2,15 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import NumberField from '@/components/ui/NumberField';
+import { TextArea } from '@/components/ui/TextArea';
+import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
+import { resolveFontFamily } from '@/lib/constants/fonts';
 import { useTranslations } from 'next-intl';
+import { LuChevronDown, LuCheck } from 'react-icons/lu';
 import type { TextLayer } from '@/types';
 
 export interface TextToolbarProps {
@@ -19,19 +20,11 @@ export interface TextToolbarProps {
   className?: string;
 }
 
+const TRIGGER_BTN =
+  'flex w-full items-center justify-between rounded-lg border border-stroke bg-background px-4 py-2.5 text-foreground transition-all duration-200 hover:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary';
+
 export default function TextToolbar({ layer, onChange, onSliderStart, className }: TextToolbarProps) {
   const t = useTranslations('editor.toolbars.text');
-
-  const fontOptions = ARABIC_SAFE_FONTS.map((font) => ({
-    value: font.id,
-    label: font.name,
-  }));
-
-  const alignOptions = [
-    { value: 'left', label: t('left') },
-    { value: 'center', label: t('center') },
-    { value: 'right', label: t('right') },
-  ];
   const [recentColors, setRecentColors] = useState<string[]>([]);
 
   const addRecentColor = (color: string) => {
@@ -41,40 +34,94 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
     });
   };
 
+  const fontItems: DropdownItem[] = ARABIC_SAFE_FONTS.map((font) => ({
+    id: font.id,
+    label: font.name,
+    onClick: () => onChange({ fontFamily: font.id }),
+  }));
+
+  const alignItems: DropdownItem[] = [
+    { id: 'left', label: t('left'), onClick: () => onChange({ align: 'left' }) },
+    { id: 'center', label: t('center'), onClick: () => onChange({ align: 'center' }) },
+    { id: 'right', label: t('right'), onClick: () => onChange({ align: 'right' }) },
+  ];
+
+  const vAlignItems: DropdownItem[] = [
+    { id: 'top', label: t('top'), onClick: () => onChange({ verticalAlign: 'top' }) },
+    { id: 'middle', label: t('middle'), onClick: () => onChange({ verticalAlign: 'middle' }) },
+    { id: 'bottom', label: t('bottom'), onClick: () => onChange({ verticalAlign: 'bottom' }) },
+  ];
+
+  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.id === layer.fontFamily);
+  const selectedAlign = layer.align;
+  const selectedVAlign = layer.verticalAlign;
+
+  const renderItem = (item: DropdownItem, isSelected: boolean) => (
+    <span className="flex w-full items-center justify-between">
+      <span
+        className="truncate"
+        style={item.id === layer.fontFamily ? { fontFamily: resolveFontFamily(item.id) } : undefined}
+      >
+        {item.label}
+      </span>
+      {isSelected && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+    </span>
+  );
+
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
       <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
 
-      <Input
+      <TextArea
         label={t('text')}
         value={layer.text}
         onChange={(e) => onChange({ text: e.target.value })}
+        rows={3}
       />
 
-      <Select
-        label={t('font')}
-        value={layer.fontFamily}
-        options={fontOptions}
-        onChange={(e) => onChange({ fontFamily: e.target.value })}
-      />
-
-      <div className="grid grid-cols-2 gap-3">
-        <NumberField
-          label={t('size')}
-          value={layer.fontSize}
-          min={1}
-          max={500}
-          onChange={(v) => onChange({ fontSize: v })}
-        />
-        <NumberField
-          label={t('lineHeight')}
-          value={layer.lineHeight}
-          min={0.1}
-          max={5}
-          step={0.1}
-          onChange={(v) => onChange({ lineHeight: v })}
+      {/* Font dropdown */}
+      <div className="w-full">
+        <label className="mb-1.5 block text-sm font-medium text-foreground">{t('font')}</label>
+        <Dropdown
+          align="left"
+          className="w-full"
+          trigger={
+            <button type="button" className={TRIGGER_BTN}>
+              <span
+                className="truncate text-left"
+                style={{ fontFamily: resolveFontFamily(layer.fontFamily) }}
+              >
+                {selectedFont?.name || layer.fontFamily}
+              </span>
+              <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+            </button>
+          }
+          items={fontItems.map((item) => ({
+            ...item,
+            label: undefined as unknown as string,
+            icon: renderItem(item, item.id === layer.fontFamily),
+          }))}
         />
       </div>
+
+      <SliderField
+        label={t('size')}
+        value={layer.fontSize}
+        min={1}
+        max={300}
+        onChange={(v) => onChange({ fontSize: v })}
+        onDragStart={onSliderStart}
+      />
+
+      <SliderField
+        label={t('lineHeight')}
+        value={layer.lineHeight}
+        min={0.5}
+        max={2.5}
+        step={0.1}
+        onChange={(v) => onChange({ lineHeight: v })}
+        onDragStart={onSliderStart}
+      />
 
       <SliderField
         label={t('opacity')}
@@ -87,12 +134,52 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <Select
-          label={t('align')}
-          value={layer.align}
-          options={alignOptions}
-          onChange={(e) => onChange({ align: e.target.value as 'left' | 'center' | 'right' })}
-        />
+        {/* Align dropdown */}
+        <div className="w-full">
+          <label className="mb-1.5 block text-sm font-medium text-foreground">{t('align')}</label>
+          <Dropdown
+            align="left"
+            className="w-full"
+            trigger={
+              <button type="button" className={TRIGGER_BTN}>
+                <span className="truncate text-left">
+                  {selectedAlign === 'left' ? t('left') : selectedAlign === 'center' ? t('center') : t('right')}
+                </span>
+                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+              </button>
+            }
+            items={alignItems.map((item) => ({
+              ...item,
+              label: undefined as unknown as string,
+              icon: renderItem(item, item.id === selectedAlign),
+            }))}
+          />
+        </div>
+
+        {/* Vertical align dropdown */}
+        <div className="w-full">
+          <label className="mb-1.5 block text-sm font-medium text-foreground">{t('vAlign')}</label>
+          <Dropdown
+            align="left"
+            className="w-full"
+            trigger={
+              <button type="button" className={TRIGGER_BTN}>
+                <span className="truncate text-left">
+                  {selectedVAlign === 'top' ? t('top') : selectedVAlign === 'bottom' ? t('bottom') : t('middle')}
+                </span>
+                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+              </button>
+            }
+            items={vAlignItems.map((item) => ({
+              ...item,
+              label: undefined as unknown as string,
+              icon: renderItem(item, item.id === selectedVAlign),
+            }))}
+          />
+        </div>
+      </div>
+
+      <div>
         <ColorPicker
           label={t('color')}
           value={layer.color}

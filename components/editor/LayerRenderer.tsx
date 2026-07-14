@@ -2,6 +2,7 @@
 
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
+import { resolveFontFamily } from '@/lib/constants/fonts';
 import ShapeRenderer from './ShapeRenderer';
 
 export interface LayerRendererProps {
@@ -60,7 +61,7 @@ function TextLayerComponent({ layer, className, style, onMouseDown }: LayerCompo
       style={{
         ...style,
         color: layer.color,
-        fontFamily: layer.fontFamily,
+        fontFamily: resolveFontFamily(layer.fontFamily),
         fontSize: layer.fontSize,
         fontWeight: layer.bold ? 'bold' : 'normal',
         fontStyle: layer.italic ? 'italic' : 'normal',
@@ -68,7 +69,7 @@ function TextLayerComponent({ layer, className, style, onMouseDown }: LayerCompo
         lineHeight: layer.lineHeight,
         direction: layer.direction as React.CSSProperties['direction'],
         display: 'flex',
-        alignItems: 'center',
+        alignItems: layer.verticalAlign === 'top' ? 'flex-start' : layer.verticalAlign === 'bottom' ? 'flex-end' : 'center',
         justifyContent: layer.align,
         whiteSpace: 'pre-wrap',
         wordWrap: 'break-word',

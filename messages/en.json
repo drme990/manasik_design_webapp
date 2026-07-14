@@ -214,12 +214,16 @@
         "size": "Size",
         "lineHeight": "Line height",
         "align": "Align",
+        "vAlign": "V-Align",
         "color": "Color",
         "bold": "Bold",
         "italic": "Italic",
         "left": "Left",
         "center": "Center",
         "right": "Right",
+        "top": "Top",
+        "middle": "Middle",
+        "bottom": "Bottom",
         "opacity": "Opacity"
       },
       "image": {
