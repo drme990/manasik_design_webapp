@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils/cn';
 import { getLayerIdFromPoint, getActionFromPoint } from '@/lib/utils/touch-utils';
 import type { AnyLayer } from '@/types';
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, forwardRef } from 'react';
 import LayerRenderer from './LayerRenderer';
 import SelectionBox from './SelectionBox';
 
@@ -20,6 +20,7 @@ export interface CanvasProps {
   onDuplicateLayer?: (id: string) => void;
   onDeleteLayer?: (id: string) => void;
   scale?: number;
+  showGrid?: boolean;
   className?: string;
 }
 
@@ -29,23 +30,39 @@ function getOverlapArea(a: AnyLayer, b: AnyLayer): number {
   return xOverlap * yOverlap;
 }
 
-export default function Canvas({
-  width,
-  height,
-  backgroundColor = '#ffffff',
-  backgroundUri,
-  layers,
-  selectedLayerId,
-  onSelectLayer,
-  onLayerChange,
-  onLayerDragStart,
-  onDuplicateLayer,
-  onDeleteLayer,
-  scale = 1,
-  className,
-}: CanvasProps) {
+const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
+  {
+    width,
+    height,
+    backgroundColor = '#ffffff',
+    backgroundUri,
+    layers,
+    selectedLayerId,
+    onSelectLayer,
+    onLayerChange,
+    onLayerDragStart,
+    onDuplicateLayer,
+    onDeleteLayer,
+    scale = 1,
+    showGrid = true,
+    className,
+  }: CanvasProps,
+  forwardedRef
+) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const lastSwapRef = useRef<number>(0);
+
+  const setCanvasRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      canvasRef.current = node;
+      if (typeof forwardedRef === 'function') {
+        forwardedRef(node);
+      } else if (forwardedRef) {
+        (forwardedRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }
+    },
+    [forwardedRef]
+  );
   const [dragState, setDragState] = useState<{
     isDragging: boolean;
     layerId: string | null;
@@ -403,7 +420,7 @@ export default function Canvas({
 
   return (
     <div
-      ref={canvasRef}
+      ref={setCanvasRef}
       className={cn(
         'relative select-none overflow-hidden shadow-2xl',
         className
@@ -425,16 +442,18 @@ export default function Canvas({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-20"
-        style={{
-          backgroundImage: `
-            linear-gradient(var(--canvas-grid) 1px, transparent 1px),
-            linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px)
-          `,
-          backgroundSize: '20px 20px',
-        }}
-      />
+      {showGrid && (
+        <div
+          className="pointer-events-none absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `
+              linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+              linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px)
+            `,
+            backgroundSize: '20px 20px',
+          }}
+        />
+      )}
 
       {sortedLayers.map((layer) => (
         <LayerRenderer
@@ -457,4 +476,6 @@ export default function Canvas({
       )}
     </div>
   );
-}
+});
+
+export default Canvas;

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils/cn';
 import { getLayerIdFromPoint, getActionFromPoint } from '@/lib/utils/touch-utils';
+import { toJpeg } from 'html-to-image';
 import {
     LuArrowLeft,
     LuType,
@@ -22,6 +23,7 @@ import {
     LuRedo2,
     LuPencil,
     LuText,
+    LuDownload,
 } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -79,8 +81,10 @@ export default function EditorPage() {
     const inTransactionRef = useRef(false);
     const selectedLayerIdRef = useRef<string | null>(null);
     const deleteLayerRef = useRef<(id: string) => void>(() => { });
+    const canvasRef = useRef<HTMLDivElement | null>(null);
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
+    const [isExporting, setIsExporting] = useState(false);
     const [leftPanelOpen, setLeftPanelOpen] = useState(false);
     const [rightPanelOpen, setRightPanelOpen] = useState(false);
     const [panState, setPanState] = useState<{ isPanning: boolean; startX: number; startY: number }>({
@@ -141,6 +145,36 @@ export default function EditorPage() {
         }
         setSaving(false);
     }, [saveLocal]);
+
+    const handleExportJpg = useCallback(async () => {
+        if (!canvasRef.current || !project) return;
+
+        const previousSelection = selectedLayerId;
+        setSelectedLayerId(null);
+        setIsExporting(true);
+
+        await new Promise((resolve) => setTimeout(resolve, 120));
+
+        try {
+            const dataUrl = await toJpeg(canvasRef.current, {
+                quality: 0.95,
+                backgroundColor: project.backgroundColor || '#ffffff',
+                pixelRatio: 2,
+            });
+
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `${project.name || 'design'}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Failed to export canvas as JPG:', error);
+        } finally {
+            setIsExporting(false);
+            setSelectedLayerId(previousSelection);
+        }
+    }, [project, selectedLayerId]);
 
     useEffect(() => {
         const endTransaction = () => {
@@ -714,6 +748,16 @@ export default function EditorPage() {
                     </div>
 
                     <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportJpg}
+                        className="gap-1 px-2 sm:px-3"
+                    >
+                        <LuDownload className="h-4 w-4" />
+                        <span className="hidden sm:inline">{t('export')}</span>
+                    </Button>
+
+                    <Button
                         variant="primary"
                         size="sm"
                         onClick={() => flushPersist(project)}
@@ -849,6 +893,7 @@ export default function EditorPage() {
                             }}
                         >
                             <Canvas
+                                ref={canvasRef}
                                 width={project.canvasWidth}
                                 height={project.canvasHeight}
                                 backgroundColor={project.backgroundColor ?? '#ffffff'}
@@ -861,6 +906,7 @@ export default function EditorPage() {
                                 onDuplicateLayer={handleDuplicateLayer}
                                 onDeleteLayer={handleDeleteLayer}
                                 scale={zoom}
+                                showGrid={!isExporting}
                             />
                         </div>
                     </div>
