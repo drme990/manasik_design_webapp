@@ -46,12 +46,14 @@ export default function DraggableLayerList({
 
   const sortedLayers = [...layers].sort((a, b) => b.zIndex - a.zIndex);
 
+  const isSelected = (id: string) => selectedId === id;
+
   return (
     <div className={cn('w-full rounded-lg border border-stroke bg-card-bg p-2', className)}>
       <h3 className="mb-2 px-2 text-sm font-semibold text-foreground">
         {t('layers')}
       </h3>
-      <div className="space-y-1 max-h-75 overflow-y-auto">
+      <div className="max-h-75 space-y-1 overflow-y-auto">
         {sortedLayers.map((layer, index) => (
           <div
             key={layer.id}
@@ -61,20 +63,36 @@ export default function DraggableLayerList({
             onDrop={(e) => handleDrop(e, index)}
             onClick={() => onSelect(layer.id)}
             className={cn(
-              'flex items-center gap-2 rounded-lg px-2 py-2 text-sm cursor-pointer transition-colors',
-              selectedId === layer.id
-                ? 'bg-brand-primary-light text-brand-primary-dark'
-                : 'hover:bg-muted text-foreground'
+              'flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 text-sm transition-colors',
+              isSelected(layer.id)
+                ? 'border-brand-primary bg-brand-primary text-white shadow-sm'
+                : 'border-transparent text-foreground hover:bg-brand-primary-light/40 hover:text-brand-primary-dark'
             )}
           >
-            <LuGripVertical className="h-4 w-4 cursor-grab text-secondary" />
+            <LuGripVertical
+              className={cn(
+                'h-4 w-4 cursor-grab',
+                isSelected(layer.id) ? 'text-white/70' : 'text-secondary'
+              )}
+            />
             <span className="flex-1 truncate">{layer.name}</span>
-            <span className="text-xs text-secondary">
+            <span
+              className={cn(
+                'text-xs',
+                isSelected(layer.id) ? 'text-white/70' : 'text-secondary'
+              )}
+            >
               {getLayerTypeLabel(layer.type)}
             </span>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer.id); }}
-              className="p-1 rounded hover:bg-muted text-secondary"
+              className={cn(
+                'rounded p-1 transition-colors',
+                isSelected(layer.id)
+                  ? 'text-white/80 hover:bg-white/20'
+                  : 'text-secondary hover:bg-muted'
+              )}
             >
               {layer.visible ? (
                 <LuEye className="h-4 w-4" />
@@ -83,8 +101,14 @@ export default function DraggableLayerList({
               )}
             </button>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }}
-              className="p-1 rounded hover:bg-muted text-secondary"
+              className={cn(
+                'rounded p-1 transition-colors',
+                isSelected(layer.id)
+                  ? 'text-white/80 hover:bg-white/20'
+                  : 'text-secondary hover:bg-muted'
+              )}
             >
               {layer.locked ? (
                 <LuLock className="h-4 w-4" />
@@ -93,8 +117,14 @@ export default function DraggableLayerList({
               )}
             </button>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(layer.id); }}
-              className="p-1 rounded hover:bg-error/10 text-error"
+              className={cn(
+                'rounded p-1 transition-colors',
+                isSelected(layer.id)
+                  ? 'text-white/80 hover:bg-white/20'
+                  : 'text-error hover:bg-error/10'
+              )}
             >
               <LuTrash2 className="h-4 w-4" />
             </button>
