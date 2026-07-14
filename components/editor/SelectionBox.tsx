@@ -1,8 +1,8 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
-import { LuCopy, LuTrash2, LuMaximize, LuRotateCw } from 'react-icons/lu';
-import type { AnyLayer } from '@/types';
+import { LuCopy, LuTrash2, LuMaximize, LuRotateCw, LuAlignLeft, LuAlignCenter, LuAlignRight } from 'react-icons/lu';
+import type { AnyLayer, TextLayer } from '@/types';
 
 export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -13,6 +13,7 @@ export interface SelectionBoxProps {
   onDelete?: (e: React.MouseEvent) => void;
   onResizeStart?: (e: React.MouseEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
   onRotateStart?: (e: React.MouseEvent) => void;
+  onAlign?: (align: 'left' | 'center' | 'right') => void;
 }
 
 const ICON_BTN =
@@ -38,11 +39,23 @@ export default function SelectionBox({
   onDelete,
   onResizeStart,
   onRotateStart,
+  onAlign,
 }: SelectionBoxProps) {
   if (!layer) return null;
 
   const canFreeScale = layer.type === 'shape' || layer.type === 'image';
+  const isText = layer.type === 'text';
+  const currentAlign = isText ? (layer as TextLayer).align : undefined;
   const handle = 'absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
+
+  const ALIGN_BTN =
+    'flex h-10 w-10 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+
+  const alignButtons: { align: 'left' | 'center' | 'right'; icon: typeof LuAlignLeft; label: string }[] = [
+    { align: 'left', icon: LuAlignLeft, label: 'Left' },
+    { align: 'center', icon: LuAlignCenter, label: 'Center' },
+    { align: 'right', icon: LuAlignRight, label: 'Right' },
+  ];
 
   return (
     <div
@@ -57,6 +70,29 @@ export default function SelectionBox({
       }}
     >
       <div className="absolute inset-0 border-2 border-dashed border-layer-selected" />
+
+      {/* Text alignment — top-center */}
+      {isText && onAlign && (
+        <div className="pointer-events-auto absolute -top-14 left-1/2 flex -translate-x-1/2 gap-1.5">
+          {alignButtons.map(({ align, icon: Icon, label }) => (
+            <button
+              key={align}
+              type="button"
+              data-action="align"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onAlign(align); }}
+              className={cn(
+                ALIGN_BTN,
+                currentAlign === align && 'bg-layer-selected text-white'
+              )}
+              aria-label={label}
+            >
+              <Icon className="h-5 w-5" />
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Delete — top-left */}
       <button

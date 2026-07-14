@@ -321,7 +321,7 @@ export default function EditorPage() {
                 handleRedo();
                 return;
             }
-            if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (e.key === 'Delete') {
                 if (selectedLayerIdRef.current) {
                     e.preventDefault();
                     deleteLayerRef.current(selectedLayerIdRef.current);
@@ -387,6 +387,14 @@ export default function EditorPage() {
             }), recordHistory);
         },
         [updateProjectState]
+    );
+
+    const handleAlign = useCallback(
+        (align: 'left' | 'center' | 'right') => {
+            if (!selectedLayerId) return;
+            handleLayerChange(selectedLayerId, { align } as Partial<AnyLayer>);
+        },
+        [selectedLayerId, handleLayerChange]
     );
 
     const handleLayerDragStart = useCallback(
@@ -958,6 +966,7 @@ export default function EditorPage() {
                                 onDeleteLayer={handleDeleteLayer}
                                 scale={zoom}
                                 showGrid={!isExporting}
+                                onAlign={handleAlign}
                             />
                         </div>
                     </div>

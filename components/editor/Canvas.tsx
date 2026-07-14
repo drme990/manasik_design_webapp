@@ -22,6 +22,7 @@ export interface CanvasProps {
   scale?: number;
   showGrid?: boolean;
   className?: string;
+  onAlign?: (align: 'left' | 'center' | 'right') => void;
 }
 
 function getOverlapArea(a: AnyLayer, b: AnyLayer): number {
@@ -46,6 +47,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     scale = 1,
     showGrid = true,
     className,
+    onAlign,
   }: CanvasProps,
   forwardedRef
 ) {
@@ -478,6 +480,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           onDelete={handleDelete}
           onResizeStart={handleResizeStart}
           onRotateStart={handleRotateStart}
+          onAlign={onAlign}
         />
       )}
     </div>
