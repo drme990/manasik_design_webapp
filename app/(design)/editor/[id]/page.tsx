@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils/cn';
-import { getLayerIdFromPoint, getActionFromPoint } from '@/lib/utils/touch-utils';
 import { toJpeg } from 'html-to-image';
 import {
     LuArrowLeft,
@@ -651,23 +650,9 @@ export default function EditorPage() {
     const handleContainerTouchStart = useCallback(
         (e: React.TouchEvent) => {
             if (e.touches.length === 1) {
-                const touch = e.touches[0];
-                const action = getActionFromPoint(touch.clientX, touch.clientY);
-                const layerId = getLayerIdFromPoint(touch.clientX, touch.clientY);
-                if (action?.action || layerId) {
-                    // Let the Canvas component handle layer drag / resize / rotate
-                    return;
-                }
-                setTouchState({
-                    isTouching: true,
-                    isPinching: false,
-                    startX: touch.clientX,
-                    startY: touch.clientY,
-                    startPanX: pan.x,
-                    startPanY: pan.y,
-                    startDistance: 0,
-                    startZoom: zoom,
-                });
+                // Single finger: only let the Canvas handle layer drag/resize/rotate.
+                // Panning the canvas itself requires two fingers on mobile.
+                return;
             } else if (e.touches.length === 2) {
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
@@ -688,18 +673,11 @@ export default function EditorPage() {
 
     const handleContainerTouchMove = useCallback(
         (e: React.TouchEvent) => {
-            if (e.touches.length === 1) {
-                const touch = e.touches[0];
-                const action = getActionFromPoint(touch.clientX, touch.clientY);
-                const layerId = getLayerIdFromPoint(touch.clientX, touch.clientY);
-                if (action?.action || layerId) {
-                    return;
-                }
-            }
+            // Only two-finger gestures pan/zoom the canvas on mobile.
+            if (!touchState.isTouching || e.touches.length !== 2) return;
             e.preventDefault();
-            if (!touchState.isTouching) return;
 
-            if (touchState.isPinching && e.touches.length === 2) {
+            if (touchState.isPinching) {
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
                 const distance = getTouchDistance(t1, t2);
@@ -712,14 +690,9 @@ export default function EditorPage() {
                 const dx = centerX - touchState.startX;
                 const dy = centerY - touchState.startY;
                 setPan({ x: touchState.startPanX + dx, y: touchState.startPanY + dy });
-            } else if (!touchState.isPinching && e.touches.length === 1) {
-                const touch = e.touches[0];
-                const dx = touch.clientX - touchState.startX;
-                const dy = touch.clientY - touchState.startY;
-                setPan({ x: touchState.startPanX + dx, y: touchState.startPanY + dy });
             }
         },
-        [touchState, getTouchDistance, getActionFromPoint, getLayerIdFromPoint]
+        [touchState, getTouchDistance]
     );
 
     const handleContainerTouchEnd = useCallback(() => {
