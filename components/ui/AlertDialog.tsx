@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils/cn';
 import { LuTriangleAlert, LuInfo, LuCircleAlert } from 'react-icons/lu';
 import Button from './Button';
 import Modal from './Modal';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface AlertDialogProps {
   isOpen: boolean;

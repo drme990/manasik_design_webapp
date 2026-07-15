@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuChevronDown } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 

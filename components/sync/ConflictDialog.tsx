@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils/cn';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import type { ConflictResolution } from '@/types';
 
 export interface ConflictDialogProps {

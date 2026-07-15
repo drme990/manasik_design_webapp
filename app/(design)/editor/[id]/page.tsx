@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { cn } from '@/lib/utils/cn';
 import { toJpeg } from 'html-to-image';
 import {

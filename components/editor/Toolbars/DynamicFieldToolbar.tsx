@@ -6,7 +6,7 @@ import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuChevronDown, LuCheck } from 'react-icons/lu';
 import type { DynamicFieldLayer } from '@/types';
 

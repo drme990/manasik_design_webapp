@@ -9,7 +9,7 @@ import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuChevronDown, LuCheck } from 'react-icons/lu';
 import type { TextLayer } from '@/types';
 

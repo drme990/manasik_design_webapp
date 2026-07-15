@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface AspectRatioPickerProps {
   value?: { width: number; height: number };

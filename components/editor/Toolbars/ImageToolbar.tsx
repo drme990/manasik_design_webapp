@@ -6,7 +6,7 @@ import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import { LuFlipHorizontal, LuFlipVertical, LuCrop } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import type { ImageLayer } from '@/types';
 
 export interface ImageToolbarProps {

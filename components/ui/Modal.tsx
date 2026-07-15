@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import { LuX } from 'react-icons/lu';
 import Button from './Button';
 import { cn } from '@/lib/utils/cn';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface ModalProps {
   isOpen: boolean;

@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { LuInbox } from 'react-icons/lu';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface EmptyStateProps {
   title?: string;

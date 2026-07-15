@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuMenu } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
-import LanguageToggle from '@/components/shared/LanguageToggle';
 import ThemeToggle from '@/components/shared/ThemeToggle';
 
 export interface HeaderProps {
@@ -45,7 +44,6 @@ export default function Header({ onMenuClick, className }: HeaderProps) {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <LanguageToggle />
         </div>
       </div>
     </header>

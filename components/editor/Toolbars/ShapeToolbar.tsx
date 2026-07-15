@@ -7,7 +7,7 @@ import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import Switch from '@/components/ui/Switch';
 import { cn } from '@/lib/utils/cn';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import type { ShapeLayer } from '@/types';
 

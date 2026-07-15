@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuLogIn, LuEye, LuEyeOff } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';

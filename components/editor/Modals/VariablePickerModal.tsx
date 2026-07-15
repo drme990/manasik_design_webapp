@@ -5,7 +5,7 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { cn } from '@/lib/utils/cn';
 import { PREDEFINED_VARIABLES } from '@/lib/constants/variables';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface VariablePickerModalProps {
   isOpen: boolean;

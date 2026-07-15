@@ -1,8 +1,5 @@
 import type { NextConfig } from "next";
-import createNextIntlPlugin from 'next-intl/plugin';
 import path from 'path';
-
-const nextIntlConfig = createNextIntlPlugin('./i18n/request.ts');
 
 const nextConfig: NextConfig = {
   turbopack: {
@@ -13,4 +10,4 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['dayana-nondepressing-probingly.ngrok-free.dev', '192.168.1.16'],
 };
 
-export default nextIntlConfig(nextConfig);
+export default nextConfig;

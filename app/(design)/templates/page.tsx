@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuTrash2, LuArrowRight } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';

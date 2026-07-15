@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils/cn';
 import type { AnyLayer } from '@/types';
 import { getLayerTypeLabel } from '@/lib/utils/layer-utils';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuGripVertical, LuEye, LuEyeOff, LuLock, LuLockOpen, LuTrash2 } from 'react-icons/lu';
 
 export interface DraggableLayerListProps {

@@ -1,17 +1,7 @@
+// This file is no longer used. next-intl has been removed.
+// Kept as a placeholder to avoid breaking any stale imports.
 'use server';
 
-import { cookies } from 'next/headers';
-import { routing } from '@/i18n/routing';
-
-export async function setUserLocale(locale: string) {
-    if (!routing.locales.includes(locale as (typeof routing.locales)[number])) {
-        return;
-    }
-
-    const cookieStore = await cookies();
-    cookieStore.set('DESIGN_LOCALE', locale, {
-        path: '/',
-        maxAge: 60 * 60 * 24 * 365,
-        sameSite: 'strict',
-    });
+export async function setUserLocale(_locale: string): Promise<void> {
+    // No-op: app is Arabic-only now.
 }

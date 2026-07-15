@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { useTranslations, useLocale } from 'next-intl';
+import { useTranslations, useLocale } from '@/lib/i18n/strings';
 
 export interface SyncStatusProps {
   isOnline?: boolean;

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useTranslations, useLocale } from 'next-intl';
+import { useTranslations, useLocale } from '@/lib/i18n/strings';
 import { LuLayoutGrid, LuPalette, LuFileText } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 

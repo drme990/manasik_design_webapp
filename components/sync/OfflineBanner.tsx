@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { LuWifiOff } from 'react-icons/lu';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface OfflineBannerProps {
   className?: string;

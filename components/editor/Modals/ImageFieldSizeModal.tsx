@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface ImageFieldSizeModalProps {
   isOpen: boolean;

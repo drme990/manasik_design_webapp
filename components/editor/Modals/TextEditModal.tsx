@@ -7,7 +7,7 @@ import { TextArea } from '@/components/ui/TextArea';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuChevronDown, LuCheck } from 'react-icons/lu';
 
 const TRIGGER_BTN =

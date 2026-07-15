@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { rgbToHex, hsvToRgb, rgbToHsv, hexToRgb } from '@/lib/utils/color';
 import { COLOR_PALETTE } from '@/lib/constants/brand-colors';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuPipette } from 'react-icons/lu';
 
 export interface ColorPickerProps {

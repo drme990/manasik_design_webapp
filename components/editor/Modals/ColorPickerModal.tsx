@@ -5,7 +5,7 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import ColorPicker from '@/components/common/ColorPicker';
 import { pickColor } from '@/lib/utils/eyedropper';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 
 export interface ColorPickerModalProps {
   isOpen: boolean;

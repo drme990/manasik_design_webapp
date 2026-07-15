@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import localFont from 'next/font/local';
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages, getLocale } from 'next-intl/server';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { editorFontVariables } from '@/lib/constants/fonts';
 import "./globals.css";
@@ -36,8 +34,8 @@ const expoArabic = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Manasik Design",
-  description: "Design app for events and celebrations",
+  title: "تصميمات مناسك",
+  description: "تطبيق التصميم للمناسبات والاحتفالات",
 };
 
 export const viewport: Viewport = {
@@ -47,31 +45,25 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = await getLocale();
-  const messages = await getMessages();
-  const isRtl = locale === 'ar';
-
   return (
     <html
-      lang={locale}
-      dir={isRtl ? 'rtl' : 'ltr'}
+      lang="ar"
+      dir="rtl"
       suppressHydrationWarning
       className={`${satoshi.variable} ${expoArabic.variable} ${editorFontVariables} h-full antialiased`}
     >
       <body
         className="min-h-full"
-        style={{ fontFamily: isRtl ? 'var(--font-expo-arabic), sans-serif' : 'var(--font-satoshi), sans-serif' }}
+        style={{ fontFamily: 'var(--font-expo-arabic), sans-serif' }}
       >
-        <NextIntlClientProvider messages={messages}>
-          <ThemeProvider>
-            {children}
-          </ThemeProvider>
-        </NextIntlClientProvider>
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

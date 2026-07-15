@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import FileUpload from '@/components/ui/FileUpload';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuX } from 'react-icons/lu';
 import type { CollageCell } from '@/types/collage';
 

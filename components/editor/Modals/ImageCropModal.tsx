@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { cn } from '@/lib/utils/cn';
-import { useTranslations } from 'next-intl';
+import { useTranslations } from '@/lib/i18n/strings';
 import { LuCrop, LuRotateCw } from 'react-icons/lu';
 
 export interface ImageCropModalProps {
