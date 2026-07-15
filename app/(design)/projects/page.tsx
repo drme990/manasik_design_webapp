@@ -3,29 +3,33 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuEllipsisVertical, LuPencil, LuTrash2 } from 'react-icons/lu';
+import { LuPlus, LuEllipsisVertical, LuPencil, LuTrash2, LuPalette, LuFileText } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
+import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { listProjects, createProject, deleteProject, renameProject } from '@/lib/store/projects';
 import type { Project } from '@/types';
 
 const PRESETS = [
-  { name: '1:1 Square', width: 1080, height: 1080 },
-  { name: '4:5 Portrait', width: 1080, height: 1350 },
-  { name: '5:4 Landscape', width: 1350, height: 1080 },
-  { name: '9:16 Story', width: 1080, height: 1920 },
-  { name: '16:9 Widescreen', width: 1920, height: 1080 },
-  { name: '3:4 Portrait', width: 1080, height: 1440 },
-  { name: '4:3 Landscape', width: 1440, height: 1080 },
+  { name: 'مربع', aspect: '1:1', width: 1080, height: 1080 },
+  { name: '4:5', aspect: '4:5', width: 1080, height: 1350 },
+  { name: '5:4', aspect: '5:4', width: 1350, height: 1080 },
+  { name: 'ستوري', aspect: '9:16', width: 1080, height: 1920 },
+  { name: 'عريض', aspect: '16:9', width: 1920, height: 1080 },
+  { name: '3:4', aspect: '3:4', width: 1080, height: 1440 },
+  { name: '4:3', aspect: '4:3', width: 1440, height: 1080 },
+  { name: 'A4', aspect: 'A4', width: 2480, height: 3508 },
+  { name: 'شاشة', aspect: 'Screen', width: 1080, height: 2400 },
 ];
 
 export default function ProjectsPage() {
   const t = useTranslations('projects');
+  const navT = useTranslations('navigation');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export default function ProjectsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [customOpen, setCustomOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -58,11 +62,12 @@ export default function ProjectsPage() {
 
   const handleCreate = async (preset: typeof PRESETS[number]) => {
     const project = await createProject({
-      name: `${preset.name} — ${new Date().toLocaleDateString()}`,
+      name: `${preset.aspect} — ${new Date().toLocaleDateString()}`,
       kind: 'design',
       canvasWidth: preset.width,
       canvasHeight: preset.height,
     });
+    setDrawerOpen(false);
     window.location.href = `/editor/${project.id}`;
   };
 
@@ -76,7 +81,7 @@ export default function ProjectsPage() {
       canvasWidth: width,
       canvasHeight: height,
     });
-    setCustomOpen(false);
+    setDrawerOpen(false);
     window.location.href = `/editor/${project.id}`;
   };
 
@@ -130,45 +135,11 @@ export default function ProjectsPage() {
         </div>
 
         <section className="mb-10">
-          <h2 className="mb-4 text-lg font-semibold text-foreground">{t('newProject')}</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.name}
-                onClick={() => handleCreate(preset)}
-                className="flex items-center gap-4 rounded-xl border border-stroke bg-card-bg p-4 text-left transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-              >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
-                  <LuPlus className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">{preset.name}</p>
-                  <p className="text-sm text-secondary">{preset.width} × {preset.height}</p>
-                </div>
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setCustomOpen(true)}
-              className="flex items-center gap-4 rounded-xl border border-dashed border-stroke bg-card-bg p-4 text-left transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
-                <LuPlus className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">{t('custom')}</p>
-                <p className="text-sm text-secondary">{t('customSize')}</p>
-              </div>
-            </button>
-          </div>
-        </section>
-
-        <section>
           <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentDesigns')}</h2>
           {loading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4">
               {[...Array(6)].map((_, i) => (
-                <Card key={i} className="aspect-4/3 animate-pulse bg-muted" />
+                <Card key={i} className="aspect-4/3 h-40 w-56 shrink-0 animate-pulse bg-muted" />
               ))}
             </div>
           ) : projects.length === 0 ? (
@@ -180,12 +151,11 @@ export default function ProjectsPage() {
               }
             />
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4 snap-x">
               {projects.map((project) => (
                 <Card
                   key={project.id}
-                  className="group relative overflow-hidden border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
-                  style={{ aspectRatio: project.canvasWidth / project.canvasHeight }}
+                  className="group relative h-40 w-56 shrink-0 snap-start overflow-hidden border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
                 >
                   <Link href={`/editor/${project.id}`} className="block h-full w-full">
                     <ProjectCardPreview project={project} className="h-full w-full" />
@@ -233,6 +203,36 @@ export default function ProjectsPage() {
             </div>
           )}
         </section>
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-foreground">{navT('templates')}</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Link
+              href="/templates"
+              className="flex items-center gap-4 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
+                <LuPalette className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">{navT('templates')}</p>
+                <p className="text-sm text-secondary">{t('subtitle')}</p>
+              </div>
+            </Link>
+            <Link
+              href="/pdf-tool"
+              className="flex items-center gap-4 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
+                <LuFileText className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">{navT('pdfTool')}</p>
+                <p className="text-sm text-secondary">{navT('pdfTool')}</p>
+              </div>
+            </Link>
+          </div>
+        </section>
       </div>
 
       <Modal
@@ -270,38 +270,81 @@ export default function ProjectsPage() {
         variant="danger"
       />
 
-      <Modal
-        isOpen={customOpen}
-        onClose={() => setCustomOpen(false)}
-        title={t('customSize')}
+      {/* Floating + button */}
+      <button
+        type="button"
+        onClick={() => setDrawerOpen(true)}
+        className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-transform hover:scale-105 active:scale-95"
+        aria-label={t('newProject')}
+      >
+        <LuPlus className="h-7 w-7" />
+      </button>
+
+      {/* New project drawer */}
+      <Drawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={t('newProject')}
+        height="twoThirds"
         footer={
-          <>
-            <Button variant="ghost" onClick={() => setCustomOpen(false)}>
-              {t('cancel')}
-            </Button>
-            <Button variant="primary" onClick={handleCreateCustom}>
-              {t('create')}
-            </Button>
-          </>
+          <Button variant="primary" onClick={handleCreateCustom} className="w-full">
+            <LuPlus className="ml-2 h-5 w-5" />
+            {t('create')}
+          </Button>
         }
       >
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label={t('width')}
-            type="text"
-            inputMode="numeric"
-            value={customWidth}
-            onChange={(e) => setCustomWidth(e.target.value)}
-          />
-          <Input
-            label={t('height')}
-            type="text"
-            inputMode="numeric"
-            value={customHeight}
-            onChange={(e) => setCustomHeight(e.target.value)}
-          />
+        {/* Preset sizes — horizontal scroll */}
+        <div className="mb-6">
+          <h3 className="mb-3 text-sm font-medium text-secondary">{t('newProject')}</h3>
+          <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+            {PRESETS.map((preset) => {
+              const ratio = preset.width / preset.height;
+              const boxW = ratio >= 1 ? 48 : Math.round(48 * ratio);
+              const boxH = ratio >= 1 ? Math.round(48 / ratio) : 48;
+              return (
+                <button
+                  key={preset.aspect}
+                  onClick={() => handleCreate(preset)}
+                  className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 text-center transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                >
+                  {/* Shape preview */}
+                  <div className="flex h-12 items-center justify-center">
+                    <div
+                      className="rounded border-2 border-foreground/40 bg-foreground/5"
+                      style={{ width: boxW, height: boxH }}
+                    />
+                  </div>
+                  {/* Aspect ratio */}
+                  <p className="text-xs font-semibold text-foreground">{preset.aspect}</p>
+                  {/* Name */}
+                  <p className="text-xs text-secondary">{preset.name}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </Modal>
+
+        {/* Custom size */}
+        <div>
+          <h3 className="mb-3 text-sm font-medium text-secondary">{t('customSize')}</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label={t('width')}
+              type="text"
+              inputMode="numeric"
+              value={customWidth}
+              onChange={(e) => setCustomWidth(e.target.value)}
+            />
+            <Input
+              label={t('height')}
+              type="text"
+              inputMode="numeric"
+              value={customHeight}
+              onChange={(e) => setCustomHeight(e.target.value)}
+            />
+          </div>
+        </div>
+      </Drawer>
 
     </main>
   );

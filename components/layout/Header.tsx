@@ -2,16 +2,14 @@
 
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuMenu } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 import ThemeToggle from '@/components/shared/ThemeToggle';
 
 export interface HeaderProps {
-  onMenuClick?: () => void;
   className?: string;
 }
 
-export default function Header({ onMenuClick, className }: HeaderProps) {
+export default function Header({ className }: HeaderProps) {
   const t = useTranslations('header');
 
   return (
@@ -24,14 +22,6 @@ export default function Header({ onMenuClick, className }: HeaderProps) {
     >
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onMenuClick}
-            className="p-2 rounded-lg text-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-brand-primary"
-            aria-label={t('toggleSidebar')}
-          >
-            <LuMenu className="h-6 w-6" />
-          </button>
           <Link href="/projects" className="flex items-center gap-2">
             <div className="gradient-site flex h-9 w-9 items-center justify-center rounded-lg">
               <span className="gradient-text text-lg font-bold">M</span>
