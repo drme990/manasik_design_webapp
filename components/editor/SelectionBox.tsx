@@ -8,19 +8,19 @@ export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export interface SelectionBoxProps {
   layer?: AnyLayer;
-  onMouseDown?: (e: React.MouseEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
   onDuplicate?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
-  onResizeStart?: (e: React.MouseEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
-  onRotateStart?: (e: React.MouseEvent) => void;
+  onResizeStart?: (e: React.PointerEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
+  onRotateStart?: (e: React.PointerEvent) => void;
   onAlign?: (align: 'left' | 'center' | 'right') => void;
   onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
 }
 
 const ICON_BTN =
-  'flex h-14 w-14 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+  'touch-none flex h-14 w-14 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 const DELETE_BTN =
-  'flex h-14 w-14 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
+  'touch-none flex h-14 w-14 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
 
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
   { direction: 'nw', className: '-top-3 -left-3', cursor: 'cursor-nw-resize' },
@@ -35,7 +35,7 @@ const HANDLES: { direction: ResizeDirection; className: string; cursor: string }
 
 export default function SelectionBox({
   layer,
-  onMouseDown,
+  onPointerDown,
   onDuplicate,
   onDelete,
   onResizeStart,
@@ -49,10 +49,10 @@ export default function SelectionBox({
   const isText = layer.type === 'text';
   const currentAlign = isText ? (layer as TextLayer).align : undefined;
   const currentVAlign = isText ? (layer as TextLayer).verticalAlign : undefined;
-  const handle = 'absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
+  const handle = 'touch-none absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   const ALIGN_BTN =
-    'flex h-10 w-10 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+    'touch-none flex h-10 w-10 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 
   const alignButtons: { align: 'left' | 'center' | 'right'; icon: typeof LuAlignLeft; label: string }[] = [
     { align: 'left', icon: LuAlignLeft, label: 'Left' },
@@ -88,8 +88,7 @@ export default function SelectionBox({
               key={align}
               type="button"
               data-action="align"
-              onMouseDown={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onAlign(align); }}
               className={cn(
                 ALIGN_BTN,
@@ -111,8 +110,7 @@ export default function SelectionBox({
               key={align}
               type="button"
               data-action="valign"
-              onMouseDown={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onVerticalAlign(align); }}
               className={cn(
                 ALIGN_BTN,
@@ -130,9 +128,8 @@ export default function SelectionBox({
       <button
         type="button"
         data-action="delete"
-        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={onDelete}
-        onTouchStart={(e) => e.stopPropagation()}
         className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-16 -left-16')}
         aria-label="Delete"
       >
@@ -143,9 +140,8 @@ export default function SelectionBox({
       <button
         type="button"
         data-action="duplicate"
-        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={onDuplicate}
-        onTouchStart={(e) => e.stopPropagation()}
         className={cn(ICON_BTN, 'pointer-events-auto absolute -top-16 -right-16')}
         aria-label="Duplicate"
       >
@@ -156,7 +152,7 @@ export default function SelectionBox({
       <button
         type="button"
         data-action="rotate"
-        onMouseDown={onRotateStart}
+        onPointerDown={onRotateStart}
         className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -left-16 cursor-grab active:cursor-grabbing')}
         aria-label="Rotate"
       >
@@ -169,7 +165,7 @@ export default function SelectionBox({
         data-action="resize"
         data-direction="se"
         data-mode="proportional"
-        onMouseDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
+        onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
         className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -right-16 cursor-nwse-resize')}
         aria-label="Scale"
       >
@@ -187,7 +183,7 @@ export default function SelectionBox({
         >
           <div
             className={handle}
-            onMouseDown={(e) => onResizeStart?.(e, direction, 'free')}
+            onPointerDown={(e) => onResizeStart?.(e, direction, 'free')}
           />
         </div>
       ))}

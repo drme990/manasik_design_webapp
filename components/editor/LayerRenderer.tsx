@@ -8,7 +8,7 @@ import ShapeRenderer from './ShapeRenderer';
 export interface LayerRendererProps {
   layer: AnyLayer;
   isSelected?: boolean;
-  onMouseDown?: (e: React.MouseEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
 }
 
 interface LayerComponentProps extends LayerRendererProps {
@@ -16,7 +16,7 @@ interface LayerComponentProps extends LayerRendererProps {
   style: React.CSSProperties;
 }
 
-export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerRendererProps) {
+export default function LayerRenderer({ layer, isSelected, onPointerDown }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
@@ -37,7 +37,7 @@ export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerR
       zIndex: layer.zIndex,
       willChange: 'transform',
     },
-    onMouseDown,
+    onPointerDown,
   };
 
   switch (layer.type) {
@@ -54,7 +54,7 @@ export default function LayerRenderer({ layer, isSelected, onMouseDown }: LayerR
   }
 }
 
-function TextLayerComponent({ layer, className, style, onMouseDown }: LayerComponentProps & { layer: TextLayer }) {
+function TextLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: TextLayer }) {
   return (
     <div
       className={className}
@@ -74,7 +74,7 @@ function TextLayerComponent({ layer, className, style, onMouseDown }: LayerCompo
         whiteSpace: 'pre-wrap',
         wordWrap: 'break-word',
       }}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
       {layer.text}
@@ -82,7 +82,7 @@ function TextLayerComponent({ layer, className, style, onMouseDown }: LayerCompo
   );
 }
 
-function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComponentProps & { layer: ImageLayer }) {
+function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: ImageLayer }) {
   return (
     <div
       className={className}
@@ -93,7 +93,7 @@ function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComp
         overflow: 'hidden',
         transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
       }}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
       <img
@@ -113,7 +113,7 @@ function ImageLayerComponent({ layer, className, style, onMouseDown }: LayerComp
   );
 }
 
-function ShapeLayerComponent({ layer, className, style, onMouseDown }: LayerComponentProps & { layer: ShapeLayer }) {
+function ShapeLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: ShapeLayer }) {
   return (
     <div
       className={className}
@@ -121,7 +121,7 @@ function ShapeLayerComponent({ layer, className, style, onMouseDown }: LayerComp
         ...style,
         backgroundColor: 'transparent',
       }}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
       <ShapeRenderer
@@ -139,7 +139,7 @@ function ShapeLayerComponent({ layer, className, style, onMouseDown }: LayerComp
   );
 }
 
-function DynamicFieldLayerComponent({ layer, className, style, onMouseDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
+function DynamicFieldLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
   return (
     <div
       className={className}
@@ -155,7 +155,7 @@ function DynamicFieldLayerComponent({ layer, className, style, onMouseDown }: La
         fontSize: layer.fontSize,
         direction: 'rtl',
       }}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
       {layer.placeholder}
