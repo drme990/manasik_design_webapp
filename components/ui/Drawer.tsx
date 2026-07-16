@@ -23,7 +23,7 @@ export interface DrawerProps {
 const HEIGHT_CLASSES = {
   auto: '',
   half: 'h-[50svh]',
-  full: 'h-svh',
+  full: 'h-[90svh]',
   twoThirds: 'h-[65svh]',
 };
 
@@ -116,7 +116,7 @@ export default function Drawer({
       {/* Backdrop — fades in/out */}
       <div
         className={cn(
-          'absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ease-out',
+          'absolute inset-0 bg-black/50 transition-opacity duration-300 ease-out',
           visible ? 'opacity-100' : 'opacity-0'
         )}
         onClick={onClose}

@@ -3,37 +3,46 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
-import { cn } from '@/lib/utils/cn';
 import { toJpeg } from 'html-to-image';
 import {
     LuArrowLeft,
     LuType,
     LuImage,
-    LuShapes,
     LuTrash2,
     LuCopy,
     LuSave,
-    LuZoomIn,
-    LuZoomOut,
     LuLayers,
-    LuSlidersHorizontal,
     LuUndo2,
     LuRedo2,
     LuPencil,
     LuText,
     LuDownload,
-    LuX,
+    LuPlus,
+    LuCrop,
+    LuFlipHorizontal,
+    LuFlipVertical,
+    LuPalette,
+    LuDroplet,
+    LuBold,
+    LuItalic,
+    LuMaximize,
+    LuSquare,
+    LuPenLine,
+    LuCircle,
+    LuAlignVerticalJustifyCenter,
+    LuALargeSmall,
 } from 'react-icons/lu';
+import { TbBorderCorners } from "react-icons/tb";
+
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import Modal from '@/components/ui/Modal';
-import ColorPicker from '@/components/ui/ColorPicker';
+import Drawer from '@/components/ui/Drawer';
+import ColorPickerDrawer from '@/components/ui/ColorPickerDrawer';
+import SliderField from '@/components/ui/SliderField';
 import Canvas from '@/components/editor/Canvas';
 import DraggableLayerList from '@/components/common/DraggableLayerList';
-import TextToolbar from '@/components/editor/Toolbars/TextToolbar';
-import ImageToolbar from '@/components/editor/Toolbars/ImageToolbar';
-import ShapeToolbar from '@/components/editor/Toolbars/ShapeToolbar';
-import DynamicFieldToolbar from '@/components/editor/Toolbars/DynamicFieldToolbar';
+import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/store/projects';
 import {
@@ -47,7 +56,19 @@ import {
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
-const MIN_ZOOM = 0.25;
+const SYNC_INTERVAL_MS = 10_000;
+
+const SHAPES: { shape: ShapeLayer['shape']; labelKey: string }[] = [
+    { shape: 'rectangle', labelKey: 'rectangle' },
+    { shape: 'rectangle_free', labelKey: 'rectangleFree' },
+    { shape: 'circle', labelKey: 'circle' },
+    { shape: 'triangle', labelKey: 'triangle' },
+    { shape: 'star_4', labelKey: 'star4' },
+    { shape: 'star_5', labelKey: 'star5' },
+    { shape: 'star_6', labelKey: 'star6' },
+    { shape: 'star_8', labelKey: 'star8' },
+    { shape: 'line', labelKey: 'line' },
+];
 
 function generateFieldId(project: Project): string {
     const existing = project.layers
@@ -57,8 +78,111 @@ function generateFieldId(project: Project): string {
     const max = existing.length > 0 ? Math.max(...existing) : 0;
     return `field_${max + 1}`;
 }
-const MAX_ZOOM = 2;
-const SYNC_INTERVAL_MS = 10_000;
+
+/* --- Mobile-style bar buttons: icon on top, label below --- */
+
+function PropButton({
+    label,
+    value,
+    swatch,
+    icon,
+    active,
+    onClick,
+}: {
+    label: string;
+    value?: string | number;
+    swatch?: string;
+    icon: React.ReactNode;
+    active?: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl border px-1 py-2 transition-colors ${active
+                ? 'border-brand-primary bg-brand-primary text-primary-text'
+                : 'border-transparent text-foreground hover:bg-muted'
+                }`}
+        >
+            <div className="relative flex h-6 w-6 items-center justify-center">
+                {icon}
+                {swatch && (
+                    <span
+                        className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-stroke"
+                        style={{ backgroundColor: swatch }}
+                    />
+                )}
+            </div>
+            <span className="text-[10px] font-medium leading-tight">{label}</span>
+            {value !== undefined && !swatch && (
+                <span className={`text-[9px] leading-none ${active ? 'text-primary-text/80' : 'text-secondary'}`}>
+                    {value}
+                </span>
+            )}
+        </button>
+    );
+}
+
+function PropToggle({
+    label,
+    icon,
+    active,
+    onClick,
+}: {
+    label: string;
+    icon: React.ReactNode;
+    active: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl border px-1 py-2 transition-colors ${active
+                ? 'border-brand-primary bg-brand-primary text-primary-text'
+                : 'border-transparent text-foreground hover:bg-muted'
+                }`}
+        >
+            <div className="flex h-6 w-6 items-center justify-center">{icon}</div>
+            <span className="text-[10px] font-medium leading-tight">{label}</span>
+        </button>
+    );
+}
+
+/* --- Color picker helpers --- */
+
+const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
+    'text.color': 'color',
+    'image.borderColor': 'borderColor',
+    'shape.fillColor': 'fillColor',
+    'shape.strokeColor': 'strokeColor',
+    'df.strokeColor': 'strokeColor',
+};
+
+const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
+    'text.color': 'text',
+    'image.borderColor': 'image',
+    'shape.fillColor': 'shape',
+    'shape.strokeColor': 'shape',
+    'df.strokeColor': 'dynamicField',
+};
+
+function getColorPickerValue(layer: AnyLayer, prop: string): string {
+    if (prop === 'text.color') return (layer as TextLayer).color;
+    if (prop === 'image.borderColor') return (layer as ImageLayer).borderColor;
+    if (prop === 'shape.fillColor') return (layer as ShapeLayer).fillColor;
+    if (prop === 'shape.strokeColor') return (layer as ShapeLayer).strokeColor;
+    if (prop === 'df.strokeColor') return (layer as DynamicFieldLayer).borderColor ?? '#cccccc';
+    return '#000000';
+}
+
+function getColorPickerUpdate(prop: string, color: string): Partial<AnyLayer> {
+    if (prop === 'text.color') return { color } as Partial<AnyLayer>;
+    if (prop === 'image.borderColor') return { borderColor: color } as Partial<AnyLayer>;
+    if (prop === 'shape.fillColor') return { fillColor: color } as Partial<AnyLayer>;
+    if (prop === 'shape.strokeColor') return { strokeColor: color } as Partial<AnyLayer>;
+    if (prop === 'df.strokeColor') return { borderColor: color } as Partial<AnyLayer>;
+    return {};
+}
 
 export default function EditorPage() {
     const { id } = useParams<{ id: string }>();
@@ -71,8 +195,7 @@ export default function EditorPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-    const [zoom, setZoom] = useState(1);
-    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(0);
     const [history, setHistory] = useState<{ past: AnyLayer[][]; future: AnyLayer[][] }>({
         past: [],
         future: [],
@@ -82,50 +205,73 @@ export default function EditorPage() {
     const selectedLayerIdRef = useRef<string | null>(null);
     const deleteLayerRef = useRef<(id: string) => void>(() => { });
     const canvasRef = useRef<HTMLDivElement | null>(null);
+    const canvasContainerRef = useRef<HTMLDivElement | null>(null);
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const [isCropOpen, setIsCropOpen] = useState(false);
-    const [leftPanelOpen, setLeftPanelOpen] = useState(false);
-    const [rightPanelOpen, setRightPanelOpen] = useState(false);
-    const [isMobile, setIsMobile] = useState(false);
-    const [panState, setPanState] = useState<{ isPanning: boolean; startX: number; startY: number }>({
-        isPanning: false,
-        startX: 0,
-        startY: 0,
-    });
-    const [isSpacePressed, setIsSpacePressed] = useState(false);
+    const [addDrawerOpen, setAddDrawerOpen] = useState(false);
+    const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
+    const [activeProp, setActiveProp] = useState<string | null>(null);
+    const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
+
+    // Close drawers when selection changes
+    useEffect(() => {
+        setActiveProp(null);
+        setColorPickerProp(null);
+    }, [selectedLayerId]);
 
     useEffect(() => {
         projectRef.current = project;
     }, [project]);
 
+    // Load the project
     useEffect(() => {
         getProject(id).then((p) => {
             setProject(p);
             setLoading(false);
-            if (!p) return;
-            const isMobile = window.innerWidth < 640;
-            const widthRatio = isMobile ? 0.9 : 0.45;
-            const heightRatio = isMobile ? 0.6 : 0.65;
-            const fit = Math.min(
-                (window.innerWidth * widthRatio) / p.canvasWidth,
-                (window.innerHeight * heightRatio) / p.canvasHeight,
-                1
-            );
-            setZoom(Math.max(fit, MIN_ZOOM));
         });
     }, [id]);
 
+    // Compute zoom to fit the canvas fully inside the available container space
+    // with some breathing room (padding) on all sides.
+    // Uses a ResizeObserver so it reacts to panel/drawer open/close, not just window resize.
     useEffect(() => {
-        const checkMobile = () => setIsMobile(window.innerWidth < 640);
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
+        if (!project) return;
+        const PADDING = 48; // px of empty space around the canvas on all sides
+        let rafId: number | null = null;
+
+        const computeFit = () => {
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                const container = canvasContainerRef.current;
+                if (!container) return;
+                const availW = container.clientWidth - PADDING;
+                const availH = container.clientHeight - PADDING;
+                if (availW <= 0 || availH <= 0) return;
+                const fit = Math.min(
+                    availW / project.canvasWidth,
+                    availH / project.canvasHeight,
+                );
+                setZoom(fit > 0 ? fit : 0.1);
+            });
+        };
+
+        const ro = new ResizeObserver(() => computeFit());
+        if (canvasContainerRef.current) {
+            ro.observe(canvasContainerRef.current);
+        }
+        window.addEventListener('resize', computeFit);
+        return () => {
+            if (rafId) cancelAnimationFrame(rafId);
+            ro.disconnect();
+            window.removeEventListener('resize', computeFit);
+        };
+    }, [project]);
 
     const pendingPersistRef = useRef<Project | null>(null);
     const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const saveLocal = useCallback(async (projectToSave: Project) => {
         try {
@@ -139,17 +285,33 @@ export default function EditorPage() {
         (updated: Project) => {
             pendingPersistRef.current = updated;
 
+            // If inside a transaction (slider drag, color picker drag, etc.),
+            // don't save until the transaction ends.
             if (inTransactionRef.current) {
                 return;
             }
 
-            saveLocal(updated);
+            // Debounce the local save so rapid changes don't spam storage/API
+            if (saveDebounceRef.current) {
+                clearTimeout(saveDebounceRef.current);
+            }
+            saveDebounceRef.current = setTimeout(() => {
+                saveDebounceRef.current = null;
+                const current = pendingPersistRef.current;
+                if (current) {
+                    saveLocal(current);
+                }
+            }, 500);
         },
         [saveLocal]
     );
 
     const flushPersist = useCallback(async (updated: Project) => {
         pendingPersistRef.current = null;
+        if (saveDebounceRef.current) {
+            clearTimeout(saveDebounceRef.current);
+            saveDebounceRef.current = null;
+        }
         setSaving(true);
         await saveLocal(updated);
         if (projectRef.current) {
@@ -192,6 +354,11 @@ export default function EditorPage() {
         const endTransaction = () => {
             if (inTransactionRef.current) {
                 inTransactionRef.current = false;
+                // Cancel any pending debounce and save immediately
+                if (saveDebounceRef.current) {
+                    clearTimeout(saveDebounceRef.current);
+                    saveDebounceRef.current = null;
+                }
                 const current = pendingPersistRef.current;
                 if (current) {
                     saveLocal(current);
@@ -200,7 +367,11 @@ export default function EditorPage() {
             }
         };
         window.addEventListener('mouseup', endTransaction);
-        return () => window.removeEventListener('mouseup', endTransaction);
+        window.addEventListener('pointerup', endTransaction);
+        return () => {
+            window.removeEventListener('mouseup', endTransaction);
+            window.removeEventListener('pointerup', endTransaction);
+        };
     }, [saveLocal]);
 
     useEffect(() => {
@@ -227,11 +398,14 @@ export default function EditorPage() {
         setRenameOpen(false);
     }, [project, renameValue]);
 
-    const handleBackgroundColorChange = useCallback(async (color: string) => {
-        if (!project) return;
-        await updateProjectLocal(project.id, { backgroundColor: color });
-        setProject((prev) => (prev ? { ...prev, backgroundColor: color } : prev));
-    }, [project]);
+    const handleBackgroundColorChange = useCallback((color: string) => {
+        setProject((prev) => {
+            if (!prev) return prev;
+            const updated = { ...prev, backgroundColor: color };
+            persistProject(updated);
+            return updated;
+        });
+    }, [persistProject]);
 
     const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -302,11 +476,6 @@ export default function EditorPage() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code === 'Space') {
-                e.preventDefault();
-                setIsSpacePressed(true);
-                return;
-            }
             const isMod = e.metaKey || e.ctrlKey;
             if (isMod && e.key.toLowerCase() === 'z') {
                 e.preventDefault();
@@ -330,19 +499,8 @@ export default function EditorPage() {
                 return;
             }
         };
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.code === 'Space') {
-                setIsSpacePressed(false);
-                setPanState((prev) => ({ ...prev, isPanning: false }));
-            }
-        };
-        const handleMouseUp = () => {
-            setPanState((prev) => ({ ...prev, isPanning: false }));
-        };
 
         window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        window.addEventListener('mouseup', handleMouseUp);
         const flushBeforeLeave = () => {
             const current = pendingPersistRef.current || projectRef.current;
             if (!current) return;
@@ -357,11 +515,13 @@ export default function EditorPage() {
 
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-            window.removeEventListener('mouseup', handleMouseUp);
             window.removeEventListener('beforeunload', flushBeforeLeave);
             if (syncIntervalRef.current) {
                 clearInterval(syncIntervalRef.current);
+            }
+            if (saveDebounceRef.current) {
+                clearTimeout(saveDebounceRef.current);
+                saveDebounceRef.current = null;
             }
             flushBeforeLeave();
         };
@@ -510,16 +670,15 @@ export default function EditorPage() {
             });
             layer.zIndex = nextZIndex(prev.layers);
             setSelectedLayerId(layer.id);
-            setLeftPanelOpen(false);
-            setRightPanelOpen(true);
+            setAddDrawerOpen(false);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState, t]);
 
-    const handleAddShape = useCallback(() => {
+    const handleAddShape = useCallback((shape: ShapeLayer['shape']) => {
         updateProjectState((prev) => {
             const layer = buildShapeLayer({
-                shape: 'rectangle',
+                shape,
                 x: prev.canvasWidth * 0.1,
                 y: prev.canvasHeight * 0.1,
                 width: prev.canvasWidth * 0.25,
@@ -527,8 +686,7 @@ export default function EditorPage() {
             });
             layer.zIndex = nextZIndex(prev.layers);
             setSelectedLayerId(layer.id);
-            setLeftPanelOpen(false);
-            setRightPanelOpen(true);
+            setAddDrawerOpen(false);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState]);
@@ -544,8 +702,7 @@ export default function EditorPage() {
             });
             layer.zIndex = nextZIndex(prev.layers);
             setSelectedLayerId(layer.id);
-            setLeftPanelOpen(false);
-            setRightPanelOpen(true);
+            setAddDrawerOpen(false);
             return { ...prev, layers: [...prev.layers, layer] };
         });
     }, [updateProjectState, t]);
@@ -572,8 +729,7 @@ export default function EditorPage() {
                         });
                         layer.zIndex = nextZIndex(prev.layers);
                         setSelectedLayerId(layer.id);
-                        setLeftPanelOpen(false);
-                        setRightPanelOpen(true);
+                        setAddDrawerOpen(false);
                         return { ...prev, layers: [...prev.layers, layer] };
                     });
                 };
@@ -584,120 +740,6 @@ export default function EditorPage() {
         },
         [project, updateProjectState]
     );
-
-    const handleZoomIn = useCallback(() => {
-        setZoom((z) => Math.min(z + 0.25, MAX_ZOOM));
-    }, []);
-
-    const handleZoomOut = useCallback(() => {
-        setZoom((z) => Math.max(z - 0.25, MIN_ZOOM));
-    }, []);
-
-    const handleWheel = useCallback((e: React.WheelEvent) => {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z + delta)));
-    }, []);
-
-    const handlePanStart = useCallback((e: React.MouseEvent) => {
-        if (!isSpacePressed) return;
-        e.preventDefault();
-        setPanState({ isPanning: true, startX: e.clientX, startY: e.clientY });
-    }, [isSpacePressed]);
-
-    const handlePanMove = useCallback(
-        (e: React.MouseEvent) => {
-            if (!panState.isPanning) return;
-            const dx = e.clientX - panState.startX;
-            const dy = e.clientY - panState.startY;
-            setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
-            setPanState({ isPanning: true, startX: e.clientX, startY: e.clientY });
-        },
-        [panState.isPanning, panState.startX, panState.startY]
-    );
-
-    const handlePanEnd = useCallback(() => {
-        setPanState((prev) => ({ ...prev, isPanning: false }));
-    }, []);
-
-    // Touch pan & pinch state
-    const [touchState, setTouchState] = useState<{
-        isTouching: boolean;
-        isPinching: boolean;
-        startX: number;
-        startY: number;
-        startPanX: number;
-        startPanY: number;
-        startDistance: number;
-        startZoom: number;
-    }>({
-        isTouching: false,
-        isPinching: false,
-        startX: 0,
-        startY: 0,
-        startPanX: 0,
-        startPanY: 0,
-        startDistance: 0,
-        startZoom: 1,
-    });
-
-    const getTouchDistance = useCallback((t1: { clientX: number; clientY: number }, t2: { clientX: number; clientY: number }) => {
-        const dx = t1.clientX - t2.clientX;
-        const dy = t1.clientY - t2.clientY;
-        return Math.sqrt(dx * dx + dy * dy);
-    }, []);
-
-    const handleContainerTouchStart = useCallback(
-        (e: React.TouchEvent) => {
-            if (e.touches.length === 1) {
-                // Single finger: only let the Canvas handle layer drag/resize/rotate.
-                // Panning the canvas itself requires two fingers on mobile.
-                return;
-            } else if (e.touches.length === 2) {
-                const t1 = e.touches[0];
-                const t2 = e.touches[1];
-                setTouchState({
-                    isTouching: true,
-                    isPinching: true,
-                    startX: (t1.clientX + t2.clientX) / 2,
-                    startY: (t1.clientY + t2.clientY) / 2,
-                    startPanX: pan.x,
-                    startPanY: pan.y,
-                    startDistance: getTouchDistance(t1, t2),
-                    startZoom: zoom,
-                });
-            }
-        },
-        [pan.x, pan.y, zoom, getTouchDistance]
-    );
-
-    const handleContainerTouchMove = useCallback(
-        (e: React.TouchEvent) => {
-            // Only two-finger gestures pan/zoom the canvas on mobile.
-            if (!touchState.isTouching || e.touches.length !== 2) return;
-            e.preventDefault();
-
-            if (touchState.isPinching) {
-                const t1 = e.touches[0];
-                const t2 = e.touches[1];
-                const distance = getTouchDistance(t1, t2);
-                const scale = distance / (touchState.startDistance || 1);
-                const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, touchState.startZoom * scale));
-                setZoom(newZoom);
-
-                const centerX = (t1.clientX + t2.clientX) / 2;
-                const centerY = (t1.clientY + t2.clientY) / 2;
-                const dx = centerX - touchState.startX;
-                const dy = centerY - touchState.startY;
-                setPan({ x: touchState.startPanX + dx, y: touchState.startPanY + dy });
-            }
-        },
-        [touchState, getTouchDistance]
-    );
-
-    const handleContainerTouchEnd = useCallback(() => {
-        setTouchState((prev) => ({ ...prev, isTouching: false, isPinching: false }));
-    }, []);
 
     if (loading) {
         return (
@@ -723,14 +765,14 @@ export default function EditorPage() {
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
 
     return (
-        <div className="flex h-svh flex-col">
+        <div className="relative flex h-svh flex-col">
             {/* Top toolbar */}
             <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
                     <Button variant="ghost" size="sm" onClick={() => router.push('/projects')}>
                         <LuArrowLeft className="h-4 w-4" />
                     </Button>
-                    <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground sm:text-base">
+                    <h1 className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
                         {project.name}
                     </h1>
                     <Button
@@ -741,13 +783,14 @@ export default function EditorPage() {
                             setRenameOpen(true);
                         }}
                         aria-label={t('renameProject')}
+                        className="shrink-0"
                     >
                         <LuPencil className="h-4 w-4" />
                     </Button>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-                    <div className="hidden items-center gap-1 sm:flex">
+                    <div className="flex items-center gap-1">
                         <Button
                             variant="ghost"
                             size="sm"
@@ -768,27 +811,15 @@ export default function EditorPage() {
                         </Button>
                     </div>
 
-                    <div className="flex items-center gap-1 rounded-lg border border-stroke bg-background px-1.5 py-1 sm:px-2">
-                        <button
-                            type="button"
-                            onClick={handleZoomOut}
-                            className="p-1 text-secondary hover:text-foreground"
-                            aria-label={t('zoomOut')}
-                        >
-                            <LuZoomOut className="h-4 w-4" />
-                        </button>
-                        <span className="min-w-9 text-center text-xs font-medium text-foreground sm:min-w-12">
-                            {Math.round(zoom * 100)}%
-                        </span>
-                        <button
-                            type="button"
-                            onClick={handleZoomIn}
-                            className="p-1 text-secondary hover:text-foreground"
-                            aria-label={t('zoomIn')}
-                        >
-                            <LuZoomIn className="h-4 w-4" />
-                        </button>
-                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setLayersDrawerOpen(true)}
+                        className="gap-1 px-2 sm:px-3"
+                    >
+                        <LuLayers className="h-4 w-4" />
+                        <span className="hidden sm:inline">{t('layers')}</span>
+                    </Button>
 
                     <Button
                         variant="outline"
@@ -813,309 +844,587 @@ export default function EditorPage() {
                 </div>
             </div>
 
-            {/* Main editor area */}
-            <div className="flex flex-1 overflow-hidden">
-                {/* Mobile backdrop for panels */}
-                {(leftPanelOpen || rightPanelOpen) && (
-                    <div
-                        className="fixed inset-0 top-14 z-20 bg-black/40 lg:hidden"
-                        onClick={() => { setLeftPanelOpen(false); setRightPanelOpen(false); }}
-                    />
-                )}
-
-                {/* Left: layers & tools */}
+            {/* Main editor area — canvas only, panels are drawers now */}
+            <div className="relative flex flex-1 overflow-hidden">
+                {/* Center: canvas — always centered, fits to screen */}
                 <div
-                    className={cn(
-                        'z-30 flex w-full sm:w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-stroke bg-toolbar-bg p-4',
-                        'transition-transform duration-300 ease-in-out',
-                        'lg:static lg:w-64 lg:translate-x-0',
-                        leftPanelOpen ? 'translate-x-0' : '-translate-x-full',
-                        'fixed bottom-0 left-0 top-14'
-                    )}
+                    ref={canvasContainerRef}
+                    className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none"
                 >
-                    <div className="flex items-center justify-between lg:hidden">
-                        <h3 className="text-sm font-semibold text-foreground">{t('layers')}</h3>
-                        <button
-                            type="button"
-                            onClick={() => setLeftPanelOpen(false)}
-                            className="p-1 text-secondary hover:text-foreground"
-                            aria-label={t('cancel')}
-                        >
-                            <LuX className="h-5 w-5" />
-                        </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                        <Button variant="outline" size="sm" onClick={handleAddText} className="gap-1">
-                            <LuType className="h-4 w-4" />
-                            {t('addText')}
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="gap-1"
-                        >
-                            <LuImage className="h-4 w-4" />
-                            {t('addImage')}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={handleAddShape} className="gap-1">
-                            <LuShapes className="h-4 w-4" />
-                            {t('addShape')}
-                        </Button>
-                        {project?.kind === 'booking_template' && (
-                            <Button variant="outline" size="sm" onClick={handleAddDynamicField} className="gap-1">
-                                <LuText className="h-4 w-4" />
-                                {t('addField')}
-                            </Button>
-                        )}
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border border-stroke bg-card-bg p-3">
-                        <h4 className="text-sm font-semibold text-foreground">{t('canvasBackground')}</h4>
-                        <ColorPicker
-                            value={project.backgroundColor ?? '#ffffff'}
-                            onChange={handleBackgroundColorChange}
-                            placement="left"
-                        />
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => bgFileInputRef.current?.click()}
-                                className="flex-1 gap-1"
-                            >
-                                <LuImage className="h-4 w-4" />
-                                {project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
-                            </Button>
-                            {project.backgroundUri && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={handleRemoveBackgroundImage}
-                                    aria-label={t('removeBgImage')}
-                                >
-                                    <LuTrash2 className="h-4 w-4 text-error" />
-                                </Button>
-                            )}
-                        </div>
-                        <input
-                            ref={bgFileInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={handleBackgroundImageChange}
-                        />
-                    </div>
-
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleFileSelect}
-                    />
-
-                    <DraggableLayerList
-                        layers={project.layers}
-                        selectedId={selectedLayerId || undefined}
-                        onSelect={(id) => {
-                            setSelectedLayerId(id);
-                            setLeftPanelOpen(false);
-                            if (id) setRightPanelOpen(true);
-                        }}
-                        onReorder={handleReorder}
-                        onToggleVisibility={handleToggleVisibility}
-                        onToggleLock={handleToggleLock}
-                        onDelete={handleDeleteLayer}
-                    />
-                </div>
-
-                {/* Center: canvas */}
-                <div
-                    className="relative flex flex-1 overflow-hidden bg-canvas-bg touch-none"
-                    onWheel={handleWheel}
-                    onTouchStart={handleContainerTouchStart}
-                    onTouchMove={handleContainerTouchMove}
-                    onTouchEnd={handleContainerTouchEnd}
-                >
-                    <div
-                        className="absolute left-1/2 top-1/2 shadow-2xl"
-                        style={{
-                            width: project.canvasWidth * zoom,
-                            height: project.canvasHeight * zoom,
-                            transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`,
-                        }}
-                    >
+                    {zoom > 0 && (
                         <div
+                            className="shadow-2xl"
                             style={{
                                 width: project.canvasWidth * zoom,
                                 height: project.canvasHeight * zoom,
-                                transform: `scale(${zoom})`,
-                                transformOrigin: isMobile ? 'top right' : 'top left',
                             }}
                         >
-                            <Canvas
-                                ref={canvasRef}
-                                width={project.canvasWidth}
-                                height={project.canvasHeight}
-                                backgroundColor={project.backgroundColor ?? '#ffffff'}
-                                backgroundUri={project.backgroundUri}
-                                layers={project.layers}
-                                selectedLayerId={selectedLayerId || undefined}
-                                onSelectLayer={setSelectedLayerId}
-                                onLayerChange={handleLayerChange}
-                                onLayerDragStart={handleLayerDragStart}
-                                onDuplicateLayer={handleDuplicateLayer}
-                                onDeleteLayer={handleDeleteLayer}
-                                scale={zoom}
-                                showGrid={!isExporting}
-                                onAlign={handleAlign}
-                                onVerticalAlign={handleVerticalAlign}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Pan overlay: captures mouse events while space is held */}
-                    {isSpacePressed && (
-                        <div
-                            className={cn(
-                                'absolute inset-0 z-20 cursor-grab active:cursor-grabbing',
-                                panState.isPanning && 'cursor-grabbing'
-                            )}
-                            onMouseDown={handlePanStart}
-                            onMouseMove={handlePanMove}
-                            onMouseUp={handlePanEnd}
-                            onMouseLeave={handlePanEnd}
-                        />
-                    )}
-                </div>
-
-                {/* Right: properties */}
-                <div
-                    className={cn(
-                        'z-30 flex w-full sm:w-80 shrink-0 flex-col overflow-y-auto border-l border-stroke bg-toolbar-bg p-4',
-                        'transition-transform duration-300 ease-in-out',
-                        'lg:static lg:w-72 lg:translate-x-0',
-                        rightPanelOpen ? 'translate-x-0' : 'translate-x-full',
-                        'fixed bottom-0 right-0 top-14'
-                    )}
-                >
-                    <div className="flex items-center justify-between lg:hidden">
-                        <h3 className="text-sm font-semibold text-foreground">{t('properties')}</h3>
-                        <button
-                            type="button"
-                            onClick={() => setRightPanelOpen(false)}
-                            className="p-1 text-secondary hover:text-foreground"
-                            aria-label={t('cancel')}
-                        >
-                            <LuX className="h-5 w-5" />
-                        </button>
-                    </div>
-
-                    {selectedLayer ? (
-                        <div className="space-y-4">
-                            <div className="hidden items-center justify-between lg:flex">
-                                <h3 className="text-sm font-semibold text-foreground">{t('properties')}</h3>
-                                <div className="flex gap-1">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleDuplicateLayer(selectedLayer.id)}
-                                        aria-label={t('duplicate')}
-                                    >
-                                        <LuCopy className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleDeleteLayer(selectedLayer.id)}
-                                        aria-label={t('delete')}
-                                    >
-                                        <LuTrash2 className="h-4 w-4 text-error" />
-                                    </Button>
-                                </div>
+                            <div
+                                style={{
+                                    width: project.canvasWidth,
+                                    height: project.canvasHeight,
+                                    transform: `scale(${zoom})`,
+                                    transformOrigin: 'top left',
+                                }}
+                            >
+                                <Canvas
+                                    ref={canvasRef}
+                                    width={project.canvasWidth}
+                                    height={project.canvasHeight}
+                                    backgroundColor={project.backgroundColor ?? '#ffffff'}
+                                    backgroundUri={project.backgroundUri}
+                                    layers={project.layers}
+                                    selectedLayerId={selectedLayerId || undefined}
+                                    onSelectLayer={(id) => {
+                                        setSelectedLayerId(id);
+                                    }}
+                                    onLayerChange={handleLayerChange}
+                                    onLayerDragStart={handleLayerDragStart}
+                                    onDuplicateLayer={handleDuplicateLayer}
+                                    onDeleteLayer={handleDeleteLayer}
+                                    scale={zoom}
+                                    showGrid={!isExporting}
+                                    onAlign={handleAlign}
+                                    onVerticalAlign={handleVerticalAlign}
+                                />
                             </div>
+                        </div>
+                    )}
+                </div>
 
-                            {selectedLayer.type === 'text' && (
-                                <TextToolbar
-                                    layer={selectedLayer as TextLayer}
-                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
-                                    onSliderStart={startChangeTransaction}
-                                />
-                            )}
-                            {selectedLayer.type === 'image' && (
-                                <ImageToolbar
-                                    layer={selectedLayer as ImageLayer}
-                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
-                                    onSliderStart={startChangeTransaction}
-                                    onCrop={() => setIsCropOpen(true)}
-                                />
-                            )}
-                            {selectedLayer.type === 'shape' && (
-                                <ShapeToolbar
-                                    layer={selectedLayer as ShapeLayer}
-                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
-                                    onSliderStart={startChangeTransaction}
-                                />
-                            )}
-                            {selectedLayer.type === 'dynamic_field' && (
-                                <DynamicFieldToolbar
-                                    layer={selectedLayer as DynamicFieldLayer}
-                                    onChange={(updates) => handleLayerChange(selectedLayer.id, updates)}
+                {/* Bottom bar — shown when no layer is selected (mobile style) */}
+                {!selectedLayer && (
+                    <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+                        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-2 py-1.5">
+                            <PropButton
+                                label={t('canvasBackground')}
+                                swatch={project.backgroundColor ?? '#ffffff'}
+                                icon={<LuPalette className="h-5 w-5" />}
+                                active={colorPickerProp === 'canvas.bg'}
+                                onClick={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
+                            />
+                            <PropToggle
+                                label={project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
+                                icon={<LuImage className="h-5 w-5" />}
+                                active={false}
+                                onClick={() => bgFileInputRef.current?.click()}
+                            />
+                            {project.backgroundUri && (
+                                <PropToggle
+                                    label={t('removeBgImage')}
+                                    icon={<LuTrash2 className="h-5 w-5" />}
+                                    active={false}
+                                    onClick={handleRemoveBackgroundImage}
                                 />
                             )}
                         </div>
-                    ) : (
-                        <div className="text-center text-sm text-secondary">{t('selectLayer')}</div>
-                    )}
-                </div>
+                    </div>
+                )}
+
+                {/* Floating + button — bottom right, moves up when properties bar is visible */}
+                <button
+                    type="button"
+                    onClick={() => setAddDrawerOpen(true)}
+                    className="absolute bottom-20 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-all hover:scale-105 active:scale-95"
+                    aria-label={t('newProject')}
+                >
+                    <LuPlus className="h-7 w-7" />
+                </button>
+
+                {/* Hidden file inputs */}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                />
+                <input
+                    ref={bgFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleBackgroundImageChange}
+                />
+
+                {/* Properties bar — absolute bottom, mobile-style icon buttons */}
+                {selectedLayer && (
+                    <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+                        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-2 py-1.5">
+                            {/* Actions */}
+                            <PropToggle
+                                label={t('duplicate')}
+                                icon={<LuCopy className="h-5 w-5" />}
+                                active={false}
+                                onClick={() => handleDuplicateLayer(selectedLayer.id)}
+                            />
+                            <PropToggle
+                                label={t('delete')}
+                                icon={<LuTrash2 className="h-5 w-5" />}
+                                active={false}
+                                onClick={() => handleDeleteLayer(selectedLayer.id)}
+                            />
+
+                            <div className="h-10 w-px shrink-0 bg-stroke" />
+
+                            {/* Text layer */}
+                            {selectedLayer.type === 'text' && (() => {
+                                const l = selectedLayer as TextLayer;
+                                return (
+                                    <>
+                                        <PropButton
+                                            label={t('toolbars.text.color')}
+                                            swatch={l.color}
+                                            icon={<LuPalette className="h-5 w-5" />}
+                                            active={colorPickerProp === 'text.color'}
+                                            onClick={() => setColorPickerProp(colorPickerProp === 'text.color' ? null : 'text.color')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.text.size')}
+                                            value={l.fontSize}
+                                            icon={<LuALargeSmall className="h-5 w-5" />}
+                                            active={activeProp === 'text.fontSize'}
+                                            onClick={() => setActiveProp(activeProp === 'text.fontSize' ? null : 'text.fontSize')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.text.lineHeight')}
+                                            value={l.lineHeight}
+                                            icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
+                                            active={activeProp === 'text.lineHeight'}
+                                            onClick={() => setActiveProp(activeProp === 'text.lineHeight' ? null : 'text.lineHeight')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.text.opacity')}
+                                            value={`${Math.round(l.opacity * 100)}%`}
+                                            icon={<LuDroplet className="h-5 w-5" />}
+                                            active={activeProp === 'text.opacity'}
+                                            onClick={() => setActiveProp(activeProp === 'text.opacity' ? null : 'text.opacity')}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.bold')}
+                                            icon={<LuBold className="h-5 w-5" />}
+                                            active={l.bold}
+                                            onClick={() => handleLayerChange(l.id, { bold: !l.bold })}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.italic')}
+                                            icon={<LuItalic className="h-5 w-5" />}
+                                            active={l.italic}
+                                            onClick={() => handleLayerChange(l.id, { italic: !l.italic })}
+                                        />
+                                    </>
+                                );
+                            })()}
+
+                            {/* Image layer */}
+                            {selectedLayer.type === 'image' && (() => {
+                                const l = selectedLayer as ImageLayer;
+                                return (
+                                    <>
+                                        <PropToggle
+                                            label={t('toolbars.image.crop')}
+                                            icon={<LuCrop className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => setIsCropOpen(true)}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.image.scale')}
+                                            value={l.imageScale}
+                                            icon={<LuMaximize className="h-5 w-5" />}
+                                            active={activeProp === 'image.imageScale'}
+                                            onClick={() => setActiveProp(activeProp === 'image.imageScale' ? null : 'image.imageScale')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.image.opacity')}
+                                            value={`${Math.round(l.opacity * 100)}%`}
+                                            icon={<LuDroplet className="h-5 w-5" />}
+                                            active={activeProp === 'image.opacity'}
+                                            onClick={() => setActiveProp(activeProp === 'image.opacity' ? null : 'image.opacity')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.image.borderRadius')}
+                                            value={l.borderRadius}
+                                            icon={<TbBorderCorners className="h-5 w-5" />}
+                                            active={activeProp === 'image.borderRadius'}
+                                            onClick={() => setActiveProp(activeProp === 'image.borderRadius' ? null : 'image.borderRadius')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.image.borderWidth')}
+                                            value={l.borderWidth}
+                                            icon={<LuSquare className="h-5 w-5" />}
+                                            active={activeProp === 'image.borderWidth'}
+                                            onClick={() => setActiveProp(activeProp === 'image.borderWidth' ? null : 'image.borderWidth')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.image.borderColor')}
+                                            swatch={l.borderColor}
+                                            icon={<LuPalette className="h-5 w-5" />}
+                                            active={colorPickerProp === 'image.borderColor'}
+                                            onClick={() => setColorPickerProp(colorPickerProp === 'image.borderColor' ? null : 'image.borderColor')}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.image.flipHorizontal')}
+                                            icon={<LuFlipHorizontal className="h-5 w-5" />}
+                                            active={l.flipX}
+                                            onClick={() => handleLayerChange(l.id, { flipX: !l.flipX })}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.image.flipVertical')}
+                                            icon={<LuFlipVertical className="h-5 w-5" />}
+                                            active={l.flipY}
+                                            onClick={() => handleLayerChange(l.id, { flipY: !l.flipY })}
+                                        />
+                                    </>
+                                );
+                            })()}
+
+                            {/* Shape layer */}
+                            {selectedLayer.type === 'shape' && (() => {
+                                const l = selectedLayer as ShapeLayer;
+                                const filled = l.filled ?? true;
+                                return (
+                                    <>
+                                        <PropButton
+                                            label={t('toolbars.shape.fillColor')}
+                                            swatch={l.fillColor}
+                                            icon={<LuPalette className="h-5 w-5" />}
+                                            active={colorPickerProp === 'shape.fillColor'}
+                                            onClick={() => setColorPickerProp(colorPickerProp === 'shape.fillColor' ? null : 'shape.fillColor')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.shape.strokeColor')}
+                                            swatch={l.strokeColor}
+                                            icon={<LuPenLine className="h-5 w-5" />}
+                                            active={colorPickerProp === 'shape.strokeColor'}
+                                            onClick={() => setColorPickerProp(colorPickerProp === 'shape.strokeColor' ? null : 'shape.strokeColor')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.shape.strokeWidth')}
+                                            value={l.strokeWidth}
+                                            icon={<LuSquare className="h-5 w-5" />}
+                                            active={activeProp === 'shape.strokeWidth'}
+                                            onClick={() => setActiveProp(activeProp === 'shape.strokeWidth' ? null : 'shape.strokeWidth')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.shape.opacity')}
+                                            value={`${Math.round(l.opacity * 100)}%`}
+                                            icon={<LuDroplet className="h-5 w-5" />}
+                                            active={activeProp === 'shape.opacity'}
+                                            onClick={() => setActiveProp(activeProp === 'shape.opacity' ? null : 'shape.opacity')}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.shape.filled')}
+                                            icon={
+                                                <LuCircle
+                                                    className="h-5 w-5"
+                                                    fill={filled ? 'currentColor' : 'none'}
+                                                    strokeWidth={2}
+                                                />
+                                            }
+                                            active={filled}
+                                            onClick={() => handleLayerChange(l.id, { filled: !filled })}
+                                        />
+                                        {l.shape === 'rectangle_free' && (
+                                            <PropButton
+                                                label={t('toolbars.shape.cornerRadius')}
+                                                value={l.cornerRadius || 20}
+                                                icon={<TbBorderCorners className="h-5 w-5" />}
+                                                active={activeProp === 'shape.cornerRadius'}
+                                                onClick={() => setActiveProp(activeProp === 'shape.cornerRadius' ? null : 'shape.cornerRadius')}
+                                            />
+                                        )}
+                                    </>
+                                );
+                            })()}
+
+                            {/* Dynamic field layer */}
+                            {selectedLayer.type === 'dynamic_field' && (() => {
+                                const l = selectedLayer as DynamicFieldLayer;
+                                return (
+                                    <>
+                                        <PropButton
+                                            label={t('toolbars.dynamicField.opacity')}
+                                            value={`${Math.round(l.opacity * 100)}%`}
+                                            icon={<LuDroplet className="h-5 w-5" />}
+                                            active={activeProp === 'df.opacity'}
+                                            onClick={() => setActiveProp(activeProp === 'df.opacity' ? null : 'df.opacity')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.dynamicField.strokeWidth')}
+                                            value={l.borderWidth ?? 0}
+                                            icon={<LuSquare className="h-5 w-5" />}
+                                            active={activeProp === 'df.strokeWidth'}
+                                            onClick={() => setActiveProp(activeProp === 'df.strokeWidth' ? null : 'df.strokeWidth')}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.dynamicField.strokeColor')}
+                                            swatch={l.borderColor ?? '#cccccc'}
+                                            icon={<LuPalette className="h-5 w-5" />}
+                                            active={colorPickerProp === 'df.strokeColor'}
+                                            onClick={() => setColorPickerProp(colorPickerProp === 'df.strokeColor' ? null : 'df.strokeColor')}
+                                        />
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* Mobile floating controls */}
-            <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 gap-2 rounded-full border border-stroke bg-card-bg p-2 shadow-xl lg:hidden">
-                <button
-                    type="button"
-                    onClick={handleUndo}
-                    disabled={history.past.length === 0}
-                    className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted disabled:opacity-40"
-                    aria-label={t('undo')}
-                >
-                    <LuUndo2 className="h-5 w-5" />
-                </button>
-                <button
-                    type="button"
-                    onClick={handleRedo}
-                    disabled={history.future.length === 0}
-                    className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted disabled:opacity-40"
-                    aria-label={t('redo')}
-                >
-                    <LuRedo2 className="h-5 w-5" />
-                </button>
-                <div className="w-px bg-stroke" />
-                <button
-                    type="button"
-                    onClick={() => { setLeftPanelOpen((v) => !v); setRightPanelOpen(false); }}
-                    className={cn(
-                        'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
-                        leftPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
-                    )}
-                    aria-label={t('layers')}
-                >
-                    <LuLayers className="h-5 w-5" />
-                </button>
-                <button
-                    type="button"
-                    onClick={() => { setRightPanelOpen((v) => !v); setLeftPanelOpen(false); }}
-                    className={cn(
-                        'pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors',
-                        rightPanelOpen ? 'bg-brand-primary text-white' : 'text-foreground hover:bg-muted'
-                    )}
-                    aria-label={t('properties')}
-                >
-                    <LuSlidersHorizontal className="h-5 w-5" />
-                </button>
-            </div>
+            {/* Add drawer — text, image, shapes */}
+            <Drawer
+                isOpen={addDrawerOpen}
+                onClose={() => setAddDrawerOpen(false)}
+                title={t('newProject')}
+                height="half"
+            >
+                {/* Add text, image, field options */}
+                <div className="mb-6">
+                    <div className="grid grid-cols-2 gap-3">
+                        <button
+                            onClick={handleAddText}
+                            className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                        >
+                            <LuType className="h-8 w-8 text-brand-primary" />
+                            <span className="text-sm font-medium text-foreground">{t('addText')}</span>
+                        </button>
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                        >
+                            <LuImage className="h-8 w-8 text-brand-primary" />
+                            <span className="text-sm font-medium text-foreground">{t('addImage')}</span>
+                        </button>
+                        {project?.kind === 'booking_template' && (
+                            <button
+                                onClick={handleAddDynamicField}
+                                className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                            >
+                                <LuText className="h-8 w-8 text-brand-primary" />
+                                <span className="text-sm font-medium text-foreground">{t('addField')}</span>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Shapes */}
+                <div>
+                    <h3 className="mb-3 text-sm font-medium text-secondary">{t('addShape')}</h3>
+                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                        {SHAPES.map(({ shape, labelKey }) => (
+                            <button
+                                key={shape}
+                                onClick={() => handleAddShape(shape)}
+                                className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                            >
+                                <ShapeRenderer
+                                    shape={shape}
+                                    width={40}
+                                    height={40}
+                                    fillColor="var(--brand-primary)"
+                                    strokeColor="var(--brand-primary)"
+                                    strokeWidth={2}
+                                    filled
+                                />
+                                <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </Drawer>
+
+            {/* Layers drawer */}
+            <Drawer
+                isOpen={layersDrawerOpen}
+                onClose={() => setLayersDrawerOpen(false)}
+                title={t('layers')}
+                height="half"
+            >
+                <DraggableLayerList
+                    layers={project.layers}
+                    selectedId={selectedLayerId || undefined}
+                    onSelect={(layerId) => {
+                        setSelectedLayerId(layerId);
+                        setLayersDrawerOpen(false);
+                    }}
+                    onReorder={handleReorder}
+                    onToggleVisibility={handleToggleVisibility}
+                    onToggleLock={handleToggleLock}
+                    onDelete={handleDeleteLayer}
+                />
+            </Drawer>
+
+            {/* Property drawer — shows the slider control for the active property */}
+            <Drawer
+                isOpen={!!activeProp && !!selectedLayer}
+                onClose={() => setActiveProp(null)}
+                title={selectedLayer ? t('properties') : ''}
+                height="auto"
+            >
+                {selectedLayer && activeProp && (
+                    <div className="space-y-4">
+                        {/* Text: fontSize */}
+                        {activeProp === 'text.fontSize' && (
+                            <SliderField
+                                label={t('toolbars.text.size')}
+                                value={(selectedLayer as TextLayer).fontSize}
+                                min={1}
+                                max={300}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { fontSize: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Text: lineHeight */}
+                        {activeProp === 'text.lineHeight' && (
+                            <SliderField
+                                label={t('toolbars.text.lineHeight')}
+                                value={(selectedLayer as TextLayer).lineHeight}
+                                min={0.5}
+                                max={2.5}
+                                step={0.1}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { lineHeight: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Text: opacity */}
+                        {activeProp === 'text.opacity' && (
+                            <SliderField
+                                label={t('toolbars.text.opacity')}
+                                value={(selectedLayer as TextLayer).opacity * 100}
+                                min={0}
+                                max={100}
+                                suffix="%"
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { opacity: v / 100 } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Image: scale */}
+                        {activeProp === 'image.imageScale' && (
+                            <SliderField
+                                label={t('toolbars.image.scale')}
+                                value={(selectedLayer as ImageLayer).imageScale}
+                                min={0.1}
+                                max={3}
+                                step={0.05}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { imageScale: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Image: opacity */}
+                        {activeProp === 'image.opacity' && (
+                            <SliderField
+                                label={t('toolbars.image.opacity')}
+                                value={(selectedLayer as ImageLayer).opacity * 100}
+                                min={0}
+                                max={100}
+                                suffix="%"
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { opacity: v / 100 } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Image: borderRadius */}
+                        {activeProp === 'image.borderRadius' && (
+                            <SliderField
+                                label={t('toolbars.image.borderRadius')}
+                                value={(selectedLayer as ImageLayer).borderRadius}
+                                min={0}
+                                max={200}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { borderRadius: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Image: borderWidth */}
+                        {activeProp === 'image.borderWidth' && (
+                            <SliderField
+                                label={t('toolbars.image.borderWidth')}
+                                value={(selectedLayer as ImageLayer).borderWidth}
+                                min={0}
+                                max={50}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { borderWidth: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Shape: strokeWidth */}
+                        {activeProp === 'shape.strokeWidth' && (
+                            <SliderField
+                                label={t('toolbars.shape.strokeWidth')}
+                                value={(selectedLayer as ShapeLayer).strokeWidth}
+                                min={0}
+                                max={50}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { strokeWidth: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Shape: opacity */}
+                        {activeProp === 'shape.opacity' && (
+                            <SliderField
+                                label={t('toolbars.shape.opacity')}
+                                value={(selectedLayer as ShapeLayer).opacity * 100}
+                                min={0}
+                                max={100}
+                                suffix="%"
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { opacity: v / 100 } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Shape: cornerRadius */}
+                        {activeProp === 'shape.cornerRadius' && (
+                            <SliderField
+                                label={t('toolbars.shape.cornerRadius')}
+                                value={(selectedLayer as ShapeLayer).cornerRadius || 20}
+                                min={0}
+                                max={200}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { cornerRadius: v } as Partial<AnyLayer>)}
+                                onDragStart={startChangeTransaction}
+                            />
+                        )}
+                        {/* Dynamic field: opacity */}
+                        {activeProp === 'df.opacity' && (
+                            <SliderField
+                                label={t('toolbars.dynamicField.opacity')}
+                                value={(selectedLayer as DynamicFieldLayer).opacity * 100}
+                                min={0}
+                                max={100}
+                                suffix="%"
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { opacity: v / 100 } as Partial<AnyLayer>)}
+                            />
+                        )}
+                        {/* Dynamic field: strokeWidth */}
+                        {activeProp === 'df.strokeWidth' && (
+                            <SliderField
+                                label={t('toolbars.dynamicField.strokeWidth')}
+                                value={(selectedLayer as DynamicFieldLayer).borderWidth ?? 0}
+                                min={0}
+                                max={50}
+                                onChange={(v) => handleLayerChange(selectedLayer.id, { borderWidth: v } as Partial<AnyLayer>)}
+                            />
+                        )}
+                    </div>
+                )}
+            </Drawer>
+
+            {/* Color picker drawer — handles all color properties (layers + canvas bg) */}
+            <ColorPickerDrawer
+                isOpen={!!colorPickerProp}
+                onClose={() => setColorPickerProp(null)}
+                onDragStart={startChangeTransaction}
+                title={colorPickerProp === 'canvas.bg' ? t('canvasBackground') : colorPickerProp ? t(`toolbars.${COLOR_PROP_TYPE_PREFIX[colorPickerProp]}.${COLOR_PROP_LABEL_KEYS[colorPickerProp]}`) : ''}
+                value={(() => {
+                    if (!colorPickerProp) return '#000000';
+                    if (colorPickerProp === 'canvas.bg') return project?.backgroundColor ?? '#ffffff';
+                    if (!selectedLayer) return '#000000';
+                    return getColorPickerValue(selectedLayer, colorPickerProp);
+                })()}
+                onChange={(c) => {
+                    if (!colorPickerProp) return;
+                    if (colorPickerProp === 'canvas.bg') {
+                        handleBackgroundColorChange(c);
+                        return;
+                    }
+                    if (!selectedLayer) return;
+                    handleLayerChange(selectedLayer.id, getColorPickerUpdate(colorPickerProp, c));
+                }}
+            />
 
             <Modal
                 isOpen={renameOpen}

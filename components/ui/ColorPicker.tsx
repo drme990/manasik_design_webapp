@@ -11,6 +11,7 @@ export interface ColorPickerProps {
   recent?: string[];
   onRecentAdd?: (color: string) => void;
   placement?: 'left' | 'right';
+  dropUp?: boolean;
   className?: string;
 }
 
@@ -27,6 +28,7 @@ export default function ColorPicker({
   recent = [],
   onRecentAdd,
   placement = 'right',
+  dropUp = false,
   className,
 }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -94,7 +96,8 @@ export default function ColorPicker({
 
       {isOpen && (
         <div className={cn(
-          'absolute top-full z-30 mt-1 w-64 rounded-xl border border-stroke bg-card-bg p-3 shadow-lg',
+          'absolute z-30 w-64 rounded-xl border border-stroke bg-card-bg p-3 shadow-lg',
+          dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
           placement === 'left' ? 'left-0' : 'right-0'
         )}>
           <div className="mb-3 flex items-center justify-between">
