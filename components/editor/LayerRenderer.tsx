@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useLayoutEffect } from 'react';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
@@ -9,6 +10,8 @@ export interface LayerRendererProps {
   layer: AnyLayer;
   isSelected?: boolean;
   onPointerDown?: (e: React.PointerEvent) => void;
+  onLayerChange?: (id: string, updates: Partial<AnyLayer>, recordHistory?: boolean) => void;
+  onDoubleClick?: () => void;
 }
 
 interface LayerComponentProps extends LayerRendererProps {
@@ -16,7 +19,7 @@ interface LayerComponentProps extends LayerRendererProps {
   style: React.CSSProperties;
 }
 
-export default function LayerRenderer({ layer, isSelected, onPointerDown }: LayerRendererProps) {
+export default function LayerRenderer({ layer, isSelected, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
@@ -38,6 +41,8 @@ export default function LayerRenderer({ layer, isSelected, onPointerDown }: Laye
       willChange: 'transform',
     },
     onPointerDown,
+    onLayerChange,
+    onDoubleClick,
   };
 
   switch (layer.type) {
@@ -54,7 +59,33 @@ export default function LayerRenderer({ layer, isSelected, onPointerDown }: Laye
   }
 }
 
-function TextLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: TextLayer }) {
+function TextLayerComponent({ layer, className, style, onPointerDown, onLayerChange, onDoubleClick }: LayerComponentProps & { layer: TextLayer }) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  // Track the last measured size to avoid redundant updates
+  const lastMeasuredRef = useRef({ w: 0, h: 0 });
+
+  // Measure actual text content and resize the layer box to fit tightly.
+  // useLayoutEffect runs BEFORE the browser paints, so the user never sees
+  // an intermediate frame where fontSize changed but width/height didn't.
+  // No rAF needed — synchronous measurement eliminates flicker entirely.
+  useLayoutEffect(() => {
+    if (!onLayerChange) return;
+    const el = measureRef.current;
+    if (!el) return;
+
+    const w = Math.ceil(el.scrollWidth);
+    const h = Math.ceil(el.scrollHeight);
+    if (w <= 0 || h <= 0) return;
+
+    // Only update if the measured size actually changed since last time
+    if (w !== lastMeasuredRef.current.w || h !== lastMeasuredRef.current.h) {
+      lastMeasuredRef.current = { w, h };
+      onLayerChange(layer.id, { width: w, height: h }, false);
+    }
+    // Only re-measure when text content or font properties change —
+    // deliberately exclude width/height to prevent feedback loops.
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id]);
+
   return (
     <div
       className={className}
@@ -71,12 +102,36 @@ function TextLayerComponent({ layer, className, style, onPointerDown }: LayerCom
         display: 'flex',
         alignItems: layer.verticalAlign === 'top' ? 'flex-start' : layer.verticalAlign === 'bottom' ? 'flex-end' : 'center',
         justifyContent: layer.align,
-        whiteSpace: 'pre-wrap',
-        wordWrap: 'break-word',
+        whiteSpace: 'pre',
+        overflow: 'visible',
       }}
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
       onClick={(e) => e.stopPropagation()}
     >
+      {/* Hidden measuring element — completely independent of the layer's
+          width/height so measurement only depends on text + font properties.
+          Positioned off-screen so it never affects layout. */}
+      <div
+        ref={measureRef}
+        style={{
+          position: 'fixed',
+          left: -9999,
+          top: -9999,
+          visibility: 'hidden',
+          whiteSpace: 'pre',
+          color: layer.color,
+          fontFamily: resolveFontFamily(layer.fontFamily),
+          fontSize: layer.fontSize,
+          fontWeight: layer.bold ? 'bold' : 'normal',
+          fontStyle: layer.italic ? 'italic' : 'normal',
+          lineHeight: layer.lineHeight,
+          direction: layer.direction as React.CSSProperties['direction'],
+          pointerEvents: 'none',
+        }}
+      >
+        {layer.text || ' '}
+      </div>
       {layer.text}
     </div>
   );

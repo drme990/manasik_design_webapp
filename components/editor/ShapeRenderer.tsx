@@ -127,8 +127,8 @@ export default function ShapeRenderer({
     );
   }
 
-  // rectangle and rectangle_free
-  const rx = shape === 'rectangle_free' ? cornerRadius : 0;
+  // rectangle and rectangle_free — both support corner radius
+  const rx = (shape === 'rectangle' || shape === 'rectangle_free') ? cornerRadius : 0;
   return (
     <svg
       className={className}

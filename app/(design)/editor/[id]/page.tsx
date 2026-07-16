@@ -30,7 +30,14 @@ import {
     LuPenLine,
     LuCircle,
     LuAlignVerticalJustifyCenter,
+    LuAlignLeft,
+    LuAlignCenter,
+    LuAlignRight,
+    LuAlignStartVertical,
+    LuAlignCenterVertical,
+    LuAlignEndVertical,
     LuALargeSmall,
+    LuLetterText,
 } from 'react-icons/lu';
 import { TbBorderCorners } from "react-icons/tb";
 
@@ -53,6 +60,7 @@ import {
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
+import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -206,6 +214,28 @@ export default function EditorPage() {
     const deleteLayerRef = useRef<(id: string) => void>(() => { });
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+    const [bottomBarHeight, setBottomBarHeight] = useState(0);
+    const bottomBarObserverRef = useRef<ResizeObserver | null>(null);
+    // Callback ref shared by whichever bottom bar is mounted (canvas-bg bar or
+    // properties bar — they're mutually exclusive) so we can reserve exactly
+    // enough space to keep the canvas centered above it, with no layout shift.
+    const bottomBarRef = useCallback((el: HTMLDivElement | null) => {
+        if (bottomBarObserverRef.current) {
+            bottomBarObserverRef.current.disconnect();
+            bottomBarObserverRef.current = null;
+        }
+        if (el) {
+            const ro = new ResizeObserver((entries) => {
+                const h = entries[0]?.target.getBoundingClientRect().height ?? 0;
+                setBottomBarHeight(h);
+            });
+            ro.observe(el);
+            bottomBarObserverRef.current = ro;
+            setBottomBarHeight(el.getBoundingClientRect().height);
+        } else {
+            setBottomBarHeight(0);
+        }
+    }, []);
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [isExporting, setIsExporting] = useState(false);
@@ -214,11 +244,15 @@ export default function EditorPage() {
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     const [activeProp, setActiveProp] = useState<string | null>(null);
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
+    const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
+    const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
 
     // Close drawers when selection changes
     useEffect(() => {
         setActiveProp(null);
         setColorPickerProp(null);
+        setFontDrawerOpen(false);
+        setTextEditDrawerOpen(false);
     }, [selectedLayerId]);
 
     useEffect(() => {
@@ -234,7 +268,8 @@ export default function EditorPage() {
     }, [id]);
 
     // Compute zoom to fit the canvas fully inside the available container space
-    // with some breathing room (padding) on all sides.
+    // with breathing room (padding) on all sides. Reserves space for the
+    // absolutely-positioned bottom bar so the canvas centers in the visible area.
     // Uses a ResizeObserver so it reacts to panel/drawer open/close, not just window resize.
     useEffect(() => {
         if (!project) return;
@@ -247,7 +282,7 @@ export default function EditorPage() {
                 const container = canvasContainerRef.current;
                 if (!container) return;
                 const availW = container.clientWidth - PADDING;
-                const availH = container.clientHeight - PADDING;
+                const availH = container.clientHeight - PADDING - bottomBarHeight;
                 if (availW <= 0 || availH <= 0) return;
                 const fit = Math.min(
                     availW / project.canvasWidth,
@@ -262,12 +297,13 @@ export default function EditorPage() {
             ro.observe(canvasContainerRef.current);
         }
         window.addEventListener('resize', computeFit);
+        computeFit();
         return () => {
             if (rafId) cancelAnimationFrame(rafId);
             ro.disconnect();
             window.removeEventListener('resize', computeFit);
         };
-    }, [project]);
+    }, [project, bottomBarHeight]);
 
     const pendingPersistRef = useRef<Project | null>(null);
     const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -566,6 +602,29 @@ export default function EditorPage() {
         [selectedLayerId, handleLayerChange]
     );
 
+    // Change font size while keeping the text centered (adjust x/y so the
+    // midpoint stays fixed as the box grows/shrinks).
+    const handleFontSizeChange = useCallback(
+        (newFontSize: number) => {
+            if (!selectedLayerId) return;
+            const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
+            if (!layer || layer.type !== 'text') return;
+            const textLayer = layer as TextLayer;
+            // Estimate new height proportional to font size change
+            const heightRatio = newFontSize / textLayer.fontSize;
+            const newHeight = textLayer.height * heightRatio;
+            // Keep center fixed
+            const newX = textLayer.x + (textLayer.width - textLayer.width) / 2;
+            const newY = textLayer.y + (textLayer.height - newHeight) / 2;
+            handleLayerChange(selectedLayerId, {
+                fontSize: newFontSize,
+                x: newX,
+                y: newY,
+            } as Partial<AnyLayer>, false);
+        },
+        [selectedLayerId, handleLayerChange]
+    );
+
     const handleCropApply = useCallback(
         (croppedUri: string, newWidth: number, newHeight: number) => {
             if (!selectedLayerId) return;
@@ -849,11 +908,12 @@ export default function EditorPage() {
                 {/* Center: canvas — always centered, fits to screen */}
                 <div
                     ref={canvasContainerRef}
-                    className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none"
+                    className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none transition-[padding] duration-200 ease-out"
+                    style={{ paddingBottom: bottomBarHeight }}
                 >
                     {zoom > 0 && (
                         <div
-                            className="shadow-2xl"
+                            className="shadow-2xl transition-[width,height] duration-150 ease-out"
                             style={{
                                 width: project.canvasWidth * zoom,
                                 height: project.canvasHeight * zoom,
@@ -864,7 +924,7 @@ export default function EditorPage() {
                                     width: project.canvasWidth,
                                     height: project.canvasHeight,
                                     transform: `scale(${zoom})`,
-                                    transformOrigin: 'top left',
+                                    transformOrigin: 'top right',
                                 }}
                             >
                                 <Canvas
@@ -886,6 +946,7 @@ export default function EditorPage() {
                                     showGrid={!isExporting}
                                     onAlign={handleAlign}
                                     onVerticalAlign={handleVerticalAlign}
+                                    onEditText={() => setTextEditDrawerOpen(true)}
                                 />
                             </div>
                         </div>
@@ -894,8 +955,8 @@ export default function EditorPage() {
 
                 {/* Bottom bar — shown when no layer is selected (mobile style) */}
                 {!selectedLayer && (
-                    <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
-                        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-2 py-1.5">
+                    <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+                        <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
                             <PropButton
                                 label={t('canvasBackground')}
                                 swatch={project.backgroundColor ?? '#ffffff'}
@@ -921,12 +982,13 @@ export default function EditorPage() {
                     </div>
                 )}
 
-                {/* Floating + button — bottom right, moves up when properties bar is visible */}
+                {/* Floating + button — bottom right, sits just above the bottom bar */}
                 <button
                     type="button"
                     onClick={() => setAddDrawerOpen(true)}
-                    className="absolute bottom-20 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-all hover:scale-105 active:scale-95"
-                    aria-label={t('newProject')}
+                    className="absolute right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-[bottom] duration-200 ease-out hover:scale-105 active:scale-95"
+                    style={{ bottom: bottomBarHeight + 16 }}
+                    aria-label={t('addElement')}
                 >
                     <LuPlus className="h-7 w-7" />
                 </button>
@@ -949,8 +1011,8 @@ export default function EditorPage() {
 
                 {/* Properties bar — absolute bottom, mobile-style icon buttons */}
                 {selectedLayer && (
-                    <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
-                        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-2 py-1.5">
+                    <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+                        <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
                             {/* Actions */}
                             <PropToggle
                                 label={t('duplicate')}
@@ -970,8 +1032,20 @@ export default function EditorPage() {
                             {/* Text layer */}
                             {selectedLayer.type === 'text' && (() => {
                                 const l = selectedLayer as TextLayer;
+                                const alignIcons = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
+                                const vAlignIcons = { top: LuAlignStartVertical, middle: LuAlignCenterVertical, bottom: LuAlignEndVertical };
+                                const AlignIcon = alignIcons[l.align];
+                                const VAlignIcon = vAlignIcons[l.verticalAlign];
+                                const nextAlign: TextLayer['align'] = l.align === 'right' ? 'center' : l.align === 'center' ? 'left' : 'right';
+                                const nextVAlign: TextLayer['verticalAlign'] = l.verticalAlign === 'bottom' ? 'middle' : l.verticalAlign === 'middle' ? 'top' : 'bottom';
                                 return (
                                     <>
+                                        <PropToggle
+                                            label={t('toolbars.text.text')}
+                                            icon={<LuPencil className="h-5 w-5" />}
+                                            active={textEditDrawerOpen}
+                                            onClick={() => setTextEditDrawerOpen(true)}
+                                        />
                                         <PropButton
                                             label={t('toolbars.text.color')}
                                             swatch={l.color}
@@ -980,11 +1054,30 @@ export default function EditorPage() {
                                             onClick={() => setColorPickerProp(colorPickerProp === 'text.color' ? null : 'text.color')}
                                         />
                                         <PropButton
+                                            label={t('toolbars.text.font')}
+                                            value={l.fontFamily}
+                                            icon={<LuType className="h-5 w-5" />}
+                                            active={fontDrawerOpen}
+                                            onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
+                                        />
+                                        <PropButton
                                             label={t('toolbars.text.size')}
                                             value={l.fontSize}
                                             icon={<LuALargeSmall className="h-5 w-5" />}
                                             active={activeProp === 'text.fontSize'}
                                             onClick={() => setActiveProp(activeProp === 'text.fontSize' ? null : 'text.fontSize')}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.align')}
+                                            icon={<AlignIcon className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => handleLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.vAlign')}
+                                            icon={<VAlignIcon className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => handleLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
                                         />
                                         <PropButton
                                             label={t('toolbars.text.lineHeight')}
@@ -1124,10 +1217,10 @@ export default function EditorPage() {
                                             active={filled}
                                             onClick={() => handleLayerChange(l.id, { filled: !filled })}
                                         />
-                                        {l.shape === 'rectangle_free' && (
+                                        {(l.shape === 'rectangle' || l.shape === 'rectangle_free') && (
                                             <PropButton
                                                 label={t('toolbars.shape.cornerRadius')}
-                                                value={l.cornerRadius || 20}
+                                                value={l.cornerRadius || 0}
                                                 icon={<TbBorderCorners className="h-5 w-5" />}
                                                 active={activeProp === 'shape.cornerRadius'}
                                                 onClick={() => setActiveProp(activeProp === 'shape.cornerRadius' ? null : 'shape.cornerRadius')}
@@ -1175,7 +1268,7 @@ export default function EditorPage() {
             <Drawer
                 isOpen={addDrawerOpen}
                 onClose={() => setAddDrawerOpen(false)}
-                title={t('newProject')}
+                title={t('addElement')}
                 height="half"
             >
                 {/* Add text, image, field options */}
@@ -1270,7 +1363,7 @@ export default function EditorPage() {
                                 value={(selectedLayer as TextLayer).fontSize}
                                 min={1}
                                 max={300}
-                                onChange={(v) => handleLayerChange(selectedLayer.id, { fontSize: v } as Partial<AnyLayer>)}
+                                onChange={(v) => handleFontSizeChange(v)}
                                 onDragStart={startChangeTransaction}
                             />
                         )}
@@ -1371,7 +1464,7 @@ export default function EditorPage() {
                         {activeProp === 'shape.cornerRadius' && (
                             <SliderField
                                 label={t('toolbars.shape.cornerRadius')}
-                                value={(selectedLayer as ShapeLayer).cornerRadius || 20}
+                                value={(selectedLayer as ShapeLayer).cornerRadius ?? 0}
                                 min={0}
                                 max={200}
                                 onChange={(v) => handleLayerChange(selectedLayer.id, { cornerRadius: v } as Partial<AnyLayer>)}
@@ -1425,6 +1518,58 @@ export default function EditorPage() {
                     handleLayerChange(selectedLayer.id, getColorPickerUpdate(colorPickerProp, c));
                 }}
             />
+
+            {/* Font family drawer — for text layers */}
+            <Drawer
+                isOpen={fontDrawerOpen}
+                onClose={() => setFontDrawerOpen(false)}
+                title={t('toolbars.text.font')}
+                height="auto"
+            >
+                <div className="space-y-2">
+                    {ARABIC_SAFE_FONTS.map((font) => (
+                        <button
+                            key={font.id}
+                            onClick={() => {
+                                if (selectedLayer) {
+                                    handleLayerChange(selectedLayer.id, { fontFamily: font.id } as Partial<AnyLayer>);
+                                }
+                                setFontDrawerOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.id
+                                ? 'border-brand-primary bg-brand-primary text-primary-text'
+                                : 'border-stroke bg-background text-foreground hover:bg-muted'
+                                }`}
+                            style={{ fontFamily: font.family }}
+                        >
+                            {font.name}
+                        </button>
+                    ))}
+                </div>
+            </Drawer>
+
+            {/* Text edit drawer — edit the text content */}
+            <Drawer
+                isOpen={textEditDrawerOpen}
+                onClose={() => setTextEditDrawerOpen(false)}
+                title={t('toolbars.text.text')}
+                height="auto"
+            >
+                {selectedLayer && selectedLayer.type === 'text' && (
+                    <textarea
+                        autoFocus
+                        value={(selectedLayer as TextLayer).text}
+                        onChange={(e) => handleLayerChange(selectedLayer.id, { text: e.target.value } as Partial<AnyLayer>, false)}
+                        className="w-full rounded-xl border border-stroke bg-background px-4 py-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                        style={{
+                            fontFamily: (selectedLayer as TextLayer).fontFamily,
+                            minHeight: 120,
+                            resize: 'vertical',
+                        }}
+                        dir="auto"
+                    />
+                )}
+            </Drawer>
 
             <Modal
                 isOpen={renameOpen}

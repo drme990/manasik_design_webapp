@@ -23,6 +23,7 @@ export interface CanvasProps {
   className?: string;
   onAlign?: (align: 'left' | 'center' | 'right') => void;
   onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
+  onEditText?: (id: string) => void;
 }
 
 function getOverlapArea(a: AnyLayer, b: AnyLayer): number {
@@ -67,6 +68,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     className,
     onAlign,
     onVerticalAlign,
+    onEditText,
   }: CanvasProps,
   forwardedRef
 ) {
@@ -101,6 +103,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     startYPos: number;
     startWidth: number;
     startHeight: number;
+    startFontSize?: number;
+    startStrokeWidth?: number;
     mode: 'proportional' | 'free';
     direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
   } | null>(null);
@@ -157,6 +161,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         startYPos: layer.y,
         startWidth: layer.width,
         startHeight: layer.height,
+        startFontSize: layer.type === 'text' ? layer.fontSize : layer.type === 'dynamic_field' ? layer.fontSize : undefined,
+        startStrokeWidth: layer.type === 'shape' ? layer.strokeWidth : undefined,
         mode,
         direction,
       });
@@ -254,6 +260,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       let newY = resizeState.startYPos;
 
       if (resizeState.mode === 'proportional') {
+        // Proportional resize scales from CENTER — the layer grows/shrinks
+        // equally in all directions, keeping its midpoint fixed.
         const signX = direction.includes('w') ? -1 : 1;
         const signY = direction.includes('n') ? -1 : 1;
         const widthDelta = signX * deltaX;
@@ -261,21 +269,18 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
         // Use the axis that has moved more to drive proportional scaling
         if (Math.abs(widthDelta / ratio) > Math.abs(heightDelta)) {
-          rawWidth = Math.max(minSize, resizeState.startWidth + widthDelta);
+          rawWidth = Math.max(minSize, resizeState.startWidth + widthDelta * 2);
           rawHeight = rawWidth / ratio;
         } else {
-          rawHeight = Math.max(minSize, resizeState.startHeight + heightDelta);
+          rawHeight = Math.max(minSize, resizeState.startHeight + heightDelta * 2);
           rawWidth = rawHeight * ratio;
         }
 
-        // Anchor to the opposite corner
-        if (direction.includes('w')) {
-          newX = resizeState.startXPos + resizeState.startWidth - rawWidth;
-        }
-        if (direction.includes('n')) {
-          newY = resizeState.startYPos + resizeState.startHeight - rawHeight;
-        }
+        // Keep center fixed: shift position by half the size change
+        newX = resizeState.startXPos + (resizeState.startWidth - rawWidth) / 2;
+        newY = resizeState.startYPos + (resizeState.startHeight - rawHeight) / 2;
       } else {
+        // Free resize — only for "free square" shapes, drag borders freely
         if (direction.includes('e')) {
           rawWidth = Math.max(minSize, resizeState.startWidth + deltaX);
         }
@@ -292,12 +297,31 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
       }
 
-      onLayerChange(resizeState.layerId, {
+      const updates: Partial<AnyLayer> = {
         x: newX,
         y: newY,
         width: rawWidth,
         height: rawHeight,
-      }, false);
+      };
+
+      // Proportional resize scales content too (font size, stroke width)
+      if (resizeState.mode === 'proportional') {
+        const scaleFactor = rawWidth / resizeState.startWidth;
+        if (resizeState.startFontSize !== undefined) {
+          const newFontSize = Math.max(1, Math.round(resizeState.startFontSize * scaleFactor));
+          (updates as Record<string, unknown>).fontSize = newFontSize;
+          // For text layers, don't set width/height — the auto-measure
+          // effect in TextLayerComponent will fit the box to the text.
+          // We still set x/y for centering based on the expected size.
+          delete (updates as Record<string, unknown>).width;
+          delete (updates as Record<string, unknown>).height;
+        }
+        if (resizeState.startStrokeWidth !== undefined) {
+          (updates as Record<string, unknown>).strokeWidth = Math.max(0, resizeState.startStrokeWidth * scaleFactor);
+        }
+      }
+
+      onLayerChange(resizeState.layerId, updates, false);
       return;
     }
 
@@ -367,6 +391,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           layer={layer}
           isSelected={layer.id === selectedLayerId}
           onPointerDown={(e) => handlePointerDown(e, layer.id)}
+          onLayerChange={onLayerChange}
+          onDoubleClick={() => {
+            if (layer.type === 'text' && onEditText) onEditText(layer.id);
+          }}
         />
       ))}
 

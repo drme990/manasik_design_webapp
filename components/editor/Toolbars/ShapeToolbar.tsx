@@ -122,10 +122,10 @@ export default function ShapeToolbar({ layer, onChange, onSliderStart, className
         suffix="%"
       />
 
-      {layer.shape === 'rectangle_free' && (
+      {(layer.shape === 'rectangle' || layer.shape === 'rectangle_free') && (
         <SliderField
           label={t('cornerRadius')}
-          value={layer.cornerRadius || 20}
+          value={layer.cornerRadius ?? 0}
           min={0}
           max={200}
           onChange={(v) => onChange({ cornerRadius: v })}

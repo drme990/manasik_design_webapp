@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils/cn';
 import { LuCopy, LuTrash2, LuMaximize, LuRotateCw, LuAlignLeft, LuAlignCenter, LuAlignRight, LuAlignStartVertical, LuAlignCenterVertical, LuAlignEndVertical } from 'react-icons/lu';
-import type { AnyLayer, TextLayer } from '@/types';
+import type { AnyLayer, TextLayer, ShapeLayer } from '@/types';
 
 export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -22,6 +22,7 @@ const ICON_BTN =
 const DELETE_BTN =
   'touch-none flex h-14 w-14 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
 
+// Free resize handles — only shown for "free square" (rectangle_free) shapes
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
   { direction: 'nw', className: '-top-3 -left-3', cursor: 'cursor-nw-resize' },
   { direction: 'n', className: '-top-3 left-1/2 -translate-x-1/2', cursor: 'cursor-n-resize' },
@@ -45,8 +46,8 @@ export default function SelectionBox({
 }: SelectionBoxProps) {
   if (!layer) return null;
 
-  const canFreeScale = layer.type === 'shape' || layer.type === 'image' || layer.type === 'text';
   const isText = layer.type === 'text';
+  const isFreeSquare = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle_free';
   const currentAlign = isText ? (layer as TextLayer).align : undefined;
   const currentVAlign = isText ? (layer as TextLayer).verticalAlign : undefined;
   const handle = 'touch-none absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
@@ -78,7 +79,7 @@ export default function SelectionBox({
         zIndex: layer.zIndex + 1000,
       }}
     >
-      <div className="absolute inset-0 border-2 border-dashed border-layer-selected" />
+      {/* No dashed border box — clean canvas */}
 
       {/* Text alignment — top-center */}
       {isText && onAlign && (
@@ -159,7 +160,7 @@ export default function SelectionBox({
         <LuRotateCw className="h-7 w-7" />
       </button>
 
-      {/* Proportional resize — bottom-right */}
+      {/* Proportional resize — bottom-right (scales from center) */}
       <button
         type="button"
         data-action="resize"
@@ -172,8 +173,8 @@ export default function SelectionBox({
         <LuMaximize className="h-7 w-7" />
       </button>
 
-      {/* Border resize dots — free scaling (shapes & images) */}
-      {canFreeScale && HANDLES.map(({ direction, className, cursor }) => (
+      {/* Free border handles — ONLY for "free square" (rectangle_free) shapes */}
+      {isFreeSquare && HANDLES.map(({ direction, className, cursor }) => (
         <div
           key={direction}
           data-action="resize"
