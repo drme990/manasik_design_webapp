@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import type { Project } from '@/types';
 import LayerRenderer from '@/components/editor/LayerRenderer';
-import { LuImageOff } from 'react-icons/lu';
 
 interface ProjectCardPreviewProps {
   project: Project;
@@ -24,14 +23,6 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
       1
     );
   }, [project.canvasWidth, project.canvasHeight]);
-
-  if (layers.length === 0 && !project.backgroundUri) {
-    return (
-      <div className={`flex h-full w-full items-center justify-center bg-muted ${className}`}>
-        <LuImageOff className="h-12 w-12 text-secondary" />
-      </div>
-    );
-  }
 
   return (
     <div
