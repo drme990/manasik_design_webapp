@@ -135,9 +135,6 @@ export default function ProjectsPage() {
             <EmptyState
               title={t('emptyTitle')}
               description={t('emptyDescription')}
-              action={
-                <Button onClick={() => handleCreate(ASPECT_RATIOS[0])}>{t('createFirst')}</Button>
-              }
             />
           ) : (
             <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4 snap-x">

@@ -751,13 +751,17 @@ export default function EditorPage() {
     );
 
     const handleAddText = useCallback(() => {
+        const w = project?.canvasWidth ?? 1080;
+        const h = project?.canvasHeight ?? 1080;
         const newLayer = buildTextLayer({
             text: '',
-            x: 0,
-            y: 0,
-            canvasWidth: project?.canvasWidth ?? 1080,
-            canvasHeight: project?.canvasHeight ?? 1080,
+            canvasWidth: w,
+            canvasHeight: h,
+            fontSize: 50,
         });
+        // Center on canvas
+        newLayer.x = (w - newLayer.width) / 2;
+        newLayer.y = (h - newLayer.height) / 2;
         newLayer.zIndex = nextZIndex(project?.layers ?? []);
         updateProjectState((prev) => ({
             ...prev,
@@ -772,12 +776,14 @@ export default function EditorPage() {
     const handleAddShape = useCallback((shape: ShapeLayer['shape']) => {
         const w = project?.canvasWidth ?? 1080;
         const h = project?.canvasHeight ?? 1080;
+        const shapeW = w * 0.25;
+        const shapeH = w * 0.25;
         const newLayer = buildShapeLayer({
             shape,
-            x: w * 0.1,
-            y: h * 0.1,
-            width: w * 0.25,
-            height: w * 0.25,
+            x: (w - shapeW) / 2,
+            y: (h - shapeH) / 2,
+            width: shapeW,
+            height: shapeH,
         });
         newLayer.zIndex = nextZIndex(project?.layers ?? []);
         updateProjectState((prev) => ({
@@ -795,9 +801,11 @@ export default function EditorPage() {
             variableId: generateFieldId(project!),
             variableName: t('newField') || 'حقل جديد',
             fieldType: 'text',
-            x: w * 0.1,
-            y: h * 0.1,
+            fontSize: 50,
         });
+        // Center on canvas
+        newLayer.x = (w - newLayer.width) / 2;
+        newLayer.y = (h - newLayer.height) / 2;
         newLayer.zIndex = nextZIndex(project?.layers ?? []);
         updateProjectState((prev) => ({
             ...prev,
@@ -1489,7 +1497,7 @@ export default function EditorPage() {
                             </button>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
-                                className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                             >
                                 <LuImage className="h-8 w-8 text-brand-primary" />
                                 <span className="text-sm font-medium text-foreground">{t('addImage')}</span>
