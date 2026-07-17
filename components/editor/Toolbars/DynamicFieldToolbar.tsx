@@ -35,7 +35,7 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
   const renderItem = (item: DropdownItem, isSelected: boolean) => (
     <span className="flex w-full items-center justify-between">
       <span>{item.label}</span>
-      {isSelected && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+      {isSelected && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
     </span>
   );
 
@@ -66,10 +66,10 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
           className="w-full"
           trigger={
             <button type="button" className={TRIGGER_BTN}>
-              <span className="truncate text-left">
+              <span className="truncate text-start">
                 {selectedFieldType === 'text' ? t('text') : t('image')}
               </span>
-              <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+              <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
             </button>
           }
           items={fieldTypeItems.map((item) => ({
@@ -114,10 +114,10 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
               className="w-full"
               trigger={
                 <button type="button" className={TRIGGER_BTN}>
-                  <span className="truncate text-left">
+                  <span className="truncate text-start">
                     {selectedImageFit === 'cover' ? t('cover') : t('contain')}
                   </span>
-                  <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+                  <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
                 </button>
               }
               items={imageFitItems.map((item) => ({

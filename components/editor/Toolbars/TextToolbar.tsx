@@ -64,7 +64,7 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
       >
         {item.label}
       </span>
-      {isSelected && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+      {isSelected && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
     </span>
   );
 
@@ -88,12 +88,12 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
           trigger={
             <button type="button" className={TRIGGER_BTN}>
               <span
-                className="truncate text-left"
+                className="truncate text-start"
                 style={{ fontFamily: resolveFontFamily(layer.fontFamily) }}
               >
                 {selectedFont?.name || layer.fontFamily}
               </span>
-              <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+              <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
             </button>
           }
           items={fontItems.map((item) => ({
@@ -142,10 +142,10 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
             className="w-full"
             trigger={
               <button type="button" className={TRIGGER_BTN}>
-                <span className="truncate text-left">
+                <span className="truncate text-start">
                   {selectedAlign === 'left' ? t('left') : selectedAlign === 'center' ? t('center') : t('right')}
                 </span>
-                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+                <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
               </button>
             }
             items={alignItems.map((item) => ({
@@ -164,10 +164,10 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
             className="w-full"
             trigger={
               <button type="button" className={TRIGGER_BTN}>
-                <span className="truncate text-left">
+                <span className="truncate text-start">
                   {selectedVAlign === 'top' ? t('top') : selectedVAlign === 'bottom' ? t('bottom') : t('middle')}
                 </span>
-                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+                <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
               </button>
             }
             items={vAlignItems.map((item) => ({

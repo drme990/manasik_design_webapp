@@ -50,7 +50,7 @@ export default function VariablePickerModal({ isOpen, onClose, onSelect }: Varia
             key={variable.id}
             onClick={() => setSelectedId(variable.id)}
             className={cn(
-              'rounded-lg border p-3 text-right transition-colors',
+              'rounded-lg border p-3 text-end transition-colors',
               selectedId === variable.id
                 ? 'border-brand-primary bg-brand-primary-light/10'
                 : 'border-stroke bg-card-bg hover:border-brand-primary/50'

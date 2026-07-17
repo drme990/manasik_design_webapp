@@ -65,12 +65,15 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   // Track the last measured size to avoid redundant updates
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
 
+  const hasBoxWidth = layer.boxWidth !== undefined && layer.boxWidth > 0;
+
   // Measure actual text content and resize the layer box to fit tightly.
   // useLayoutEffect runs BEFORE the browser paints, so the user never sees
   // an intermediate frame where fontSize changed but width/height didn't.
   // No rAF needed — synchronous measurement eliminates flicker entirely.
+  // Skip auto-measure when boxWidth is set — the user controls the width.
   useLayoutEffect(() => {
-    if (!onLayerChange) return;
+    if (!onLayerChange || hasBoxWidth) return;
     const el = measureRef.current;
     if (!el) return;
 
@@ -85,7 +88,22 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     }
     // Only re-measure when text content or font properties change —
     // deliberately exclude width/height to prevent feedback loops.
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth]);
+
+  // When boxWidth is set, measure height only (width is user-controlled)
+  useLayoutEffect(() => {
+    if (!onLayerChange || !hasBoxWidth) return;
+    const el = measureRef.current;
+    if (!el) return;
+
+    const h = Math.ceil(el.scrollHeight);
+    if (h <= 0) return;
+
+    if (h !== lastMeasuredRef.current.h) {
+      lastMeasuredRef.current = { w: layer.boxWidth!, h };
+      onLayerChange(layer.id, { height: h }, false);
+    }
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth]);
 
   return (
     <div
@@ -103,8 +121,11 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
         display: 'flex',
         alignItems: layer.verticalAlign === 'top' ? 'flex-start' : layer.verticalAlign === 'bottom' ? 'flex-end' : 'center',
         justifyContent: layer.align,
-        whiteSpace: 'pre',
+        whiteSpace: hasBoxWidth ? 'pre-wrap' : 'pre',
+        wordBreak: hasBoxWidth ? 'break-word' : 'normal',
+        overflowWrap: hasBoxWidth ? 'anywhere' : 'normal',
         overflow: 'visible',
+        ...(hasBoxWidth ? { width: layer.boxWidth } : {}),
       }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
@@ -120,7 +141,10 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
           left: -9999,
           top: -9999,
           visibility: 'hidden',
-          whiteSpace: 'pre',
+          whiteSpace: hasBoxWidth ? 'pre-wrap' : 'pre',
+          wordBreak: hasBoxWidth ? 'break-word' : 'normal',
+          overflowWrap: hasBoxWidth ? 'anywhere' : 'normal',
+          ...(hasBoxWidth ? { width: layer.boxWidth } : {}),
           color: layer.color,
           fontFamily: resolveFontFamily(layer.fontFamily),
           fontSize: layer.fontSize,

@@ -68,6 +68,19 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 ) {
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // Refs that mirror state for stable pointer handlers (prevents callback
+  // recreation on every frame during drag/resize, which causes jumps)
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const heightRef = useRef(height);
+  heightRef.current = height;
+  const onLayerChangeRef = useRef(onLayerChange);
+  onLayerChangeRef.current = onLayerChange;
+
   const setCanvasRef = useCallback(
     (node: HTMLDivElement | null) => {
       canvasRef.current = node;
@@ -86,11 +99,25 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     startY: number;
     initialX: number;
     initialY: number;
-  }>({ isDragging: false, layerId: null, startX: 0, startY: 0, initialX: 0, initialY: 0 });
+    startScale: number;
+  }>({ isDragging: false, layerId: null, startX: 0, startY: 0, initialX: 0, initialY: 0, startScale: 1 });
+  const dragStateRef = useRef(dragState);
+  dragStateRef.current = dragState;
 
   // Center guide lines — shown when dragged element aligns with canvas center
   const [showCenterX, setShowCenterX] = useState(false);
   const [showCenterY, setShowCenterY] = useState(false);
+
+  // Box width drag state — for text layers, drag to change boxWidth on X axis
+  const [boxWidthState, setBoxWidthState] = useState<{
+    layerId: string;
+    startX: number;
+    startBoxWidth: number | undefined;
+    startLayerWidth: number;
+    startScale: number;
+  } | null>(null);
+  const boxWidthStateRef = useRef(boxWidthState);
+  boxWidthStateRef.current = boxWidthState;
 
   const [resizeState, setResizeState] = useState<{
     layerId: string;
@@ -103,9 +130,13 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     startFontSize?: number;
     startStrokeWidth?: number;
     startImageScale?: number;
+    startBoxWidth?: number;
+    startScale: number;
     mode: 'proportional' | 'free';
     direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
   } | null>(null);
+  const resizeStateRef = useRef(resizeState);
+  resizeStateRef.current = resizeState;
 
   const [rotateState, setRotateState] = useState<{
     isRotating: boolean;
@@ -114,7 +145,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     centerY: number;
     startAngle: number;
     startRotation: number;
+    startScale: number;
   } | null>(null);
+  const rotateStateRef = useRef(rotateState);
+  rotateStateRef.current = rotateState;
 
   const startDrag = useCallback((clientX: number, clientY: number, layerId: string) => {
     const layer = layers.find((l) => l.id === layerId);
@@ -127,6 +161,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       startY: clientY,
       initialX: layer.x,
       initialY: layer.y,
+      startScale: scaleRef.current,
     });
   }, [layers]);
 
@@ -139,6 +174,25 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     onLayerDragStart?.(layerId);
     startDrag(e.clientX, e.clientY, layerId);
   }, [onSelectLayer, onLayerDragStart, startDrag]);
+
+  const handleBoxWidthDragStart = useCallback((e: React.PointerEvent) => {
+    if (!e.isPrimary) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (!selectedLayerId) return;
+    const layer = layers.find((l) => l.id === selectedLayerId);
+    if (!layer || layer.locked || layer.type !== 'text') return;
+
+    capturePointer(e);
+    onLayerDragStart?.(selectedLayerId);
+    setBoxWidthState({
+      layerId: selectedLayerId,
+      startX: e.clientX,
+      startBoxWidth: layer.type === 'text' ? layer.boxWidth : undefined,
+      startLayerWidth: layer.width,
+      startScale: scaleRef.current,
+    });
+  }, [selectedLayerId, layers, onLayerDragStart]);
 
   const startResize = useCallback(
     (e: React.PointerEvent, mode: 'proportional' | 'free', direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w') => {
@@ -162,6 +216,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         startFontSize: layer.type === 'text' ? layer.fontSize : layer.type === 'dynamic_field' ? layer.fontSize : undefined,
         startStrokeWidth: layer.type === 'shape' ? layer.strokeWidth : undefined,
         startImageScale: layer.type === 'image' ? layer.imageScale : undefined,
+        startBoxWidth: layer.type === 'text' ? layer.boxWidth : undefined,
+        startScale: scaleRef.current,
         mode,
         direction,
       });
@@ -198,6 +254,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       centerY,
       startAngle: Math.atan2(mouseY - centerY, mouseX - centerX),
       startRotation: layer.rotation,
+      startScale: scaleRef.current,
     });
   }, [selectedLayerId, layers, onLayerDragStart, scale]);
 
@@ -212,56 +269,85 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, [selectedLayerId, onDeleteLayer]);
 
   const updateLayerPosition = useCallback((layerId: string, newX: number, newY: number) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    const w = widthRef.current;
+    const h = heightRef.current;
     // Clamp: ensure at least 10% of the layer stays visible inside the canvas
-    const layer = layers.find((l) => l.id === layerId);
     if (layer) {
-      const minVisible = 0.1; // 10% of the dimension must stay inside
+      const minVisible = 0.1;
       const minX = -layer.width * (1 - minVisible);
-      const maxX = width - layer.width * minVisible;
+      const maxX = w - layer.width * minVisible;
       const minY = -layer.height * (1 - minVisible);
-      const maxY = height - layer.height * minVisible;
+      const maxY = h - layer.height * minVisible;
       newX = Math.max(minX, Math.min(maxX, newX));
       newY = Math.max(minY, Math.min(maxY, newY));
     }
 
-    onLayerChange(layerId, { x: newX, y: newY }, false);
-
-    // Check if element center aligns with canvas center (within 5px tolerance)
+    // Snap to center: if the layer center is within the snap threshold,
+    // gravitate it exactly to the canvas center for a smooth feel.
     if (layer) {
+      const SNAP_THRESHOLD = 12; // px — how close before snapping kicks in
       const elemCenterX = newX + layer.width / 2;
       const elemCenterY = newY + layer.height / 2;
-      const canvasCenterX = width / 2;
-      const canvasCenterY = height / 2;
-      setShowCenterY(Math.abs(elemCenterX - canvasCenterX) < 5);
-      setShowCenterX(Math.abs(elemCenterY - canvasCenterY) < 5);
+      const canvasCenterX = w / 2;
+      const canvasCenterY = h / 2;
+
+      if (Math.abs(elemCenterX - canvasCenterX) < SNAP_THRESHOLD) {
+        newX = canvasCenterX - layer.width / 2;
+      }
+      if (Math.abs(elemCenterY - canvasCenterY) < SNAP_THRESHOLD) {
+        newY = canvasCenterY - layer.height / 2;
+      }
+
+      // Update guide visibility based on snapped position
+      const finalCenterX = newX + layer.width / 2;
+      const finalCenterY = newY + layer.height / 2;
+      setShowCenterY(Math.abs(finalCenterX - canvasCenterX) < SNAP_THRESHOLD);
+      setShowCenterX(Math.abs(finalCenterY - canvasCenterY) < SNAP_THRESHOLD);
     }
-  }, [width, height]);
+
+    onLayerChangeRef.current(layerId, { x: newX, y: newY }, false);
+  }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return;
 
-    if (dragState.isDragging && dragState.layerId) {
+    const drag = dragStateRef.current;
+    if (drag.isDragging && drag.layerId) {
       e.preventDefault();
-      const deltaX = (e.clientX - dragState.startX) / scale;
-      const deltaY = (e.clientY - dragState.startY) / scale;
-      updateLayerPosition(dragState.layerId, dragState.initialX + deltaX, dragState.initialY + deltaY);
+      const deltaX = (e.clientX - drag.startX) / drag.startScale;
+      const deltaY = (e.clientY - drag.startY) / drag.startScale;
+      updateLayerPosition(drag.layerId, drag.initialX + deltaX, drag.initialY + deltaY);
       return;
     }
 
-    if (resizeState) {
+    // Box width drag — change text box width on X axis
+    const bw = boxWidthStateRef.current;
+    if (bw) {
       e.preventDefault();
-      const deltaX = (e.clientX - resizeState.startX) / scale;
-      const deltaY = (e.clientY - resizeState.startY) / scale;
-      const { direction } = resizeState;
+      const deltaX = (e.clientX - bw.startX) / bw.startScale;
+      const newBoxWidth = Math.max(20, (bw.startBoxWidth ?? bw.startLayerWidth) + deltaX);
+      // Update both boxWidth and width immediately so the SelectionBox
+      // icons follow the box in real-time without waiting for measurement.
+      onLayerChangeRef.current(bw.layerId, { boxWidth: newBoxWidth, width: newBoxWidth } as Partial<AnyLayer>, false);
+      return;
+    }
+
+    const resize = resizeStateRef.current;
+    if (resize) {
+      e.preventDefault();
+      const deltaX = (e.clientX - resize.startX) / resize.startScale;
+      const deltaY = (e.clientY - resize.startY) / resize.startScale;
+      const { direction } = resize;
       const minSize = 10;
-      const ratio = resizeState.startWidth / resizeState.startHeight;
+      const ratio = resize.startWidth / resize.startHeight;
 
-      let rawWidth = resizeState.startWidth;
-      let rawHeight = resizeState.startHeight;
-      let newX = resizeState.startXPos;
-      let newY = resizeState.startYPos;
+      let rawWidth = resize.startWidth;
+      let rawHeight = resize.startHeight;
+      let newX = resize.startXPos;
+      let newY = resize.startYPos;
 
-      if (resizeState.mode === 'proportional') {
+      if (resize.mode === 'proportional') {
         // Proportional resize scales from CENTER — the layer grows/shrinks
         // equally in all directions, keeping its midpoint fixed.
         const signX = direction.includes('w') ? -1 : 1;
@@ -269,42 +355,39 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         const widthDelta = signX * deltaX;
         const heightDelta = signY * deltaY;
 
-        // Use the axis that has moved more to drive proportional scaling
-        if (Math.abs(widthDelta / ratio) > Math.abs(heightDelta)) {
-          rawWidth = Math.max(minSize, resizeState.startWidth + widthDelta * 2);
-          rawHeight = rawWidth / ratio;
-        } else {
-          rawHeight = Math.max(minSize, resizeState.startHeight + heightDelta * 2);
-          rawWidth = rawHeight * ratio;
-        }
+        // Use the average of both axes for smooth diagonal scaling.
+        // This avoids jumps when the dominant axis switches during drag.
+        const avgDelta = (widthDelta + heightDelta * ratio) / 2;
+        rawWidth = Math.max(minSize, resize.startWidth + avgDelta * 2);
+        rawHeight = rawWidth / ratio;
 
         // Keep center fixed: shift position by half the size change
-        newX = resizeState.startXPos + (resizeState.startWidth - rawWidth) / 2;
-        newY = resizeState.startYPos + (resizeState.startHeight - rawHeight) / 2;
+        newX = resize.startXPos + (resize.startWidth - rawWidth) / 2;
+        newY = resize.startYPos + (resize.startHeight - rawHeight) / 2;
       } else {
         // Free resize — only for "free square" shapes, drag borders freely
         if (direction.includes('e')) {
-          rawWidth = Math.max(minSize, resizeState.startWidth + deltaX);
+          rawWidth = Math.max(minSize, resize.startWidth + deltaX);
         }
         if (direction.includes('w')) {
-          rawWidth = Math.max(minSize, resizeState.startWidth - deltaX);
-          newX = resizeState.startXPos + (resizeState.startWidth - rawWidth);
+          rawWidth = Math.max(minSize, resize.startWidth - deltaX);
+          newX = resize.startXPos + (resize.startWidth - rawWidth);
         }
         if (direction.includes('s')) {
-          rawHeight = Math.max(minSize, resizeState.startHeight + deltaY);
+          rawHeight = Math.max(minSize, resize.startHeight + deltaY);
         }
         if (direction.includes('n')) {
-          rawHeight = Math.max(minSize, resizeState.startHeight - deltaY);
-          newY = resizeState.startYPos + (resizeState.startHeight - rawHeight);
+          rawHeight = Math.max(minSize, resize.startHeight - deltaY);
+          newY = resize.startYPos + (resize.startHeight - rawHeight);
         }
       }
 
       // Clamp: ensure at least 10% of the layer stays visible inside the canvas
       const minVisible = 0.1;
-      const visW = rawWidth;
-      const visH = rawHeight;
-      newX = Math.max(-visW * (1 - minVisible), Math.min(width - visW * minVisible, newX));
-      newY = Math.max(-visH * (1 - minVisible), Math.min(height - visH * minVisible, newY));
+      const w = widthRef.current;
+      const h = heightRef.current;
+      newX = Math.max(-rawWidth * (1 - minVisible), Math.min(w - rawWidth * minVisible, newX));
+      newY = Math.max(-rawHeight * (1 - minVisible), Math.min(h - rawHeight * minVisible, newY));
 
       const updates: Partial<AnyLayer> = {
         x: newX,
@@ -314,55 +397,60 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       };
 
       // Proportional resize scales content too (font size, stroke width, image scale)
-      if (resizeState.mode === 'proportional') {
-        const scaleFactor = rawWidth / resizeState.startWidth;
-        if (resizeState.startFontSize !== undefined) {
-          const newFontSize = Math.max(1, Math.round(resizeState.startFontSize * scaleFactor));
+      if (resize.mode === 'proportional') {
+        const scaleFactor = rawWidth / resize.startWidth;
+        if (resize.startFontSize !== undefined) {
+          const newFontSize = Math.max(1, Math.round(resize.startFontSize * scaleFactor));
           (updates as Record<string, unknown>).fontSize = newFontSize;
-          // For text layers, don't set width/height — the auto-measure
-          // effect in TextLayerComponent will fit the box to the text.
-          // We still set x/y for centering based on the expected size.
-          delete (updates as Record<string, unknown>).width;
-          delete (updates as Record<string, unknown>).height;
+          // If boxWidth is set, scale it too and keep width/height
+          // so the SelectionBox follows. The text wraps within the new boxWidth.
+          if (resize.startBoxWidth !== undefined) {
+            (updates as Record<string, unknown>).boxWidth = Math.max(20, resize.startBoxWidth * scaleFactor);
+          } else {
+            // No boxWidth — let auto-measure fit the box to the text
+            delete (updates as Record<string, unknown>).width;
+            delete (updates as Record<string, unknown>).height;
+          }
         }
-        if (resizeState.startStrokeWidth !== undefined) {
-          (updates as Record<string, unknown>).strokeWidth = Math.max(0, resizeState.startStrokeWidth * scaleFactor);
+        if (resize.startStrokeWidth !== undefined) {
+          (updates as Record<string, unknown>).strokeWidth = Math.max(0, resize.startStrokeWidth * scaleFactor);
         }
-        // For images, scale the image content proportionally with the box
-        if (resizeState.startImageScale !== undefined) {
-          (updates as Record<string, unknown>).imageScale = Math.max(0.1, resizeState.startImageScale * scaleFactor);
+        if (resize.startImageScale !== undefined) {
+          (updates as Record<string, unknown>).imageScale = Math.max(0.1, resize.startImageScale * scaleFactor);
         }
       }
 
-      onLayerChange(resizeState.layerId, updates, false);
+      onLayerChangeRef.current(resize.layerId, updates, false);
       return;
     }
 
-    if (rotateState && canvasRef.current) {
+    const rotate = rotateStateRef.current;
+    if (rotate && canvasRef.current) {
       e.preventDefault();
       const rect = canvasRef.current.getBoundingClientRect();
-      const mouseX = (e.clientX - rect.left) / scale;
-      const mouseY = (e.clientY - rect.top) / scale;
-      const currentAngle = Math.atan2(mouseY - rotateState.centerY, mouseX - rotateState.centerX);
-      const delta = (currentAngle - rotateState.startAngle) * (180 / Math.PI);
+      const mouseX = (e.clientX - rect.left) / rotate.startScale;
+      const mouseY = (e.clientY - rect.top) / rotate.startScale;
+      const currentAngle = Math.atan2(mouseY - rotate.centerY, mouseX - rotate.centerX);
+      const delta = (currentAngle - rotate.startAngle) * (180 / Math.PI);
 
-      onLayerChange(rotateState.layerId, {
-        rotation: rotateState.startRotation + delta,
+      onLayerChangeRef.current(rotate.layerId, {
+        rotation: rotate.startRotation + delta,
       }, false);
     }
-  }, [dragState, resizeState, rotateState, onLayerChange, scale, updateLayerPosition]);
+  }, [updateLayerPosition]);
 
   const handlePointerEnd = useCallback((e: React.PointerEvent) => {
-    if (dragState.isDragging || resizeState || rotateState) {
+    if (dragStateRef.current.isDragging || resizeStateRef.current || rotateStateRef.current || boxWidthStateRef.current) {
       e.stopPropagation();
       releasePointer(e);
     }
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
     setResizeState(null);
+    setBoxWidthState(null);
     setRotateState(null);
     setShowCenterX(false);
     setShowCenterY(false);
-  }, [dragState.isDragging, resizeState, rotateState]);
+  }, []);
 
   const sortedLayers = [...layers].sort((a, b) => a.zIndex - b.zIndex);
 
@@ -403,26 +491,26 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       {selectedLayerId && (
         <SelectionBox
           layer={layers.find((l) => l.id === selectedLayerId)}
-          onPointerDown={(e) => handlePointerDown(e, selectedLayerId)}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onResizeStart={handleResizeStart}
           onRotateStart={handleRotateStart}
           onAlign={onAlign}
-          onVerticalAlign={onVerticalAlign}
+          onEditText={onEditText ? () => onEditText(selectedLayerId) : undefined}
+          onBoxWidthDragStart={handleBoxWidthDragStart}
         />
       )}
 
       {/* Center guide lines — shown when dragged element aligns with canvas center */}
       {showCenterY && (
         <div
-          className="pointer-events-none absolute top-0 bottom-0 left-1/2 z-50 -translate-x-1/2 border-l-8 border-dashed border-brand-primary"
+          className="pointer-events-none absolute top-0 bottom-0 left-1/2 z-50 -translate-x-1/2 border-l-8 border border-brand-primary"
           style={{ width: 0 }}
         />
       )}
       {showCenterX && (
         <div
-          className="pointer-events-none absolute left-0 right-0 top-1/2 z-50 -translate-y-1/2 border-t-8 border-dashed border-brand-primary"
+          className="pointer-events-none absolute left-0 right-0 top-1/2 z-50 -translate-y-1/2 border-t-8 border border-brand-primary"
           style={{ height: 0 }}
         />
       )}

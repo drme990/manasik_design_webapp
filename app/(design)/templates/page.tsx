@@ -113,7 +113,7 @@ export default function TemplatesPage() {
                                 <button
                                     type="button"
                                     onClick={() => router.push(`/templates/${product.id}`)}
-                                    className="flex flex-1 flex-col p-5 text-left"
+                                    className="flex flex-1 flex-col p-5 text-start"
                                 >
                                     <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
                                         <span className="text-2xl font-bold">
@@ -134,7 +134,7 @@ export default function TemplatesPage() {
                                     </p>
                                     <div className="mt-auto flex items-center gap-1 text-sm font-medium text-brand-primary">
                                         {t('manageTemplates')}
-                                        <LuArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                                        <LuArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" />
                                     </div>
                                 </button>
 
@@ -144,7 +144,7 @@ export default function TemplatesPage() {
                                         e.stopPropagation();
                                         setDeleteProductId(product.id);
                                     }}
-                                    className="absolute right-3 top-3 rounded-full p-2 text-secondary opacity-0 transition-colors hover:bg-error/10 hover:text-error group-hover:opacity-100"
+                                    className="absolute right-3 top-3 rounded-full p-2 text-secondary opacity-0 transition-colors hover:bg-error/10 hover:text-error group-hover:opacity-100 rtl:right-auto rtl:left-3"
                                     aria-label={t('delete')}
                                 >
                                     <LuTrash2 className="h-4 w-4" />

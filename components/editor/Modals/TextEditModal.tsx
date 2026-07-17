@@ -93,12 +93,12 @@ export default function TextEditModal({
             trigger={
               <button type="button" className={TRIGGER_BTN}>
                 <span
-                  className="truncate text-left"
+                  className="truncate text-start"
                   style={{ fontFamily: resolveFontFamily(fontFamily) }}
                 >
                   {selectedFont?.name || fontFamily}
                 </span>
-                <LuChevronDown className="ml-2 h-5 w-5 shrink-0 text-secondary" />
+                <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
               </button>
             }
             items={fontItems.map((item) => ({
@@ -107,7 +107,7 @@ export default function TextEditModal({
               icon: (
                 <span className="flex w-full items-center justify-between">
                   <span style={{ fontFamily: resolveFontFamily(item.id) }}>{item.label}</span>
-                  {item.id === fontFamily && <LuCheck className="ml-2 h-4 w-4 shrink-0 text-brand-primary" />}
+                  {item.id === fontFamily && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
                 </span>
               ),
             }))}

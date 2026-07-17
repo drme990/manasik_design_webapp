@@ -34,7 +34,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
                 {...props}
             >
                 {loading && (
-                    <LuLoader className="animate-spin -ml-1 mr-2 h-4 w-4" />
+                    <LuLoader className="animate-spin -me-1 ms-2 h-4 w-4" />
                 )}
                 {children}
             </button>

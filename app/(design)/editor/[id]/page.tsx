@@ -122,7 +122,7 @@ function PropButton({
                 {icon}
                 {swatch && (
                     <span
-                        className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full border border-stroke"
+                        className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full border border-stroke rtl:right-auto rtl:-left-1"
                         style={{ backgroundColor: swatch }}
                     />
                 )}
@@ -962,7 +962,7 @@ export default function EditorPage() {
                 <h2 className="text-xl font-semibold text-foreground">{t('notFoundTitle')}</h2>
                 <p className="text-secondary">{t('notFoundDescription')}</p>
                 <Button onClick={() => router.push('/projects')}>
-                    <LuArrowLeft className="mr-2 h-4 w-4" />
+                    <LuArrowLeft className="me-2 h-4 w-4 rtl:rotate-180" />
                     {t('backToProjects')}
                 </Button>
             </div>
@@ -978,7 +978,7 @@ export default function EditorPage() {
                 <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
                         <Button variant="ghost" size="sm" onClick={() => router.push('/projects')}>
-                            <LuArrowLeft className="h-4 w-4" />
+                            <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
                         </Button>
                         <h1 className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
                             {project.name}
@@ -1006,7 +1006,7 @@ export default function EditorPage() {
                                 disabled={history.past.length === 0}
                                 aria-label={t('undo')}
                             >
-                                <LuUndo2 className="h-4 w-4" />
+                                <LuUndo2 className="h-4 w-4 rtl:-scale-x-100" />
                             </Button>
                             <Button
                                 variant="ghost"
@@ -1015,7 +1015,7 @@ export default function EditorPage() {
                                 disabled={history.future.length === 0}
                                 aria-label={t('redo')}
                             >
-                                <LuRedo2 className="h-4 w-4" />
+                                <LuRedo2 className="h-4 w-4 rtl:-scale-x-100" />
                             </Button>
                         </div>
 
@@ -1170,21 +1170,6 @@ export default function EditorPage() {
                     {selectedLayer && (
                         <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
                             <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
-                                {/* Actions */}
-                                <PropToggle
-                                    label={t('duplicate')}
-                                    icon={<LuCopy className="h-5 w-5" />}
-                                    active={false}
-                                    onClick={() => handleDuplicateLayer(selectedLayer.id)}
-                                />
-                                <PropToggle
-                                    label={t('delete')}
-                                    icon={<LuTrash2 className="h-5 w-5 text-error" />}
-                                    active={false}
-                                    onClick={() => handleDeleteLayer(selectedLayer.id)}
-                                />
-
-                                <div className="h-10 w-px shrink-0 bg-stroke" />
 
                                 {/* Text layer */}
                                 {selectedLayer.type === 'text' && (() => {
@@ -1471,6 +1456,22 @@ export default function EditorPage() {
                                         </>
                                     );
                                 })()}
+
+                                <div className="h-10 w-px shrink-0 bg-stroke" />
+
+                                {/* Actions */}
+                                <PropToggle
+                                    label={t('duplicate')}
+                                    icon={<LuCopy className="h-5 w-5" />}
+                                    active={false}
+                                    onClick={() => handleDuplicateLayer(selectedLayer.id)}
+                                />
+                                <PropToggle
+                                    label={t('delete')}
+                                    icon={<LuTrash2 className="h-5 w-5 text-error" />}
+                                    active={false}
+                                    onClick={() => handleDeleteLayer(selectedLayer.id)}
+                                />
                             </div>
                         </div>
                     )}

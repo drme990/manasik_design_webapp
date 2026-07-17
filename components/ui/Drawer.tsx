@@ -165,7 +165,7 @@ export default function Drawer({
             )}
 
             {/* Title — left-aligned when no Done, centered when Done present */}
-            <div className={`flex-1 ${onDone ? 'text-center' : 'text-left'}`}>
+            <div className={`flex-1 ${onDone ? 'text-center' : 'text-start'}`}>
               {title && (
                 <h2 className="text-base font-semibold text-foreground">
                   {title}

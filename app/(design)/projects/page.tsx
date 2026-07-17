@@ -1,18 +1,17 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuEllipsisVertical, LuPencil, LuTrash2, LuPalette, LuFileText } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listProjects, createProject, deleteProject, renameProject } from '@/lib/store/projects';
+import { listProjects, createProject, deleteProject, renameProject, duplicateProject } from '@/lib/store/projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project } from '@/types';
 
@@ -21,7 +20,6 @@ export default function ProjectsPage() {
   const navT = useTranslations('navigation');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -29,7 +27,6 @@ export default function ProjectsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listProjects().then((data) => {
@@ -37,16 +34,6 @@ export default function ProjectsPage() {
       setProjects(sorted);
       setLoading(false);
     });
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuProjectId(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
@@ -74,20 +61,6 @@ export default function ProjectsPage() {
     window.location.href = `/editor/${project.id}`;
   };
 
-  const handleOpenMenu = (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuProjectId((prev) => (prev === projectId ? null : projectId));
-  };
-
-  const handleOpenRename = (e: React.MouseEvent, project: Project) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuProjectId(null);
-    setRenameProjectId(project.id);
-    setRenameValue(project.name);
-  };
-
   const handleRename = async () => {
     if (!renameProjectId || !renameValue.trim()) return;
     await renameProject(renameProjectId, renameValue.trim());
@@ -97,13 +70,6 @@ export default function ProjectsPage() {
     setRenameProjectId(null);
   };
 
-  const handleOpenDelete = (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuProjectId(null);
-    setDeleteProjectId(projectId);
-  };
-
   const handleDelete = async () => {
     if (!deleteProjectId) return;
     setDeleteLoading(true);
@@ -111,6 +77,13 @@ export default function ProjectsPage() {
     setProjects((prev) => prev.filter((p) => p.id !== deleteProjectId));
     setDeleteLoading(false);
     setDeleteProjectId(null);
+  };
+
+  const handleDuplicate = async (projectId: string) => {
+    const duplicated = await duplicateProject(projectId);
+    if (duplicated) {
+      setProjects((prev) => [duplicated, ...prev]);
+    }
   };
 
   return (
@@ -126,9 +99,15 @@ export default function ProjectsPage() {
         <section className="mb-10">
           <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentDesigns')}</h2>
           {loading ? (
-            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {[...Array(6)].map((_, i) => (
-                <Card key={i} className="aspect-4/3 h-40 w-56 shrink-0 animate-pulse bg-muted" />
+                <div key={i} className="overflow-hidden rounded-xl border border-stroke">
+                  <div className="aspect-4/3 w-full animate-pulse bg-muted" />
+                  <div className="flex gap-1 p-2">
+                    <div className="h-8 flex-1 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-8 flex-1 animate-pulse rounded-lg bg-muted" />
+                  </div>
+                </div>
               ))}
             </div>
           ) : projects.length === 0 ? (
@@ -137,54 +116,55 @@ export default function ProjectsPage() {
               description={t('emptyDescription')}
             />
           ) : (
-            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4 snap-x">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {projects.map((project) => (
-                <Card
+                <div
                   key={project.id}
-                  className="group relative h-40 w-56 shrink-0 snap-start overflow-hidden border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
+                  className="group flex flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg transition-colors hover:border-brand-primary"
                 >
-                  <Link href={`/editor/${project.id}`} className="block h-full w-full">
-                    <ProjectCardPreview project={project} className="h-full w-full" />
-                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-4">
-                      <p className="truncate font-medium text-white">{project.name}</p>
-                      <p className="text-xs text-white/80">
-                        {new Date(project.updatedAt).toLocaleDateString()}
-                      </p>
+                  <Link href={`/editor/${project.id}`} className="block shrink-0">
+                    <div className="relative aspect-4/3 w-full overflow-hidden">
+                      <ProjectCardPreview project={project} className="h-full w-full" />
+                      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-3">
+                        <p className="truncate font-medium text-white">{project.name}</p>
+                        <p className="text-xs text-white/80">
+                          {new Date(project.updatedAt).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
                   </Link>
 
-                  <div className="absolute right-2 top-2" ref={menuProjectId === project.id ? menuRef : undefined}>
+                  {/* Action buttons — icons only */}
+                  <div className="flex w-full items-center justify-strt gap-1 p-2">
                     <button
                       type="button"
-                      onClick={(e) => handleOpenMenu(e, project.id)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white transition-opacity hover:bg-black/70"
-                      aria-label={t('menu')}
+                      onClick={() => {
+                        setRenameProjectId(project.id);
+                        setRenameValue(project.name);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+                      aria-label={t('rename')}
                     >
-                      <LuEllipsisVertical className="h-4 w-4" />
+                      <LuPencil className="h-4 w-4" />
                     </button>
-
-                    {menuProjectId === project.id && (
-                      <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-stroke bg-card-bg py-1 shadow-lg">
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenRename(e, project)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
-                        >
-                          <LuPencil className="h-4 w-4" />
-                          {t('rename')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenDelete(e, project.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-error hover:bg-error/10"
-                        >
-                          <LuTrash2 className="h-4 w-4" />
-                          {t('delete')}
-                        </button>
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicate(project.id)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+                      aria-label={t('duplicate')}
+                    >
+                      <LuCopy className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteProjectId(project.id)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-error transition-colors hover:bg-error/10"
+                      aria-label={t('delete')}
+                    >
+                      <LuTrash2 className="h-4 w-4" />
+                    </button>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           )}
@@ -274,7 +254,7 @@ export default function ProjectsPage() {
         height="twoThirds"
         footer={
           <Button variant="primary" onClick={handleCreateCustom} className="w-full">
-            <LuPlus className="ml-2 h-5 w-5" />
+            <LuPlus className="ms-2 h-5 w-5" />
             {t('create')}
           </Button>
         }

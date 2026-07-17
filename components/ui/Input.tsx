@@ -17,7 +17,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                 {label && (
                     <label htmlFor={inputId} className="block text-sm font-medium text-foreground">
                         {label}
-                        {props.required && <span className="text-error ml-1">*</span>}
+                        {props.required && <span className="text-error ms-1">*</span>}
                     </label>
                 )}
                 <div className="relative flex items-center">

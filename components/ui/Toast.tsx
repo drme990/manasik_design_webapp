@@ -37,7 +37,7 @@ export default function Toast({ message, variant = 'info', duration = 3000, onCl
         <span className="font-medium">{message}</span>
         <button
           onClick={onClose}
-          className="ml-2 opacity-80 hover:opacity-100"
+          className="ms-2 opacity-80 hover:opacity-100"
           aria-label="Close"
         >
           <LuX className="h-4 w-4" />

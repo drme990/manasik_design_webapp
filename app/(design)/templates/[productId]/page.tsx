@@ -93,9 +93,9 @@ export default function ProductTemplatesPage() {
                     <div>
                         <Link
                             href="/templates"
-                            className="mb-2 -ml-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            className="mb-2 -ms-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                         >
-                            <LuArrowLeft className="h-4 w-4" />
+                            <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
                             {t('backToTemplates')}
                         </Link>
                         <h1 className="text-3xl font-bold text-foreground">{product.name}</h1>
@@ -139,7 +139,7 @@ export default function ProductTemplatesPage() {
                                                         </p>
                                                         <p className="text-xs text-white/80">{t('editTemplate')}</p>
                                                     </div>
-                                                    <div className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                                                    <div className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100 rtl:right-auto rtl:left-2">
                                                         <LuPencil className="h-4 w-4" />
                                                     </div>
                                                 </button>

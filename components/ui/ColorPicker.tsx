@@ -88,7 +88,7 @@ export default function ColorPicker({
           className="h-6 w-6 shrink-0 rounded-md border border-stroke shadow-sm"
           style={{ backgroundColor: value }}
         />
-        <span className="flex-1 text-left text-sm font-medium text-foreground uppercase">
+        <span className="flex-1 text-start text-sm font-medium text-foreground uppercase">
           {value}
         </span>
         <LuPipette className="h-4 w-4 text-secondary" />

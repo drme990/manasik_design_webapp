@@ -1,26 +1,39 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
-import { LuCopy, LuTrash2, LuMaximize, LuRotateCw, LuAlignLeft, LuAlignCenter, LuAlignRight, LuAlignStartVertical, LuAlignCenterVertical, LuAlignEndVertical } from 'react-icons/lu';
+import {
+  LuCopy,
+  LuTrash2,
+  LuMaximize,
+  LuRotateCw,
+  LuAlignLeft,
+  LuAlignCenter,
+  LuAlignRight,
+  LuAlignStartVertical,
+  LuAlignCenterVertical,
+  LuAlignEndVertical,
+  LuPencil,
+  LuMoveHorizontal,
+} from 'react-icons/lu';
 import type { AnyLayer, TextLayer, ShapeLayer } from '@/types';
 
 export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export interface SelectionBoxProps {
   layer?: AnyLayer;
-  onPointerDown?: (e: React.PointerEvent) => void;
   onDuplicate?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
   onResizeStart?: (e: React.PointerEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
   onRotateStart?: (e: React.PointerEvent) => void;
   onAlign?: (align: 'left' | 'center' | 'right') => void;
-  onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
+  onEditText?: () => void;
+  onBoxWidthDragStart?: (e: React.PointerEvent) => void;
 }
 
 const ICON_BTN =
-  'touch-none flex h-14 w-14 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+  'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 const DELETE_BTN =
-  'touch-none flex h-14 w-14 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
+  'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
 
 // Free resize handles — only shown for "free square" (rectangle_free) shapes
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
@@ -39,13 +52,13 @@ const VALIGN_ICONS = { top: LuAlignStartVertical, middle: LuAlignCenterVertical,
 
 export default function SelectionBox({
   layer,
-  onPointerDown,
   onDuplicate,
   onDelete,
   onResizeStart,
   onRotateStart,
   onAlign,
-  onVerticalAlign,
+  onEditText,
+  onBoxWidthDragStart,
 }: SelectionBoxProps) {
   if (!layer) return null;
 
@@ -53,9 +66,6 @@ export default function SelectionBox({
   const isFreeSquare = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle_free';
   const textLayer = layer as TextLayer;
   const handle = 'touch-none absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
-
-  const ALIGN_BTN =
-    'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 
   // Current align + next in cycle
   const currentAlign = textLayer.align;
@@ -65,6 +75,110 @@ export default function SelectionBox({
   const AlignIcon = ALIGN_ICONS[currentAlign];
   const VAlignIcon = VALIGN_ICONS[currentVAlign];
 
+  if (isText) {
+    // Text layer — custom icon layout:
+    // Top-left: Edit | Top-center: Align | Top-right: Box width
+    // Bottom-right: Resize | Bottom-center: Duplicate | Bottom-left: Delete
+    return (
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          left: layer.x - 2,
+          top: layer.y - 2,
+          width: layer.width + 4,
+          height: layer.height + 4,
+          transform: `rotate(${layer.rotation}deg)`,
+          zIndex: layer.zIndex + 1000,
+        }}
+      >
+        {/* Edit — top-left */}
+        {onEditText && (
+          <div className="pointer-events-auto absolute -top-14 -left-14">
+            <button
+              type="button"
+              data-action="edit"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onEditText(); }}
+              className={ICON_BTN}
+              aria-label="Edit text"
+            >
+              <LuPencil className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+
+        {/* Align — top-center */}
+        {onAlign && (
+          <div className="pointer-events-auto absolute -top-14 left-1/2 -translate-x-1/2">
+            <button
+              type="button"
+              data-action="align"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onAlign(nextAlign); }}
+              className={ICON_BTN}
+              aria-label="Align"
+            >
+              <AlignIcon className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+
+        {/* Box width — top-right (drag to change box width on X axis) */}
+        {onBoxWidthDragStart && (
+          <div className="pointer-events-auto absolute -top-14 -right-14">
+            <button
+              type="button"
+              data-action="boxWidth"
+              onPointerDown={(e) => { e.stopPropagation(); onBoxWidthDragStart(e); }}
+              className={cn(ICON_BTN, 'cursor-ew-resize active:cursor-grabbing')}
+              aria-label="Change box width"
+            >
+              <LuMoveHorizontal className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+
+        {/* Delete — bottom-left */}
+        <button
+          type="button"
+          data-action="delete"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onDelete}
+          className={cn(DELETE_BTN, 'pointer-events-auto absolute -bottom-14 -left-14')}
+          aria-label="Delete"
+        >
+          <LuTrash2 className="h-5 w-5" />
+        </button>
+
+        {/* Duplicate — bottom-center */}
+        <button
+          type="button"
+          data-action="duplicate"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onDuplicate}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-14 left-1/2 -translate-x-1/2')}
+          aria-label="Duplicate"
+        >
+          <LuCopy className="h-5 w-5" />
+        </button>
+
+        {/* Proportional resize — bottom-right */}
+        <button
+          type="button"
+          data-action="resize"
+          data-direction="se"
+          data-mode="proportional"
+          onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-14 -right-14 cursor-nwse-resize')}
+          aria-label="Scale"
+        >
+          <LuMaximize className="h-5 w-5" />
+        </button>
+      </div>
+    );
+  }
+
+  // Non-text layers — original layout
   return (
     <div
       className="absolute pointer-events-none"
@@ -78,38 +192,6 @@ export default function SelectionBox({
       }}
     >
       {/* No dashed border box — clean canvas */}
-
-      {/* Text alignment — top-center (single cycling icon) */}
-      {isText && onAlign && (
-        <div className="pointer-events-auto absolute -top-14 left-1/2 -translate-x-1/2">
-          <button
-            type="button"
-            data-action="align"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onAlign(nextAlign); }}
-            className={ALIGN_BTN}
-            aria-label="Align"
-          >
-            <AlignIcon className="h-5 w-5" />
-          </button>
-        </div>
-      )}
-
-      {/* Text vertical alignment — bottom-center (single cycling icon) */}
-      {isText && onVerticalAlign && (
-        <div className="pointer-events-auto absolute -bottom-14 left-1/2 -translate-x-1/2">
-          <button
-            type="button"
-            data-action="valign"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onVerticalAlign(nextVAlign); }}
-            className={ALIGN_BTN}
-            aria-label="Vertical align"
-          >
-            <VAlignIcon className="h-5 w-5" />
-          </button>
-        </div>
-      )}
 
       {/* Delete — top-left */}
       <button
