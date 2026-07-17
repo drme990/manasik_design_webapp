@@ -26,7 +26,7 @@ export interface DrawerProps {
 }
 
 const HEIGHT_CLASSES = {
-  auto: '',
+  auto: 'max-h-[90svh]',
   half: 'h-[50svh]',
   full: 'h-[90svh]',
   twoThirds: 'h-[65svh]',
@@ -54,7 +54,7 @@ const HIDDEN_TRANSFORMS: Record<string, string> = {
   right: 'translateX(100%)',
 };
 
-const TRANSITION_DURATION = 300;
+const TRANSITION_DURATION = 320;
 
 export default function Drawer({
   isOpen,
@@ -124,8 +124,8 @@ export default function Drawer({
       {/* Backdrop — fades in/out */}
       <div
         className={cn(
-          'absolute inset-0 bg-black/50 transition-opacity duration-300 ease-out',
-          visible ? 'opacity-100' : 'opacity-0'
+          'absolute inset-0 bg-black/50 transition-opacity ease-out',
+          visible ? 'duration-300 opacity-100' : 'duration-200 opacity-0'
         )}
         onClick={onClose}
       />
@@ -133,7 +133,8 @@ export default function Drawer({
       <div
         className={cn(
           'relative flex flex-col bg-card-bg border border-stroke shadow-2xl',
-          'transition-transform duration-300 ease-out',
+          'transition-transform ease-[cubic-bezier(0.32,0.72,0,1)]',
+          visible ? 'duration-300' : 'duration-200',
           PANEL_CLASSES[side],
           isVertical && HEIGHT_CLASSES[height],
           side === 'left' && 'max-w-sm',

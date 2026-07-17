@@ -60,6 +60,7 @@ export default function ColorPickerDrawer({
 }: ColorPickerDrawerProps) {
   const t = useTranslations('editor.colorPicker');
   const [recent, setRecent] = useState<string[]>([]);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [hue, setHue] = useState(0);
   const [sat, setSat] = useState(1);
   const [val, setVal] = useState(1);
@@ -72,6 +73,10 @@ export default function ColorPickerDrawer({
   const hueFieldRef = useRef<HTMLDivElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const hexInputRef = useRef<HTMLInputElement>(null);
+  const rInputRef = useRef<HTMLInputElement>(null);
+  const gInputRef = useRef<HTMLInputElement>(null);
+  const bInputRef = useRef<HTMLInputElement>(null);
 
   // Refs for current HSV during drag (avoids re-renders)
   const hueRef = useRef(0);
@@ -84,6 +89,7 @@ export default function ColorPickerDrawer({
   useEffect(() => {
     if (isOpen) {
       setRecent(loadRecent());
+      setShowCustomPicker(false);
       syncFromHex(value);
     }
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,6 +175,12 @@ export default function ColorPickerDrawer({
       const rgb = hsvToRgb(hueRef.current / 360, s, v);
       const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
       pendingHexRef.current = hex;
+
+      // Direct DOM update for hex/RGB inputs — zero-lag during drag
+      if (hexInputRef.current) hexInputRef.current.value = hex.toUpperCase();
+      if (rInputRef.current) rInputRef.current.value = String(rgb.r);
+      if (gInputRef.current) gInputRef.current.value = String(rgb.g);
+      if (bInputRef.current) bInputRef.current.value = String(rgb.b);
 
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(() => {
@@ -310,114 +322,136 @@ export default function ColorPickerDrawer({
       isOpen={isOpen}
       onClose={handleClose}
       title={title || t('pickColor')}
-      height="full"
+      height='auto'
       headerActions={headerActions}
     >
       <div className="space-y-5">
-        {/* 1 — Color Field (saturation × brightness) */}
-        <div
-          ref={(el) => { fieldRef.current = el; hueFieldRef.current = el; }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          className="relative h-40 w-full touch-none overflow-hidden rounded-2xl border border-stroke"
-          style={{ backgroundColor: hueColor }}
+        {/* Custom color toggle button */}
+        <button
+          type="button"
+          onClick={() => setShowCustomPicker((v) => !v)}
+          className={cn(
+            'flex w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors',
+            showCustomPicker
+              ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+              : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary/50'
+          )}
         >
-          {/* White gradient → left to right = saturation 0→1 */}
-          <div
-            className="absolute inset-0"
-            style={{ background: 'linear-gradient(to right, #ffffff, transparent)' }}
-          />
-          {/* Black gradient → top to bottom = brightness 1→0 */}
-          <div
-            className="absolute inset-0"
-            style={{ background: 'linear-gradient(to top, #000000, transparent)' }}
-          />
-          {/* Indicator — positioned via ref during drag, via style otherwise.
-              Background uses currentColor (computed from HSV state) so it
-              always matches the position, not the lagging value prop. */}
-          <div
-            ref={indicatorRef}
-            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white shadow-lg"
-            style={{ left: indicatorX, top: indicatorY, backgroundColor: currentColor }}
-          />
-        </div>
+          <LuPipette className="h-5 w-5" />
+          {showCustomPicker ? t('hideCustomColor') : t('customColor')}
+        </button>
 
-        {/* 2 — Hue slider (red → red rainbow) with custom thumb */}
-        <div className="relative h-6 touch-none" dir="ltr">
-          <div
-            className="absolute inset-0 rounded-full"
-            style={{
-              background:
-                'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
-            }}
-          />
-          <input
-            type="range"
-            min={0}
-            max={360}
-            value={hue}
-            onChange={(e) => handleHueChange(Number(e.target.value))}
-            onPointerDown={() => onDragStart?.()}
-            className="absolute inset-0 h-full w-full cursor-pointer touch-none appearance-none bg-transparent focus:outline-none [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-4 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-lg"
-          />
-        </div>
-
-        {/* 3 — Hex input */}
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-secondary">HEX</label>
-          <input
-            type="text"
-            value={hexInput}
-            onChange={(e) => handleHexChange(e.target.value)}
-            onBlur={handleHexCommit}
-            className="w-full rounded-lg border border-stroke bg-background px-3 py-2.5 text-center text-sm font-mono uppercase text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
-            placeholder="#000000"
-            maxLength={7}
-          />
-        </div>
-
-        {/* 4 — RGB inputs */}
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-secondary">RGB</label>
-          <div className="grid grid-cols-3 gap-2.5">
-            <div>
-              <span className="mb-1 block text-center text-[10px] font-semibold text-error">R</span>
-              <input
-                type="number"
-                min={0}
-                max={255}
-                value={rInput}
-                onChange={(e) => handleRgbChange('r', e.target.value)}
-                className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+        {/* Custom color picker — color field, hue slider, hex/RGB inputs */}
+        {showCustomPicker && (
+          <>
+            {/* Color Field (saturation × brightness) */}
+            <div
+              ref={(el) => { fieldRef.current = el; hueFieldRef.current = el; }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              className="relative h-40 w-full cursor-crosshair touch-none overflow-hidden rounded-2xl border border-stroke"
+              style={{ backgroundColor: hueColor }}
+            >
+              {/* White gradient → left to right = saturation 0→1 */}
+              <div
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(to right, #ffffff, transparent)' }}
+              />
+              {/* Black gradient → top to bottom = brightness 1→0 */}
+              <div
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(to top, #000000, transparent)' }}
+              />
+              {/* Indicator */}
+              <div
+                ref={indicatorRef}
+                className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white shadow-lg"
+                style={{ left: indicatorX, top: indicatorY, backgroundColor: currentColor }}
               />
             </div>
-            <div>
-              <span className="mb-1 block text-center text-[10px] font-semibold text-success">G</span>
-              <input
-                type="number"
-                min={0}
-                max={255}
-                value={gInput}
-                onChange={(e) => handleRgbChange('g', e.target.value)}
-                className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
-              />
-            </div>
-            <div>
-              <span className="mb-1 block text-center text-[10px] font-semibold text-brand-primary">B</span>
-              <input
-                type="number"
-                min={0}
-                max={255}
-                value={bInput}
-                onChange={(e) => handleRgbChange('b', e.target.value)}
-                className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
-              />
-            </div>
-          </div>
-        </div>
 
-        {/* 5 — Saved colors (circles) — from DB, session-cached */}
+            {/* Hue slider (red → red rainbow) with custom thumb */}
+            <div className="relative h-6 touch-none" dir="ltr">
+              <div
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background:
+                    'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+                }}
+              />
+              <input
+                type="range"
+                min={0}
+                max={360}
+                value={hue}
+                onChange={(e) => handleHueChange(Number(e.target.value))}
+                onPointerDown={() => onDragStart?.()}
+                className="absolute inset-0 h-full w-full cursor-pointer touch-none appearance-none bg-transparent focus:outline-none [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-4 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-lg"
+              />
+            </div>
+
+            {/* Hex input */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-secondary">HEX</label>
+              <input
+                ref={hexInputRef}
+                type="text"
+                value={hexInput}
+                onChange={(e) => handleHexChange(e.target.value)}
+                onBlur={handleHexCommit}
+                className="w-full rounded-lg border border-stroke bg-background px-3 py-2.5 text-center text-sm font-mono uppercase text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                placeholder="#000000"
+                maxLength={7}
+              />
+            </div>
+
+            {/* RGB inputs */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-secondary">RGB</label>
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <span className="mb-1 block text-center text-[10px] font-semibold text-error">R</span>
+                  <input
+                    ref={rInputRef}
+                    type="number"
+                    min={0}
+                    max={255}
+                    value={rInput}
+                    onChange={(e) => handleRgbChange('r', e.target.value)}
+                    className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  />
+                </div>
+                <div>
+                  <span className="mb-1 block text-center text-[10px] font-semibold text-success">G</span>
+                  <input
+                    ref={gInputRef}
+                    type="number"
+                    min={0}
+                    max={255}
+                    value={gInput}
+                    onChange={(e) => handleRgbChange('g', e.target.value)}
+                    className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  />
+                </div>
+                <div>
+                  <span className="mb-1 block text-center text-[10px] font-semibold text-brand-primary">B</span>
+                  <input
+                    ref={bInputRef}
+                    type="number"
+                    min={0}
+                    max={255}
+                    value={bInput}
+                    onChange={(e) => handleRgbChange('b', e.target.value)}
+                    className="w-full rounded-lg border border-stroke bg-background px-2 py-2 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Saved colors (circles) — from DB, session-cached */}
         <div>
           <div className="mb-2 flex items-center justify-between">
             <label className="block text-xs font-medium text-secondary">{t('savedColors')}</label>
@@ -466,7 +500,7 @@ export default function ColorPickerDrawer({
           )}
         </div>
 
-        {/* 6 — Recent colors (circles) */}
+        {/* Recent colors (circles) */}
         {recent.length > 0 && (
           <div>
             <label className="mb-2 block text-xs font-medium text-secondary">{t('recent')}</label>
