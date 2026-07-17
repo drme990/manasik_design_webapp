@@ -100,12 +100,22 @@ export default function ProjectsPage() {
           <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentDesigns')}</h2>
           {loading ? (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="overflow-hidden rounded-xl border border-stroke">
-                  <div className="aspect-4/3 w-full animate-pulse bg-muted" />
-                  <div className="flex gap-1 p-2">
-                    <div className="h-8 flex-1 animate-pulse rounded-lg bg-muted" />
-                    <div className="h-8 flex-1 animate-pulse rounded-lg bg-muted" />
+              {[...Array(4)].map((_, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg"
+                >
+                  <div className="relative aspect-4/3 w-full overflow-hidden">
+                    <div className="h-full w-full animate-pulse bg-muted" />
+                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-3">
+                      <div className="h-4 w-3/4 animate-pulse rounded bg-white/20" />
+                      <div className="mt-1 h-3 w-1/2 animate-pulse rounded bg-white/10" />
+                    </div>
+                  </div>
+                  <div className="flex w-full items-center gap-1 p-2">
+                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
                   </div>
                 </div>
               ))}

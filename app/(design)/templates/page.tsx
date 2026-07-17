@@ -92,7 +92,16 @@ export default function TemplatesPage() {
                 {loading ? (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {[...Array(6)].map((_, i) => (
-                            <Card key={i} className="aspect-4/3 animate-pulse bg-muted" />
+                            <Card
+                                key={i}
+                                className="flex flex-col border-stroke bg-card-bg p-5"
+                            >
+                                <div className="mb-4 flex h-14 w-14 animate-pulse items-center justify-center rounded-xl bg-muted" />
+                                <div className="mb-1 h-5 w-2/3 animate-pulse rounded bg-muted" />
+                                <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                                <div className="mt-4 h-4 w-1/2 animate-pulse rounded bg-muted" />
+                                <div className="mt-auto h-4 w-1/3 animate-pulse rounded bg-muted" />
+                            </Card>
                         ))}
                     </div>
                 ) : products.length === 0 ? (

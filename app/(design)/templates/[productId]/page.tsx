@@ -54,11 +54,32 @@ export default function ProductTemplatesPage() {
         return (
             <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-6xl">
-                    <div className="mb-8 h-8 w-48 animate-pulse rounded bg-muted" />
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {[...Array(6)].map((_, i) => (
-                            <Card key={i} className="aspect-4/3 animate-pulse bg-muted" />
-                        ))}
+                    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div className="mb-2 h-4 w-32 animate-pulse rounded bg-muted" />
+                            <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+                            <div className="mt-2 h-4 w-32 animate-pulse rounded bg-muted" />
+                        </div>
+                    </div>
+                    <div className="space-y-8">
+                        <div>
+                            <div className="mb-4 h-7 w-40 animate-pulse rounded bg-muted" />
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                {[...Array(3)].map((_, i) => (
+                                    <Card
+                                        key={i}
+                                        className="group relative overflow-hidden border-stroke bg-card-bg p-0"
+                                        style={{ aspectRatio: 1 }}
+                                    >
+                                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-stroke p-4">
+                                            <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
+                                            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                                            <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </main>
