@@ -38,6 +38,9 @@ import {
     LuAlignCenterVertical,
     LuAlignEndVertical,
     LuALargeSmall,
+    LuArrowLeftRight,
+    LuArrowRightLeft,
+    LuLanguages,
 } from 'react-icons/lu';
 import { TbBorderCorners } from "react-icons/tb";
 
@@ -1246,6 +1249,19 @@ export default function EditorPage() {
                                                 icon={<LuItalic className="h-5 w-5" />}
                                                 active={l.italic}
                                                 onClick={() => handleLayerChange(l.id, { italic: !l.italic })}
+                                            />
+                                            <PropToggle
+                                                label={t('toolbars.text.direction')}
+                                                icon={
+                                                    l.direction === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
+                                                        l.direction === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
+                                                            <LuLanguages className="h-5 w-5" />
+                                                }
+                                                active={false}
+                                                onClick={() => {
+                                                    const next = l.direction === 'auto' ? 'rtl' : l.direction === 'rtl' ? 'ltr' : 'auto';
+                                                    handleLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
+                                                }}
                                             />
                                         </>
                                     );
