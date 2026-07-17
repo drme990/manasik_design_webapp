@@ -52,6 +52,10 @@ export interface ImageLayerCollage {
 export interface ImageLayer extends BaseLayer {
   type: 'image';
   uri: string;
+  /** Original uncropped image — preserved so user can re-crop from original */
+  originalUri?: string;
+  originalNaturalWidth?: number;
+  originalNaturalHeight?: number;
   naturalWidth: number;
   naturalHeight: number;
   maskWidth: number;

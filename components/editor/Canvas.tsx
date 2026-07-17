@@ -95,6 +95,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     initialY: number;
   }>({ isDragging: false, layerId: null, startX: 0, startY: 0, initialX: 0, initialY: 0 });
 
+  // Center guide lines — shown when dragged element aligns with canvas center
+  const [showCenterX, setShowCenterX] = useState(false);
+  const [showCenterY, setShowCenterY] = useState(false);
+
   const [resizeState, setResizeState] = useState<{
     layerId: string;
     startX: number;
@@ -215,7 +219,29 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, [selectedLayerId, onDeleteLayer]);
 
   const updateLayerPosition = useCallback((layerId: string, newX: number, newY: number) => {
+    // Clamp: ensure at least 10% of the layer stays visible inside the canvas
+    const layer = layers.find((l) => l.id === layerId);
+    if (layer) {
+      const minVisible = 0.1; // 10% of the dimension must stay inside
+      const minX = -layer.width * (1 - minVisible);
+      const maxX = width - layer.width * minVisible;
+      const minY = -layer.height * (1 - minVisible);
+      const maxY = height - layer.height * minVisible;
+      newX = Math.max(minX, Math.min(maxX, newX));
+      newY = Math.max(minY, Math.min(maxY, newY));
+    }
+
     onLayerChange(layerId, { x: newX, y: newY }, false);
+
+    // Check if element center aligns with canvas center (within 5px tolerance)
+    if (layer) {
+      const elemCenterX = newX + layer.width / 2;
+      const elemCenterY = newY + layer.height / 2;
+      const canvasCenterX = width / 2;
+      const canvasCenterY = height / 2;
+      setShowCenterY(Math.abs(elemCenterX - canvasCenterX) < 5);
+      setShowCenterX(Math.abs(elemCenterY - canvasCenterY) < 5);
+    }
 
     const currentLayer = layers.find((l) => l.id === layerId);
     if (currentLayer && !currentLayer.locked) {
@@ -235,7 +261,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
       }
     }
-  }, [onLayerChange, layers]);
+  }, [onLayerChange, layers, width, height]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return;
@@ -299,6 +325,13 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
       }
 
+      // Clamp: ensure at least 10% of the layer stays visible inside the canvas
+      const minVisible = 0.1;
+      const visW = rawWidth;
+      const visH = rawHeight;
+      newX = Math.max(-visW * (1 - minVisible), Math.min(width - visW * minVisible, newX));
+      newY = Math.max(-visH * (1 - minVisible), Math.min(height - visH * minVisible, newY));
+
       const updates: Partial<AnyLayer> = {
         x: newX,
         y: newY,
@@ -353,6 +386,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
     setResizeState(null);
     setRotateState(null);
+    setShowCenterX(false);
+    setShowCenterY(false);
   }, [dragState.isDragging, resizeState, rotateState]);
 
   const sortedLayers = [...layers].sort((a, b) => a.zIndex - b.zIndex);
@@ -401,6 +436,20 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           onRotateStart={handleRotateStart}
           onAlign={onAlign}
           onVerticalAlign={onVerticalAlign}
+        />
+      )}
+
+      {/* Center guide lines — shown when dragged element aligns with canvas center */}
+      {showCenterY && (
+        <div
+          className="pointer-events-none absolute top-0 bottom-0 left-1/2 z-50 -translate-x-1/2 border-l-8 border-dashed border-brand-primary"
+          style={{ width: 0 }}
+        />
+      )}
+      {showCenterX && (
+        <div
+          className="pointer-events-none absolute left-0 right-0 top-1/2 z-50 -translate-y-1/2 border-t-8 border-dashed border-brand-primary"
+          style={{ height: 0 }}
         />
       )}
     </div>

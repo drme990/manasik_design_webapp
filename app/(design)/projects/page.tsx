@@ -13,19 +13,8 @@ import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { listProjects, createProject, deleteProject, renameProject } from '@/lib/store/projects';
+import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project } from '@/types';
-
-const PRESETS = [
-  { name: 'مربع', aspect: '1:1', width: 1080, height: 1080 },
-  { name: '4:5', aspect: '4:5', width: 1080, height: 1350 },
-  { name: '5:4', aspect: '5:4', width: 1350, height: 1080 },
-  { name: 'ستوري', aspect: '9:16', width: 1080, height: 1920 },
-  { name: 'عريض', aspect: '16:9', width: 1920, height: 1080 },
-  { name: '3:4', aspect: '3:4', width: 1080, height: 1440 },
-  { name: '4:3', aspect: '4:3', width: 1440, height: 1080 },
-  { name: 'A4', aspect: 'A4', width: 2480, height: 3508 },
-  { name: 'شاشة', aspect: 'Screen', width: 1080, height: 2400 },
-];
 
 export default function ProjectsPage() {
   const t = useTranslations('projects');
@@ -60,9 +49,9 @@ export default function ProjectsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleCreate = async (preset: typeof PRESETS[number]) => {
+  const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
     const project = await createProject({
-      name: `${preset.aspect} — ${new Date().toLocaleDateString()}`,
+      name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
       kind: 'design',
       canvasWidth: preset.width,
       canvasHeight: preset.height,
@@ -147,7 +136,7 @@ export default function ProjectsPage() {
               title={t('emptyTitle')}
               description={t('emptyDescription')}
               action={
-                <Button onClick={() => handleCreate(PRESETS[0])}>{t('createFirst')}</Button>
+                <Button onClick={() => handleCreate(ASPECT_RATIOS[0])}>{t('createFirst')}</Button>
               }
             />
           ) : (
@@ -297,13 +286,13 @@ export default function ProjectsPage() {
         <div className="mb-6">
           <h3 className="mb-3 text-sm font-medium text-secondary">{t('newProject')}</h3>
           <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-            {PRESETS.map((preset) => {
+            {ASPECT_RATIOS.map((preset) => {
               const ratio = preset.width / preset.height;
               const boxW = ratio >= 1 ? 48 : Math.round(48 * ratio);
               const boxH = ratio >= 1 ? Math.round(48 / ratio) : 48;
               return (
                 <button
-                  key={preset.aspect}
+                  key={preset.label}
                   onClick={() => handleCreate(preset)}
                   className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 text-center transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                 >
@@ -315,7 +304,7 @@ export default function ProjectsPage() {
                     />
                   </div>
                   {/* Aspect ratio */}
-                  <p className="text-xs font-semibold text-foreground">{preset.aspect}</p>
+                  <p className="text-xs font-semibold text-foreground">{preset.label}</p>
                   {/* Name */}
                   <p className="text-xs text-secondary">{preset.name}</p>
                 </button>

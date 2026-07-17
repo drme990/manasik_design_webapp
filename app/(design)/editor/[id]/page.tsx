@@ -638,7 +638,8 @@ export default function EditorPage() {
         (croppedUri: string, newWidth: number, newHeight: number) => {
             if (!selectedLayerId) return;
             const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
-            if (!layer) return;
+            if (!layer || layer.type !== 'image') return;
+            const imgLayer = layer as ImageLayer;
             const ratio = newWidth / newHeight;
             handleLayerChange(selectedLayerId, {
                 uri: croppedUri,
@@ -646,10 +647,14 @@ export default function EditorPage() {
                 naturalHeight: newHeight,
                 maskWidth: newWidth,
                 maskHeight: newHeight,
-                height: layer.width / ratio,
+                height: imgLayer.width / ratio,
                 offsetX: 0,
                 offsetY: 0,
                 imageScale: 1,
+                // Preserve original image for re-cropping
+                originalUri: imgLayer.originalUri || imgLayer.uri,
+                originalNaturalWidth: imgLayer.originalNaturalWidth || imgLayer.naturalWidth,
+                originalNaturalHeight: imgLayer.originalNaturalHeight || imgLayer.naturalHeight,
             } as Partial<AnyLayer>);
         },
         [selectedLayerId, handleLayerChange]
@@ -859,8 +864,14 @@ export default function EditorPage() {
                 img.onload = () => {
                     handleLayerChange(selectedLayerId, {
                         uri,
+                        originalUri: uri,
+                        originalNaturalWidth: img.naturalWidth,
+                        originalNaturalHeight: img.naturalHeight,
                         naturalWidth: img.naturalWidth,
                         naturalHeight: img.naturalHeight,
+                        offsetX: 0,
+                        offsetY: 0,
+                        imageScale: 1,
                     } as Partial<AnyLayer>);
                 };
                 img.src = uri;
@@ -1488,15 +1499,11 @@ export default function EditorPage() {
                                         {t('toolbars.image.aspectRatio')}
                                     </label>
                                     <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-                                        {ASPECT_RATIOS.map((ratio, idx) => {
+                                        {ASPECT_RATIOS.map((ratio) => {
                                             const currentRatio = (selectedLayer as ImageLayer).width / (selectedLayer as ImageLayer).height;
                                             const isSelected = Math.abs(currentRatio - ratio.ratio) < 0.01;
-                                            const previewColors = [
-                                                'bg-brand-primary/30', 'bg-blue-500/30', 'bg-green-500/30',
-                                                'bg-purple-500/30', 'bg-orange-500/30', 'bg-pink-500/30',
-                                                'bg-teal-500/30', 'bg-indigo-500/30', 'bg-amber-500/30',
-                                            ];
-                                            const previewColor = isSelected ? 'bg-white/40' : previewColors[idx % previewColors.length];
+                                            const boxW = ratio.ratio >= 1 ? 48 : Math.round(48 * ratio.ratio);
+                                            const boxH = ratio.ratio >= 1 ? Math.round(48 / ratio.ratio) : 48;
                                             return (
                                                 <button
                                                     key={ratio.label}
@@ -1504,7 +1511,6 @@ export default function EditorPage() {
                                                         const layer = selectedLayer as ImageLayer;
                                                         const currentW = layer.width;
                                                         const currentH = layer.height;
-                                                        // Use the larger dimension as base so the box doesn't shrink
                                                         const base = Math.max(currentW, currentH);
                                                         let newW: number, newH: number;
                                                         if (ratio.ratio >= 1) {
@@ -1514,7 +1520,6 @@ export default function EditorPage() {
                                                             newH = base;
                                                             newW = base * ratio.ratio;
                                                         }
-                                                        // Keep center fixed
                                                         const newX = layer.x + (currentW - newW) / 2;
                                                         const newY = layer.y + (currentH - newH) / 2;
                                                         handleLayerChange(layer.id, {
@@ -1523,19 +1528,19 @@ export default function EditorPage() {
                                                             x: newX, y: newY,
                                                         } as Partial<AnyLayer>);
                                                     }}
-                                                    className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 transition-colors ${isSelected
+                                                    className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 text-center transition-colors ${isSelected
                                                         ? 'border-brand-primary bg-brand-primary text-white'
-                                                        : 'border-stroke bg-card-bg text-foreground hover:bg-muted'
+                                                        : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary hover:bg-brand-primary-light/10'
                                                         }`}
                                                 >
-                                                    <div
-                                                        className={`rounded-md ${previewColor}`}
-                                                        style={{
-                                                            width: ratio.ratio >= 1 ? '36px' : `${36 * ratio.ratio}px`,
-                                                            height: ratio.ratio >= 1 ? `${36 / ratio.ratio}px` : '36px',
-                                                        }}
-                                                    />
-                                                    <span className="text-[11px] font-medium">{ratio.label}</span>
+                                                    <div className="flex h-12 items-center justify-center">
+                                                        <div
+                                                            className={`rounded border-2 ${isSelected ? 'border-white/60 bg-white/10' : 'border-foreground/40 bg-foreground/5'}`}
+                                                            style={{ width: boxW, height: boxH }}
+                                                        />
+                                                    </div>
+                                                    <p className="text-xs font-semibold">{ratio.label}</p>
+                                                    <p className={`text-xs ${isSelected ? 'text-white/80' : 'text-secondary'}`}>{ratio.name}</p>
                                                 </button>
                                             );
                                         })}
@@ -1742,9 +1747,9 @@ export default function EditorPage() {
                     <ImageCropModal
                         isOpen={isCropOpen}
                         onClose={() => setIsCropOpen(false)}
-                        imageUri={(selectedLayer as ImageLayer).uri}
-                        naturalWidth={(selectedLayer as ImageLayer).naturalWidth}
-                        naturalHeight={(selectedLayer as ImageLayer).naturalHeight}
+                        imageUri={(selectedLayer as ImageLayer).originalUri || (selectedLayer as ImageLayer).uri}
+                        naturalWidth={(selectedLayer as ImageLayer).originalNaturalWidth || (selectedLayer as ImageLayer).naturalWidth}
+                        naturalHeight={(selectedLayer as ImageLayer).originalNaturalHeight || (selectedLayer as ImageLayer).naturalHeight}
                         onApply={handleCropApply}
                     />
                 )}

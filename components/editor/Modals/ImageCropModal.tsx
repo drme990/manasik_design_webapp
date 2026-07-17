@@ -3,13 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
-import { cn } from '@/lib/utils/cn';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuCrop, LuRotateCw } from 'react-icons/lu';
 
 export interface ImageCropModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** The original (uncropped) image URI */
   imageUri: string;
   naturalWidth: number;
   naturalHeight: number;
@@ -23,14 +22,9 @@ interface CropRect {
   height: number;
 }
 
-const ASPECT_RATIOS: { label: string; value: number | null }[] = [
-  { label: 'Free', value: null },
-  { label: '1:1', value: 1 },
-  { label: '4:3', value: 4 / 3 },
-  { label: '3:4', value: 3 / 4 },
-  { label: '16:9', value: 16 / 9 },
-  { label: '9:16', value: 9 / 16 },
-];
+type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | null;
+
+const MIN_CROP_SIZE = 20;
 
 export default function ImageCropModal({
   isOpen,
@@ -43,120 +37,161 @@ export default function ImageCropModal({
   const t = useTranslations('editor.modals.imageCrop');
   const uiT = useTranslations('ui');
 
-  const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const cropRef = useRef<CropRect>({ x: 0, y: 0, width: 0, height: 0 });
+  const dragModeRef = useRef<DragMode>(null);
+  const moveOffsetRef = useRef<{ x: number; y: number } | null>(null);
 
   const [imgLoaded, setImgLoaded] = useState(false);
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
-  const [crop, setCrop] = useState<CropRect | null>(null);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [dragMode, setDragMode] = useState<'create' | 'move' | null>(null);
-  const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
-  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
-  const [rotation, setRotation] = useState(0);
+  const [crop, setCrop] = useState<CropRect>({ x: 0, y: 0, width: 0, height: 0 });
+
+  // Keep ref in sync for use in pointer handlers
+  useEffect(() => {
+    cropRef.current = crop;
+  }, [crop]);
 
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
-      setCrop(null);
-      setDragStart(null);
-      setDragMode(null);
-      setMoveOffset(null);
-      setAspectRatio(null);
-      setRotation(0);
       setImgLoaded(false);
+      setCrop({ x: 0, y: 0, width: 0, height: 0 });
+      cropRef.current = { x: 0, y: 0, width: 0, height: 0 };
+      dragModeRef.current = null;
+      moveOffsetRef.current = null;
     }
   }, [isOpen]);
 
-  // Calculate display size that fits in the modal
   const handleImageLoad = useCallback(() => {
     if (!imgRef.current) return;
     const img = imgRef.current;
-    setDisplaySize({ width: img.offsetWidth, height: img.offsetHeight });
+    const w = img.offsetWidth;
+    const h = img.offsetHeight;
+    setDisplaySize({ width: w, height: h });
+    const cropW = w * 0.8;
+    const cropH = h * 0.8;
+    const newCrop = {
+      x: (w - cropW) / 2,
+      y: (h - cropH) / 2,
+      width: cropW,
+      height: cropH,
+    };
+    setCrop(newCrop);
+    cropRef.current = newCrop;
     setImgLoaded(true);
   }, []);
 
-  const getRelativePos = (e: React.MouseEvent | React.TouchEvent) => {
+  const getRelativePos = (clientX: number, clientY: number) => {
     if (!imgRef.current) return { x: 0, y: 0 };
     const rect = imgRef.current.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     return {
       x: Math.max(0, Math.min(rect.width, clientX - rect.left)),
       y: Math.max(0, Math.min(rect.height, clientY - rect.top)),
     };
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // --- Container pointer handler (for move mode) ---
+  const handleContainerPointerDown = (e: React.PointerEvent) => {
+    if (!imgLoaded) return;
+    const pos = getRelativePos(e.clientX, e.clientY);
+    const c = cropRef.current;
+
+    // Check if clicking inside crop area → move mode
+    if (pos.x >= c.x && pos.x <= c.x + c.width &&
+      pos.y >= c.y && pos.y <= c.y + c.height) {
+      e.preventDefault();
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      dragModeRef.current = 'move';
+      moveOffsetRef.current = { x: pos.x - c.x, y: pos.y - c.y };
+    }
+  };
+
+  const handleContainerPointerMove = (e: React.PointerEvent) => {
+    if (!dragModeRef.current || dragModeRef.current !== 'move') return;
+    e.preventDefault();
+
+    const pos = getRelativePos(e.clientX, e.clientY);
+    const rect = imgRef.current!.getBoundingClientRect();
+    const c = cropRef.current;
+
+    let newX = pos.x - moveOffsetRef.current!.x;
+    let newY = pos.y - moveOffsetRef.current!.y;
+    newX = Math.max(0, Math.min(newX, rect.width - c.width));
+    newY = Math.max(0, Math.min(newY, rect.height - c.height));
+
+    const newCrop = { ...c, x: newX, y: newY };
+    cropRef.current = newCrop;
+    setCrop(newCrop);
+  };
+
+  const handleContainerPointerUp = (e: React.PointerEvent) => {
+    if (dragModeRef.current === 'move') {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    }
+    dragModeRef.current = null;
+    moveOffsetRef.current = null;
+  };
+
+  // --- Corner handle pointer handlers (for resize) ---
+  const handleCornerPointerDown = (e: React.PointerEvent, corner: 'nw' | 'ne' | 'sw' | 'se') => {
+    if (!imgLoaded) return;
     e.preventDefault();
     e.stopPropagation();
-    const pos = getRelativePos(e);
-
-    // Check if clicking inside existing crop (move mode)
-    if (crop && pos.x >= crop.x && pos.x <= crop.x + crop.width &&
-      pos.y >= crop.y && pos.y <= crop.y + crop.height) {
-      setDragMode('move');
-      setMoveOffset({ x: pos.x - crop.x, y: pos.y - crop.y });
-    } else {
-      setDragMode('create');
-      setDragStart(pos);
-      setCrop({ x: pos.x, y: pos.y, width: 0, height: 0 });
-    }
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragModeRef.current = corner;
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragMode || !imgRef.current) return;
+  const handleCornerPointerMove = (e: React.PointerEvent) => {
+    const mode = dragModeRef.current;
+    if (!mode || mode === 'move' || !imgRef.current) return;
     e.preventDefault();
-    const pos = getRelativePos(e);
+
+    const pos = getRelativePos(e.clientX, e.clientY);
     const rect = imgRef.current.getBoundingClientRect();
+    const c = cropRef.current;
 
-    if (dragMode === 'create' && dragStart) {
-      let newCrop = {
-        x: Math.min(dragStart.x, pos.x),
-        y: Math.min(dragStart.y, pos.y),
-        width: Math.abs(pos.x - dragStart.x),
-        height: Math.abs(pos.y - dragStart.y),
-      };
+    let { x, y, width, height } = c;
 
-      // Apply aspect ratio constraint
-      if (aspectRatio) {
-        if (newCrop.width / aspectRatio > newCrop.height) {
-          newCrop.height = newCrop.width / aspectRatio;
-        } else {
-          newCrop.width = newCrop.height * aspectRatio;
-        }
-      }
-
-      // Clamp to image bounds
-      newCrop.x = Math.max(0, Math.min(newCrop.x, rect.width - newCrop.width));
-      newCrop.y = Math.max(0, Math.min(newCrop.y, rect.height - newCrop.height));
-      newCrop.width = Math.min(newCrop.width, rect.width - newCrop.x);
-      newCrop.height = Math.min(newCrop.height, rect.height - newCrop.y);
-
-      setCrop(newCrop);
-    } else if (dragMode === 'move' && crop && moveOffset) {
-      let newX = pos.x - moveOffset.x;
-      let newY = pos.y - moveOffset.y;
-      newX = Math.max(0, Math.min(newX, rect.width - crop.width));
-      newY = Math.max(0, Math.min(newY, rect.height - crop.height));
-      setCrop({ ...crop, x: newX, y: newY });
+    if (mode === 'nw') {
+      const newRight = c.x + c.width;
+      const newBottom = c.y + c.height;
+      x = Math.max(0, Math.min(pos.x, newRight - MIN_CROP_SIZE));
+      y = Math.max(0, Math.min(pos.y, newBottom - MIN_CROP_SIZE));
+      width = newRight - x;
+      height = newBottom - y;
+    } else if (mode === 'ne') {
+      const newBottom = c.y + c.height;
+      y = Math.max(0, Math.min(pos.y, newBottom - MIN_CROP_SIZE));
+      width = Math.max(MIN_CROP_SIZE, Math.min(pos.x - c.x, rect.width - c.x));
+      height = newBottom - y;
+    } else if (mode === 'sw') {
+      const newRight = c.x + c.width;
+      x = Math.max(0, Math.min(pos.x, newRight - MIN_CROP_SIZE));
+      width = newRight - x;
+      height = Math.max(MIN_CROP_SIZE, Math.min(pos.y - c.y, rect.height - c.y));
+    } else if (mode === 'se') {
+      width = Math.max(MIN_CROP_SIZE, Math.min(pos.x - c.x, rect.width - c.x));
+      height = Math.max(MIN_CROP_SIZE, Math.min(pos.y - c.y, rect.height - c.y));
     }
+
+    const newCrop = { x, y, width, height };
+    cropRef.current = newCrop;
+    setCrop(newCrop);
   };
 
-  const handleMouseUp = () => {
-    setDragMode(null);
-    setDragStart(null);
-    setMoveOffset(null);
+  const handleCornerPointerUp = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    dragModeRef.current = null;
   };
 
   const applyCrop = () => {
-    if (!crop || crop.width < 5 || crop.height < 5 || !imgRef.current) return;
+    if (crop.width < 5 || crop.height < 5 || !imgRef.current) return;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Calculate scale from display to natural
     const scaleX = naturalWidth / displaySize.width;
     const scaleY = naturalHeight / displaySize.height;
 
@@ -171,36 +206,7 @@ export default function ImageCropModal({
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Handle rotation
-      if (rotation !== 0) {
-        const rotCanvas = document.createElement('canvas');
-        const rotCtx = rotCanvas.getContext('2d');
-        if (!rotCtx) return;
-
-        const rad = (rotation * Math.PI) / 180;
-        const absCos = Math.abs(Math.cos(rad));
-        const absSin = Math.abs(Math.sin(rad));
-        rotCanvas.width = Math.round(naturalWidth * absCos + naturalHeight * absSin);
-        rotCanvas.height = Math.round(naturalHeight * absCos + naturalWidth * absSin);
-
-        rotCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
-        rotCtx.rotate(rad);
-        rotCtx.drawImage(img, -naturalWidth / 2, -naturalHeight / 2);
-
-        // Recalculate crop position based on rotation
-        ctx.drawImage(
-          rotCanvas,
-          cropX, cropY, cropW, cropH,
-          0, 0, canvas.width, canvas.height
-        );
-      } else {
-        ctx.drawImage(
-          img,
-          cropX, cropY, cropW, cropH,
-          0, 0, canvas.width, canvas.height
-        );
-      }
-
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
       const dataUri = canvas.toDataURL('image/png');
       onApply(dataUri, canvas.width, canvas.height);
       onClose();
@@ -209,13 +215,22 @@ export default function ImageCropModal({
   };
 
   const handleReset = () => {
-    setCrop(null);
-    setRotation(0);
+    if (!imgLoaded) return;
+    const w = displaySize.width;
+    const h = displaySize.height;
+    const cropW = w * 0.8;
+    const cropH = h * 0.8;
+    const newCrop = { x: (w - cropW) / 2, y: (h - cropH) / 2, width: cropW, height: cropH };
+    setCrop(newCrop);
+    cropRef.current = newCrop;
   };
 
-  const handleRotate = () => {
-    setRotation((r) => (r + 90) % 360);
-  };
+  const corners: { corner: 'nw' | 'ne' | 'sw' | 'se'; x: number; y: number; cursor: string }[] = [
+    { corner: 'nw', x: crop.x, y: crop.y, cursor: 'cursor-nwse-resize' },
+    { corner: 'ne', x: crop.x + crop.width, y: crop.y, cursor: 'cursor-nesw-resize' },
+    { corner: 'sw', x: crop.x, y: crop.y + crop.height, cursor: 'cursor-nesw-resize' },
+    { corner: 'se', x: crop.x + crop.width, y: crop.y + crop.height, cursor: 'cursor-nwse-resize' },
+  ];
 
   return (
     <Modal
@@ -225,16 +240,12 @@ export default function ImageCropModal({
       size="xl"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
-            {uiT('cancel')}
-          </Button>
-          <Button variant="ghost" onClick={handleReset}>
-            {t('reset')}
-          </Button>
+          <Button variant="ghost" onClick={onClose}>{uiT('cancel')}</Button>
+          <Button variant="ghost" onClick={handleReset}>{t('reset')}</Button>
           <Button
             variant="primary"
             onClick={applyCrop}
-            disabled={!crop || crop.width < 5 || crop.height < 5}
+            disabled={!imgLoaded || crop.width < 5 || crop.height < 5}
           >
             {t('apply')}
           </Button>
@@ -242,41 +253,13 @@ export default function ImageCropModal({
       }
     >
       <div className="space-y-4">
-        {/* Aspect ratio buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{t('aspectRatio')}:</span>
-          {ASPECT_RATIOS.map((ratio) => (
-            <button
-              key={ratio.label}
-              type="button"
-              onClick={() => setAspectRatio(ratio.value)}
-              className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm transition-colors',
-                aspectRatio === ratio.value
-                  ? 'border-brand-primary bg-brand-primary text-white'
-                  : 'border-stroke bg-background text-foreground hover:bg-muted'
-              )}
-            >
-              {ratio.label}
-            </button>
-          ))}
-          <div className="ml-auto flex gap-2">
-            <Button variant="ghost" size="sm" onClick={handleRotate} className="gap-1.5">
-              <LuRotateCw className="h-4 w-4" />
-              {t('rotate')}
-            </Button>
-          </div>
-        </div>
-
-        {/* Crop area */}
         <div
-          ref={containerRef}
-          className="relative flex select-none items-center justify-center overflow-hidden rounded-lg bg-black/90"
+          className="relative flex select-none items-center justify-center overflow-hidden rounded-lg bg-black/90 touch-none"
           style={{ minHeight: '300px' }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onPointerDown={handleContainerPointerDown}
+          onPointerMove={handleContainerPointerMove}
+          onPointerUp={handleContainerPointerUp}
+          onPointerCancel={handleContainerPointerUp}
         >
           <div className="relative inline-block">
             <img
@@ -286,78 +269,50 @@ export default function ImageCropModal({
               draggable={false}
               onLoad={handleImageLoad}
               className="max-h-[60vh] max-w-full select-none"
-              style={{
-                transform: `rotate(${rotation}deg)`,
-                transition: 'transform 0.2s',
-              }}
             />
 
-            {/* Crop overlay */}
-            {imgLoaded && crop && crop.width > 0 && crop.height > 0 && (
+            {imgLoaded && crop.width > 0 && crop.height > 0 && (
               <>
-                {/* Dark overlay outside crop */}
-                <div className="pointer-events-none absolute inset-0 bg-black/50" />
-                {/* Clear the crop area using box-shadow trick */}
+                {/* Dark overlay + crop border */}
                 <div
-                  className="pointer-events-none absolute border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
-                  style={{
-                    left: crop.x,
-                    top: crop.y,
-                    width: crop.width,
-                    height: crop.height,
-                  }}
+                  className="pointer-events-none absolute border-2 border-brand-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
+                  style={{ left: crop.x, top: crop.y, width: crop.width, height: crop.height }}
                 />
-                {/* Grid lines inside crop (rule of thirds) */}
+                {/* Grid lines */}
                 <div
                   className="pointer-events-none absolute"
-                  style={{
-                    left: crop.x,
-                    top: crop.y,
-                    width: crop.width,
-                    height: crop.height,
-                  }}
+                  style={{ left: crop.x, top: crop.y, width: crop.width, height: crop.height }}
                 >
                   <div className="absolute left-1/3 top-0 h-full w-px bg-white/30" />
                   <div className="absolute left-2/3 top-0 h-full w-px bg-white/30" />
                   <div className="absolute top-1/3 h-px w-full bg-white/30" />
                   <div className="absolute top-2/3 h-px w-full bg-white/30" />
                 </div>
-                {/* Corner handles */}
-                {[
-                  { x: crop.x, y: crop.y, cursor: 'cursor-nwse-resize' },
-                  { x: crop.x + crop.width, y: crop.y, cursor: 'cursor-nesw-resize' },
-                  { x: crop.x, y: crop.y + crop.height, cursor: 'cursor-nesw-resize' },
-                  { x: crop.x + crop.width, y: crop.y + crop.height, cursor: 'cursor-nwse-resize' },
-                ].map((corner, i) => (
+                {/* Corner handles — draggable to resize */}
+                {corners.map(({ corner, x, y, cursor }) => (
                   <div
-                    key={i}
-                    className={cn('pointer-events-none absolute h-3 w-3 rounded-full border-2 border-white bg-brand-primary', corner.cursor)}
-                    style={{
-                      left: corner.x - 6,
-                      top: corner.y - 6,
-                    }}
+                    key={corner}
+                    className={`absolute h-4 w-4 rounded-full border-2 border-white bg-brand-primary shadow-lg ${cursor} touch-none`}
+                    style={{ left: x - 8, top: y - 8 }}
+                    onPointerDown={(e) => handleCornerPointerDown(e, corner)}
+                    onPointerMove={handleCornerPointerMove}
+                    onPointerUp={handleCornerPointerUp}
+                    onPointerCancel={handleCornerPointerUp}
                   />
                 ))}
               </>
             )}
 
-            {/* Hint when no crop selected */}
-            {imgLoaded && (!crop || crop.width === 0) && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="rounded-lg bg-black/60 px-4 py-2 text-sm text-white">
-                  {t('hint')}
-                </div>
+            {!imgLoaded && (
+              <div className="flex h-75 items-center justify-center">
+                <div className="text-sm text-white/60">...</div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Crop info */}
-        {crop && crop.width > 0 && crop.height > 0 && (
-          <div className="flex items-center gap-4 text-sm text-secondary">
-            <span>{t('cropSize')}: {Math.round(crop.width)} × {Math.round(crop.height)}</span>
-            {rotation !== 0 && <span>{t('rotation')}: {rotation}°</span>}
-          </div>
+        {imgLoaded && (
+          <p className="text-center text-sm text-secondary">{t('hint')}</p>
         )}
       </div>
     </Modal>
