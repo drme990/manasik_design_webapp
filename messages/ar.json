@@ -352,5 +352,22 @@
       "clearImage": "مسح الصورة",
       "selectedImageAlt": "الصورة المحددة"
     }
+  },
+  "pdfTool": {
+    "title": "إنشاء PDF من الصور",
+    "subtitle": "اختر الصور وأنشئ ملف PDF — كل صورة تصبح صفحة.",
+    "addImages": "إضافة صور",
+    "generate": "إنشاء PDF",
+    "generating": "جاري الإنشاء...",
+    "empty": "لم تتم إضافة أي صور بعد",
+    "emptyHint": "اضغط زر الإضافة لبدء اختيار الصور",
+    "page": "صفحة",
+    "remove": "إزالة",
+    "moveUp": "تحريك لأعلى",
+    "moveDown": "تحريك لأسفل",
+    "download": "تحميل PDF",
+    "clear": "مسح الكل",
+    "confirmClear": "هل تريد مسح جميع الصور؟",
+    "imageCount": "{count} صورة"
   }
 }
