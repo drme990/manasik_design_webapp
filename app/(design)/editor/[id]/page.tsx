@@ -641,16 +641,23 @@ export default function EditorPage() {
             if (!layer || layer.type !== 'image') return;
             const imgLayer = layer as ImageLayer;
             const ratio = newWidth / newHeight;
+            const newBoxW = imgLayer.width;
+            const newBoxH = imgLayer.width / ratio;
+            // Recalculate imageScale so cropped image covers the new box
+            const newImageScale = Math.max(
+                newBoxW / newWidth,
+                newBoxH / newHeight
+            );
             handleLayerChange(selectedLayerId, {
                 uri: croppedUri,
                 naturalWidth: newWidth,
                 naturalHeight: newHeight,
-                maskWidth: newWidth,
-                maskHeight: newHeight,
-                height: imgLayer.width / ratio,
+                maskWidth: newBoxW,
+                maskHeight: newBoxH,
+                height: newBoxH,
                 offsetX: 0,
                 offsetY: 0,
-                imageScale: 1,
+                imageScale: newImageScale,
                 // Preserve original image for re-cropping
                 originalUri: imgLayer.originalUri || imgLayer.uri,
                 originalNaturalWidth: imgLayer.originalNaturalWidth || imgLayer.naturalWidth,
@@ -1522,9 +1529,16 @@ export default function EditorPage() {
                                                         }
                                                         const newX = layer.x + (currentW - newW) / 2;
                                                         const newY = layer.y + (currentH - newH) / 2;
+                                                        // Recalculate imageScale so image always covers the new box
+                                                        const newImageScale = Math.max(
+                                                            newW / layer.naturalWidth,
+                                                            newH / layer.naturalHeight
+                                                        );
                                                         handleLayerChange(layer.id, {
                                                             width: newW, height: newH,
                                                             maskWidth: newW, maskHeight: newH,
+                                                            imageScale: newImageScale,
+                                                            offsetX: 0, offsetY: 0,
                                                             x: newX, y: newY,
                                                         } as Partial<AnyLayer>);
                                                     }}
