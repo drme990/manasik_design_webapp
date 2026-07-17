@@ -35,10 +35,19 @@ export default function CollageEditModal({
     startOffsetY: number;
   } | null>(null);
 
+  // Pinch-to-zoom state
+  const pinchRef = useRef<{
+    pointers: Map<number, { x: number; y: number }>;
+    startDistance: number;
+    startScale: number;
+  }>({ pointers: new Map(), startDistance: 0, startScale: 1 });
+
   useEffect(() => {
     if (isOpen) {
       setSelectedCell(null);
       setDragState(null);
+      pinchRef.current.pointers.clear();
+      pinchRef.current.startDistance = 0;
     }
   }, [isOpen]);
 
@@ -94,8 +103,25 @@ export default function CollageEditModal({
     if (!collage || selectedCell !== index) return;
     e.preventDefault();
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+
     const cell = collage.cells[index];
+    const pinch = pinchRef.current;
+
+    // Track pointer for pinch detection
+    pinch.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // If two pointers are down, start pinch mode
+    if (pinch.pointers.size === 2) {
+      const pts = [...pinch.pointers.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pinch.startDistance = dist;
+      pinch.startScale = cell?.scale ?? 1;
+      // Cancel drag when pinching
+      setDragState(null);
+      return;
+    }
+
+    // Single pointer — start drag
     setDragState({
       startX: e.clientX,
       startY: e.clientY,
@@ -105,7 +131,27 @@ export default function CollageEditModal({
   };
 
   const handleImagePointerMove = (e: React.PointerEvent) => {
-    if (!dragState || selectedCell === null || !collage) return;
+    if (!collage || selectedCell === null) return;
+    const pinch = pinchRef.current;
+
+    // Update pointer position for pinch tracking
+    if (pinch.pointers.has(e.pointerId)) {
+      pinch.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Two-finger pinch zoom
+      if (pinch.pointers.size >= 2 && pinch.startDistance > 0) {
+        e.preventDefault();
+        const pts = [...pinch.pointers.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const ratio = dist / pinch.startDistance;
+        const newScale = Math.max(0.1, Math.min(10, pinch.startScale * ratio));
+        handleCellUpdate(selectedCell, { scale: newScale });
+        return;
+      }
+    }
+
+    // Single-finger drag
+    if (!dragState) return;
     e.preventDefault();
     const dx = e.clientX - dragState.startX;
     const dy = e.clientY - dragState.startY;
@@ -116,8 +162,20 @@ export default function CollageEditModal({
   };
 
   const handleImagePointerUp = (e: React.PointerEvent) => {
-    if (dragState) {
-      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    const pinch = pinchRef.current;
+    pinch.pointers.delete(e.pointerId);
+    // If one pointer remains, restart drag from its position
+    if (pinch.pointers.size === 1 && selectedCell !== null && collage) {
+      const cell = collage.cells[selectedCell];
+      const [pt] = [...pinch.pointers.values()];
+      setDragState({
+        startX: pt.x,
+        startY: pt.y,
+        startOffsetX: cell?.offsetX ?? 0,
+        startOffsetY: cell?.offsetY ?? 0,
+      });
+    } else if (pinch.pointers.size === 0) {
+      pinch.startDistance = 0;
     }
     setDragState(null);
   };
@@ -125,8 +183,8 @@ export default function CollageEditModal({
   if (!collage || !layout || !layer) return null;
 
   const selectedCellData = selectedCell !== null ? collage.cells[selectedCell] : null;
-  // Preview fills available width, max 500px
-  const previewW = Math.min(layer.width, 500);
+  // Preview — smaller to fit mobile screens without breaking layout
+  const previewW = Math.min(layer.width, 280);
   const previewH = previewW * (layer.height / layer.width);
   const previewScale = previewW / layer.width;
 
@@ -169,7 +227,7 @@ export default function CollageEditModal({
                   onClick={() => setSelectedCell(i)}
                   className={cn(
                     'absolute overflow-hidden transition-all cursor-pointer',
-                    isSelected ? 'ring-2 ring-brand-primary ring-offset-1' : 'hover:ring-1 hover:ring-brand-primary/50'
+                    isSelected ? 'ring-2 ring-brand-primary ring-offset-1 touch-none' : 'hover:ring-1 hover:ring-brand-primary/50'
                   )}
                   style={{
                     left: cellX,
@@ -178,6 +236,10 @@ export default function CollageEditModal({
                     height: cellH,
                     borderRadius: layer.borderRadius,
                   }}
+                  onPointerDown={isSelected ? (e) => handleImagePointerDown(e, i) : undefined}
+                  onPointerMove={isSelected ? handleImagePointerMove : undefined}
+                  onPointerUp={isSelected ? handleImagePointerUp : undefined}
+                  onPointerCancel={isSelected ? handleImagePointerUp : undefined}
                 >
                   {cell?.uri ? (
                     <img
@@ -185,16 +247,12 @@ export default function CollageEditModal({
                       alt={`cell ${i + 1}`}
                       draggable={false}
                       className={cn(
-                        'h-full w-full select-none object-cover',
-                        isSelected && 'cursor-move touch-none'
+                        'h-full w-full select-none object-cover pointer-events-none',
+                        isSelected && 'cursor-move'
                       )}
                       style={{
                         transform: `scale(${cell.scale}) translate(${cell.offsetX}px, ${cell.offsetY}px)`,
                       }}
-                      onPointerDown={isSelected ? (e) => handleImagePointerDown(e, i) : undefined}
-                      onPointerMove={isSelected ? handleImagePointerMove : undefined}
-                      onPointerUp={isSelected ? handleImagePointerUp : undefined}
-                      onPointerCancel={isSelected ? handleImagePointerUp : undefined}
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-muted text-secondary text-xs">

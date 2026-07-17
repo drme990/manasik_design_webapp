@@ -543,14 +543,17 @@ export default function EditorPage() {
             const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
             if (!layer || layer.type !== 'text') return;
             const textLayer = layer as TextLayer;
-            // Estimate new height proportional to font size change
-            const heightRatio = newFontSize / textLayer.fontSize;
-            const newHeight = textLayer.height * heightRatio;
+            // Estimate new size proportional to font size change
+            const ratio = newFontSize / textLayer.fontSize;
+            const newW = textLayer.width * ratio;
+            const newH = textLayer.height * ratio;
             // Keep center fixed
-            const newX = textLayer.x + (textLayer.width - textLayer.width) / 2;
-            const newY = textLayer.y + (textLayer.height - newHeight) / 2;
+            const newX = textLayer.x + (textLayer.width - newW) / 2;
+            const newY = textLayer.y + (textLayer.height - newH) / 2;
             handleLayerChange(selectedLayerId, {
                 fontSize: newFontSize,
+                width: newW,
+                height: newH,
                 x: newX,
                 y: newY,
             } as Partial<AnyLayer>, false);
@@ -828,11 +831,20 @@ export default function EditorPage() {
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (!file || !selectedLayerId) return;
+            const currentLayer = projectRef.current?.layers.find(l => l.id === selectedLayerId);
             const reader = new FileReader();
             reader.onload = (event) => {
                 const uri = event.target?.result as string;
                 const img = new Image();
                 img.onload = () => {
+                    // Compute imageScale so the new image covers the existing layer box
+                    // (like object-fit: cover) — use max so the image fills the box.
+                    const boxW = currentLayer?.width ?? img.naturalWidth;
+                    const boxH = currentLayer?.height ?? img.naturalHeight;
+                    const scale = Math.max(
+                        boxW / img.naturalWidth,
+                        boxH / img.naturalHeight
+                    );
                     handleLayerChange(selectedLayerId, {
                         uri,
                         originalUri: uri,
@@ -840,9 +852,11 @@ export default function EditorPage() {
                         originalNaturalHeight: img.naturalHeight,
                         naturalWidth: img.naturalWidth,
                         naturalHeight: img.naturalHeight,
+                        maskWidth: boxW,
+                        maskHeight: boxH,
                         offsetX: 0,
                         offsetY: 0,
-                        imageScale: 1,
+                        imageScale: scale,
                     } as Partial<AnyLayer>);
                 };
                 img.src = uri;

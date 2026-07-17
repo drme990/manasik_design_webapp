@@ -185,32 +185,6 @@ export default function PropertiesBar({
                                 onClick={() => setColorPickerProp(colorPickerProp === 'text.color' ? null : 'text.color')}
                             />
                             <PropToggle
-                                label={t('toolbars.text.align')}
-                                icon={<AlignIcon className="h-5 w-5" />}
-                                active={false}
-                                onClick={() => onLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
-                            />
-                            <PropToggle
-                                label={t('toolbars.text.vAlign')}
-                                icon={<VAlignIcon className="h-5 w-5" />}
-                                active={false}
-                                onClick={() => onLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
-                            />
-                            <PropButton
-                                label={t('toolbars.text.lineHeight')}
-                                value={l.lineHeight}
-                                icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
-                                active={activeProp === 'text.lineHeight'}
-                                onClick={() => setActiveProp(activeProp === 'text.lineHeight' ? null : 'text.lineHeight')}
-                            />
-                            <PropButton
-                                label={t('toolbars.text.opacity')}
-                                value={`${Math.round(l.opacity * 100)}%`}
-                                icon={<LuDroplet className="h-5 w-5" />}
-                                active={activeProp === 'text.opacity'}
-                                onClick={() => setActiveProp(activeProp === 'text.opacity' ? null : 'text.opacity')}
-                            />
-                            <PropToggle
                                 label={t('toolbars.text.bold')}
                                 icon={<LuBold className="h-5 w-5" />}
                                 active={l.bold}
@@ -221,6 +195,25 @@ export default function PropertiesBar({
                                 icon={<LuItalic className="h-5 w-5" />}
                                 active={l.italic}
                                 onClick={() => onLayerChange(l.id, { italic: !l.italic } as Partial<AnyLayer>)}
+                            />
+                            <PropButton
+                                label={t('toolbars.text.lineHeight')}
+                                value={l.lineHeight}
+                                icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
+                                active={activeProp === 'text.lineHeight'}
+                                onClick={() => setActiveProp(activeProp === 'text.lineHeight' ? null : 'text.lineHeight')}
+                            />
+                            <PropToggle
+                                label={t('toolbars.text.align')}
+                                icon={<AlignIcon className="h-5 w-5" />}
+                                active={false}
+                                onClick={() => onLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
+                            />
+                            <PropToggle
+                                label={t('toolbars.text.vAlign')}
+                                icon={<VAlignIcon className="h-5 w-5" />}
+                                active={false}
+                                onClick={() => onLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
                             />
                             <PropToggle
                                 label={t('toolbars.text.direction')}
@@ -234,6 +227,13 @@ export default function PropertiesBar({
                                     const next = l.direction === 'auto' ? 'rtl' : l.direction === 'rtl' ? 'ltr' : 'auto';
                                     onLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
                                 }}
+                            />
+                            <PropButton
+                                label={t('toolbars.text.opacity')}
+                                value={`${Math.round(l.opacity * 100)}%`}
+                                icon={<LuDroplet className="h-5 w-5" />}
+                                active={activeProp === 'text.opacity'}
+                                onClick={() => setActiveProp(activeProp === 'text.opacity' ? null : 'text.opacity')}
                             />
                         </>
                     );
@@ -303,13 +303,22 @@ export default function PropertiesBar({
                                     />
                                 </>
                             )}
-                            <PropButton
-                                label={t('toolbars.image.opacity')}
-                                value={`${Math.round(l.opacity * 100)}%`}
-                                icon={<LuDroplet className="h-5 w-5" />}
-                                active={activeProp === 'image.opacity'}
-                                onClick={() => setActiveProp(activeProp === 'image.opacity' ? null : 'image.opacity')}
-                            />
+                            {!isCollage && (
+                                <>
+                                    <PropToggle
+                                        label={t('toolbars.image.flipHorizontal')}
+                                        icon={<LuFlipHorizontal className="h-5 w-5" />}
+                                        active={l.flipX}
+                                        onClick={() => onLayerChange(l.id, { flipX: !l.flipX } as Partial<AnyLayer>)}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.image.flipVertical')}
+                                        icon={<LuFlipVertical className="h-5 w-5" />}
+                                        active={l.flipY}
+                                        onClick={() => onLayerChange(l.id, { flipY: !l.flipY } as Partial<AnyLayer>)}
+                                    />
+                                </>
+                            )}
                             <PropButton
                                 label={t('toolbars.image.borderRadius')}
                                 value={l.borderRadius}
@@ -333,20 +342,15 @@ export default function PropertiesBar({
                                         active={colorPickerProp === 'image.borderColor'}
                                         onClick={() => setColorPickerProp(colorPickerProp === 'image.borderColor' ? null : 'image.borderColor')}
                                     />
-                                    <PropToggle
-                                        label={t('toolbars.image.flipHorizontal')}
-                                        icon={<LuFlipHorizontal className="h-5 w-5" />}
-                                        active={l.flipX}
-                                        onClick={() => onLayerChange(l.id, { flipX: !l.flipX } as Partial<AnyLayer>)}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.image.flipVertical')}
-                                        icon={<LuFlipVertical className="h-5 w-5" />}
-                                        active={l.flipY}
-                                        onClick={() => onLayerChange(l.id, { flipY: !l.flipY } as Partial<AnyLayer>)}
-                                    />
                                 </>
                             )}
+                            <PropButton
+                                label={t('toolbars.image.opacity')}
+                                value={`${Math.round(l.opacity * 100)}%`}
+                                icon={<LuDroplet className="h-5 w-5" />}
+                                active={activeProp === 'image.opacity'}
+                                onClick={() => setActiveProp(activeProp === 'image.opacity' ? null : 'image.opacity')}
+                            />
                         </>
                     );
                 })()}
@@ -357,6 +361,18 @@ export default function PropertiesBar({
                     const filled = l.filled ?? true;
                     return (
                         <>
+                            <PropToggle
+                                label={t('toolbars.shape.filled')}
+                                icon={
+                                    <LuCircle
+                                        className="h-5 w-5"
+                                        fill={filled ? 'currentColor' : 'none'}
+                                        strokeWidth={2}
+                                    />
+                                }
+                                active={filled}
+                                onClick={() => onLayerChange(l.id, { filled: !filled } as Partial<AnyLayer>)}
+                            />
                             <PropButton
                                 label={t('toolbars.shape.fillColor')}
                                 swatch={l.fillColor}
@@ -384,18 +400,6 @@ export default function PropertiesBar({
                                 icon={<LuDroplet className="h-5 w-5" />}
                                 active={activeProp === 'shape.opacity'}
                                 onClick={() => setActiveProp(activeProp === 'shape.opacity' ? null : 'shape.opacity')}
-                            />
-                            <PropToggle
-                                label={t('toolbars.shape.filled')}
-                                icon={
-                                    <LuCircle
-                                        className="h-5 w-5"
-                                        fill={filled ? 'currentColor' : 'none'}
-                                        strokeWidth={2}
-                                    />
-                                }
-                                active={filled}
-                                onClick={() => onLayerChange(l.id, { filled: !filled } as Partial<AnyLayer>)}
                             />
                             {(l.shape === 'rectangle') && (
                                 <PropButton

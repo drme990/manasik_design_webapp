@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils/cn';
-import { LuLoader } from 'react-icons/lu';
+import { LuLoaderCircle } from 'react-icons/lu';
 
 export interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg';
@@ -26,7 +26,7 @@ export default function LoadingSpinner({
 
   return (
     <div className={cn('flex items-center justify-center', className)} role="status">
-      <LuLoader className={cn('animate-spin', sizeClasses[size], colorClasses[color])} />
+      <LuLoaderCircle className={cn('animate-spin', sizeClasses[size], colorClasses[color])} />
       <span className="sr-only">Loading...</span>
     </div>
   );

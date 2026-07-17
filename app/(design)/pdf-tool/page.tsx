@@ -14,7 +14,7 @@ import {
     LuArrowUp,
     LuArrowDown,
     LuX,
-    LuLoader,
+    LuLoaderCircle,
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 
@@ -222,7 +222,7 @@ export default function PdfToolPage() {
                                 className="gap-2"
                             >
                                 {generating ? (
-                                    <LuLoader className="h-5 w-5 animate-spin" />
+                                    <LuLoaderCircle className="h-5 w-5 animate-spin" />
                                 ) : (
                                     <LuFileText className="h-5 w-5" />
                                 )}

@@ -64,6 +64,8 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   const measureRef = useRef<HTMLDivElement>(null);
   // Track the last measured size to avoid redundant updates
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
+  // Track previous fontSize to detect resize vs content change
+  const prevFontSizeRef = useRef(layer.fontSize);
 
   const hasBoxWidth = layer.boxWidth !== undefined && layer.boxWidth > 0;
 
@@ -83,9 +85,22 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
 
     // Only update if the measured size actually changed since last time
     if (w !== lastMeasuredRef.current.w || h !== lastMeasuredRef.current.h) {
+      const oldW = lastMeasuredRef.current.w;
+      const oldH = lastMeasuredRef.current.h;
       lastMeasuredRef.current = { w, h };
-      onLayerChange(layer.id, { width: w, height: h }, false);
+      // Only re-center when text content changed (not font size).
+      // Font size changes are handled by the slider/resize handler
+      // which already adjust x/y — re-centering here would fight them.
+      const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
+      if (fontSizeChanged) {
+        onLayerChange(layer.id, { width: w, height: h }, false);
+      } else {
+        const newX = layer.x + (oldW - w) / 2;
+        const newY = layer.y + (oldH - h) / 2;
+        onLayerChange(layer.id, { width: w, height: h, x: newX, y: newY }, false);
+      }
     }
+    prevFontSizeRef.current = layer.fontSize;
     // Only re-measure when text content or font properties change —
     // deliberately exclude width/height to prevent feedback loops.
   }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth]);
@@ -100,8 +115,11 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     if (h <= 0) return;
 
     if (h !== lastMeasuredRef.current.h) {
+      const oldH = lastMeasuredRef.current.h;
       lastMeasuredRef.current = { w: layer.boxWidth!, h };
-      onLayerChange(layer.id, { height: h }, false);
+      // Keep vertical center fixed
+      const newY = layer.y + (oldH - h) / 2;
+      onLayerChange(layer.id, { height: h, y: newY }, false);
     }
   }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth]);
 

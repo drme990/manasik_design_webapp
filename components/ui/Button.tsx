@@ -1,5 +1,5 @@
 import { ButtonHTMLAttributes, forwardRef } from 'react';
-import { LuLoader } from 'react-icons/lu';
+import { LuLoaderCircle } from 'react-icons/lu';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -34,7 +34,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
                 {...props}
             >
                 {loading && (
-                    <LuLoader className="animate-spin -me-1 ms-2 h-4 w-4" />
+                    <LuLoaderCircle className="animate-spin -me-1 ms-2 h-4 w-4" />
                 )}
                 {children}
             </button>
