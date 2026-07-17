@@ -144,12 +144,13 @@ function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerCo
     const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
     const gap = layer.collage.gap ?? 4;
     const bgColor = layer.collage.bgColor ?? '#000000';
+    const containerRadius = layer.collage.containerRadius ?? 0;
     return (
       <div
         className={className}
         style={{
           ...style,
-          borderRadius: 0,
+          borderRadius: containerRadius,
           border: 'none',
           overflow: 'hidden',
           backgroundColor: bgColor,
@@ -159,7 +160,8 @@ function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerCo
         onClick={(e) => e.stopPropagation()}
       >
         {layout.cells.map((cellDef, i) => {
-          const cellUri = layer.collage!.cells[i]?.uri;
+          const cell = layer.collage!.cells[i];
+          const cellUri = cell?.uri;
           const cellW = cellDef.w * layer.width - gap;
           const cellH = cellDef.h * layer.height - gap;
           const cellX = cellDef.x * layer.width + gap / 2;
@@ -182,6 +184,9 @@ function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerCo
                   alt={`collage ${i + 1}`}
                   draggable={false}
                   className="pointer-events-none h-full w-full select-none object-cover"
+                  style={{
+                    transform: `scale(${cell?.scale ?? 1}) translate(${cell?.offsetX ?? 0}px, ${cell?.offsetY ?? 0}px)`,
+                  }}
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-muted" />

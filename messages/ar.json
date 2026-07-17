@@ -238,6 +238,8 @@
         "collageLayout": "تخطيط الكولاج",
         "collageGap": "المسافة بين الصور",
         "collageBg": "خلفية الكولاج",
+        "collageRounded": "استدارة الكولاج",
+        "collageEdit": "تحرير الكولاج",
         "swapImages": "تبديل الصور",
         "offsetX": "الإزاحة X",
         "offsetY": "الإزاحة Y",
@@ -304,6 +306,20 @@
         "hint": "اسحب لتحديد منطقة القص",
         "cropSize": "حجم القص",
         "rotation": "التدوير"
+      },
+      "collageEdit": {
+        "title": "تحرير الكولاج",
+        "cell": "صورة {index}",
+        "replace": "استبدال",
+        "reset": "إعادة تعيين",
+        "addImage": "إضافة صورة",
+        "maxImages": "الحد الأقصى 4 صور",
+        "zoom": "تكبير",
+        "offsetX": "إزاحة X",
+        "offsetY": "إزاحة Y",
+        "swapWith": "تبديل مع",
+        "selectHint": "اختر صورة لتحريرها",
+        "dragHint": "اسحب الصورة لتغيير موقعها"
       },
       "imageFieldSize": {
         "title": "حجم حقل الصورة"

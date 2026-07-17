@@ -13,7 +13,7 @@ export interface ModalProps {
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   hideCloseButton?: boolean;
 }
 
@@ -35,6 +35,7 @@ export default function Modal({
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    full: 'max-w-[90vw]',
   };
 
   return (
@@ -45,14 +46,14 @@ export default function Modal({
       />
       <div
         className={cn(
-          'relative w-full rounded-xl bg-card-bg border border-stroke shadow-2xl',
+          'relative w-full max-h-[90vh] rounded-xl bg-card-bg border border-stroke shadow-2xl flex flex-col',
           sizeClasses[size]
         )}
         role="dialog"
         aria-modal="true"
       >
         {(title || !hideCloseButton) && (
-          <div className="flex items-center justify-between border-b border-stroke px-6 py-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-stroke px-6 py-4">
             <div>
               {title && (
                 <h2 className="text-xl font-semibold text-foreground">
@@ -78,9 +79,9 @@ export default function Modal({
             )}
           </div>
         )}
-        <div className="px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-3 border-t border-stroke px-6 py-4">
+          <div className="flex shrink-0 justify-end gap-3 border-t border-stroke px-6 py-4">
             {footer}
           </div>
         )}

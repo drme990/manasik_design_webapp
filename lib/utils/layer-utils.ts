@@ -180,6 +180,7 @@ export function buildCollageLayer(options: {
       cells,
       gap: 4,
       bgColor: '#000000',
+      containerRadius: 0,
     },
   };
 }

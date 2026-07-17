@@ -49,6 +49,7 @@ export interface ImageLayerCollage {
   cells: ImageLayerCollageCell[];
   gap: number;
   bgColor: string;
+  containerRadius: number;
 }
 
 export interface ImageLayer extends BaseLayer {

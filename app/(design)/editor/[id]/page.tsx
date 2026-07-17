@@ -22,13 +22,11 @@ import {
     LuFlipHorizontal,
     LuFlipVertical,
     LuLayoutGrid,
-    LuArrowLeftRight,
     LuColumns3,
     LuPalette,
     LuDroplet,
     LuBold,
     LuItalic,
-    LuMaximize,
     LuSquare,
     LuPenLine,
     LuCircle,
@@ -40,7 +38,6 @@ import {
     LuAlignCenterVertical,
     LuAlignEndVertical,
     LuALargeSmall,
-    LuLetterText,
 } from 'react-icons/lu';
 import { TbBorderCorners } from "react-icons/tb";
 
@@ -56,6 +53,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
+import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
 import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
@@ -249,6 +247,7 @@ export default function EditorPage() {
     const [renameValue, setRenameValue] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const [isCropOpen, setIsCropOpen] = useState(false);
+    const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     const [activeProp, setActiveProp] = useState<string | null>(null);
@@ -927,29 +926,6 @@ export default function EditorPage() {
         [selectedLayerId, handleLayerChange]
     );
 
-    // Swap the first two collage images
-    const handleCollageSwap = useCallback(
-        (layerId: string) => {
-            const current = projectRef.current;
-            if (!current) return;
-            const layer = current.layers.find(l => l.id === layerId);
-            if (!layer || layer.type !== 'image' || !layer.collage) return;
-            const cells = [...layer.collage.cells];
-            if (cells.length < 2) return;
-            // Rotate: shift all cells by 1 position
-            const first = cells[0];
-            for (let i = 0; i < cells.length - 1; i++) {
-                cells[i] = cells[i + 1];
-            }
-            cells[cells.length - 1] = first;
-            const newUris = cells.map(c => c.uri);
-            handleLayerChange(layerId, {
-                collage: { ...layer.collage, cells, uris: newUris },
-            } as Partial<AnyLayer>);
-        },
-        [handleLayerChange]
-    );
-
     // Change collage layout (only between layouts with the same image count)
     const handleCollageLayoutChange = useCallback(
         (layerId: string, layoutId: string) => {
@@ -1290,6 +1266,13 @@ export default function EditorPage() {
                                         <>
                                             {isCollage ? (
                                                 <>
+                                                    {/* Collage: edit modal */}
+                                                    <PropToggle
+                                                        label={t('toolbars.image.collageEdit')}
+                                                        icon={<LuPencil className="h-5 w-5" />}
+                                                        active={false}
+                                                        onClick={() => setCollageEditOpen(true)}
+                                                    />
                                                     {/* Collage: layout picker */}
                                                     <PropButton
                                                         label={t('toolbars.image.collageLayout')}
@@ -1297,17 +1280,10 @@ export default function EditorPage() {
                                                         active={activeProp === 'image.collageLayout'}
                                                         onClick={() => setActiveProp(activeProp === 'image.collageLayout' ? null : 'image.collageLayout')}
                                                     />
-                                                    {/* Collage: swap images */}
-                                                    <PropToggle
-                                                        label={t('toolbars.image.swapImages')}
-                                                        icon={<LuArrowLeftRight className="h-5 w-5" />}
-                                                        active={false}
-                                                        onClick={() => handleCollageSwap(l.id)}
-                                                    />
                                                     {/* Collage: gap between images */}
                                                     <PropButton
                                                         label={t('toolbars.image.collageGap')}
-                                                        value={l.collage.gap ?? 4}
+                                                        value={l.collage?.gap ?? 4}
                                                         icon={<LuColumns3 className="h-5 w-5" />}
                                                         active={activeProp === 'image.collageGap'}
                                                         onClick={() => setActiveProp(activeProp === 'image.collageGap' ? null : 'image.collageGap')}
@@ -1315,10 +1291,18 @@ export default function EditorPage() {
                                                     {/* Collage: background color */}
                                                     <PropButton
                                                         label={t('toolbars.image.collageBg')}
-                                                        swatch={l.collage.bgColor ?? '#000000'}
+                                                        swatch={l.collage?.bgColor ?? '#000000'}
                                                         icon={<LuPalette className="h-5 w-5" />}
                                                         active={colorPickerProp === 'image.collageBg'}
                                                         onClick={() => setColorPickerProp(colorPickerProp === 'image.collageBg' ? null : 'image.collageBg')}
+                                                    />
+                                                    {/* Collage: container rounded */}
+                                                    <PropButton
+                                                        label={t('toolbars.image.collageRounded')}
+                                                        value={l.collage?.containerRadius ?? 0}
+                                                        icon={<TbBorderCorners className="h-5 w-5" />}
+                                                        active={activeProp === 'image.collageRounded'}
+                                                        onClick={() => setActiveProp(activeProp === 'image.collageRounded' ? null : 'image.collageRounded')}
                                                     />
                                                 </>
                                             ) : (
@@ -1741,6 +1725,23 @@ export default function EditorPage() {
                                     />
                                 );
                             })()}
+                            {/* Image: collage container rounded */}
+                            {activeProp === 'image.collageRounded' && (selectedLayer as ImageLayer).collage && (() => {
+                                const collage = (selectedLayer as ImageLayer).collage!;
+                                return (
+                                    <SliderField
+                                        label={t('toolbars.image.collageRounded')}
+                                        value={collage.containerRadius ?? 0}
+                                        min={0}
+                                        max={200}
+                                        suffix="px"
+                                        onChange={(v) => handleLayerChange(selectedLayer.id, {
+                                            collage: { ...collage, containerRadius: v },
+                                        } as Partial<AnyLayer>)}
+                                        onDragStart={startChangeTransaction}
+                                    />
+                                );
+                            })()}
                             {/* Image: opacity */}
                             {activeProp === 'image.opacity' && (
                                 <SliderField
@@ -1947,7 +1948,7 @@ export default function EditorPage() {
                 </Modal>
 
                 {/* Image crop modal — rendered at page level to avoid panel overflow clipping */}
-                {selectedLayer?.type === 'image' && (
+                {selectedLayer?.type === 'image' && !(selectedLayer as ImageLayer).collage && (
                     <ImageCropModal
                         isOpen={isCropOpen}
                         onClose={() => setIsCropOpen(false)}
@@ -1955,6 +1956,15 @@ export default function EditorPage() {
                         naturalWidth={(selectedLayer as ImageLayer).originalNaturalWidth || (selectedLayer as ImageLayer).naturalWidth}
                         naturalHeight={(selectedLayer as ImageLayer).originalNaturalHeight || (selectedLayer as ImageLayer).naturalHeight}
                         onApply={handleCropApply}
+                    />
+                )}
+                {/* Collage edit modal */}
+                {selectedLayer?.type === 'image' && (selectedLayer as ImageLayer).collage && (
+                    <CollageEditModal
+                        isOpen={collageEditOpen}
+                        onClose={() => setCollageEditOpen(false)}
+                        layer={selectedLayer as ImageLayer}
+                        onUpdate={(updates) => handleLayerChange(selectedLayer.id, updates)}
                     />
                 )}
             </div>
