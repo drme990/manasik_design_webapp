@@ -150,22 +150,22 @@ export default function Drawer({
         )}
 
         {(title || !hideCloseButton || onDone) && (
-          <div className="flex items-center justify-between gap-3 border-b border-stroke px-4 py-3">
+          <div className="flex items-center gap-3 border-b border-stroke px-4 py-3">
             {/* Close button — left */}
             {!hideCloseButton && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={onClose}
-                className="rounded-full p-2"
+                className="rounded-full p-2 hover:bg-error/10"
                 aria-label={t('close')}
               >
-                <LuX className="h-5 w-5" />
+                <LuX className="h-5 w-5 text-error" />
               </Button>
             )}
 
-            {/* Title — center */}
-            <div className="flex-1 text-center">
+            {/* Title — left-aligned when no Done, centered when Done present */}
+            <div className={`flex-1 ${onDone ? 'text-center' : 'text-left'}`}>
               {title && (
                 <h2 className="text-base font-semibold text-foreground">
                   {title}
@@ -189,8 +189,6 @@ export default function Drawer({
                 {doneLabel || t('done')}
               </Button>
             )}
-            {/* Spacer to balance layout when no done button but close exists */}
-            {!onDone && hideCloseButton && <div className="w-9" />}
           </div>
         )}
 

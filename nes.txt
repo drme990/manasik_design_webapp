@@ -1,2 +1,0 @@
-nice now want to enhance the canvas to never let any element get more than 90% of it our it 
-shapes and images and any elemnent when more than 90% of the shape is out it need to get back and the canvas should return some form it isnde our canva 

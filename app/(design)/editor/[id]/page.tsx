@@ -63,6 +63,7 @@ import {
     cloneLayer,
 } from '@/lib/utils/layer-utils';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
+import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -199,6 +200,7 @@ export default function EditorPage() {
     const uiT = useTranslations('ui');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const bgFileInputRef = useRef<HTMLInputElement>(null);
+    const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
     const [project, setProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(true);
@@ -798,15 +800,38 @@ export default function EditorPage() {
                 const uri = event.target?.result as string;
                 const img = new Image();
                 img.onload = () => {
+                    // Set image box to match project canvas aspect ratio
+                    const projectRatio = project.canvasWidth / project.canvasHeight;
+                    const boxSize = Math.min(project.canvasWidth, project.canvasHeight) * 0.6;
+                    let boxW: number, boxH: number;
+                    if (projectRatio >= 1) {
+                        boxW = boxSize;
+                        boxH = boxSize / projectRatio;
+                    } else {
+                        boxH = boxSize;
+                        boxW = boxSize * projectRatio;
+                    }
+
                     const newLayer = buildImageLayer({
                         uri,
                         naturalWidth: img.naturalWidth,
                         naturalHeight: img.naturalHeight,
-                        x: project.canvasWidth * 0.1,
-                        y: project.canvasHeight * 0.1,
+                        x: (project.canvasWidth - boxW) / 2,
+                        y: (project.canvasHeight - boxH) / 2,
                         canvasWidth: project.canvasWidth,
                         canvasHeight: project.canvasHeight,
                     });
+                    // Override box dimensions to match project aspect
+                    newLayer.width = boxW;
+                    newLayer.height = boxH;
+                    newLayer.maskWidth = boxW;
+                    newLayer.maskHeight = boxH;
+                    // Recalculate imageScale to cover the box
+                    newLayer.imageScale = Math.max(
+                        boxW / img.naturalWidth,
+                        boxH / img.naturalHeight
+                    ) * 1.1;
+
                     newLayer.zIndex = nextZIndex(project.layers);
                     updateProjectState((prev) => ({
                         ...prev,
@@ -821,6 +846,29 @@ export default function EditorPage() {
             e.target.value = '';
         },
         [project, updateProjectState]
+    );
+
+    const handleReplaceImage = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (!file || !selectedLayerId) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const uri = event.target?.result as string;
+                const img = new Image();
+                img.onload = () => {
+                    handleLayerChange(selectedLayerId, {
+                        uri,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                    } as Partial<AnyLayer>);
+                };
+                img.src = uri;
+            };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+        },
+        [selectedLayerId, handleLayerChange]
     );
 
     if (loading) {
@@ -997,7 +1045,7 @@ export default function EditorPage() {
                                 {project.backgroundUri && (
                                     <PropToggle
                                         label={t('removeBgImage')}
-                                        icon={<LuTrash2 className="h-5 w-5" />}
+                                        icon={<LuTrash2 className="h-5 w-5 text-error" />}
                                         active={false}
                                         onClick={handleRemoveBackgroundImage}
                                     />
@@ -1032,6 +1080,13 @@ export default function EditorPage() {
                         className="hidden"
                         onChange={handleBackgroundImageChange}
                     />
+                    <input
+                        ref={replaceImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleReplaceImage}
+                    />
 
                     {/* Properties bar — absolute bottom, mobile-style icon buttons */}
                     {selectedLayer && (
@@ -1046,7 +1101,7 @@ export default function EditorPage() {
                                 />
                                 <PropToggle
                                     label={t('delete')}
-                                    icon={<LuTrash2 className="h-5 w-5" />}
+                                    icon={<LuTrash2 className="h-5 w-5 text-error" />}
                                     active={false}
                                     onClick={() => handleDeleteLayer(selectedLayer.id)}
                                 />
@@ -1139,17 +1194,22 @@ export default function EditorPage() {
                                     return (
                                         <>
                                             <PropToggle
+                                                label={t('toolbars.image.replace')}
+                                                icon={<LuImage className="h-5 w-5" />}
+                                                active={false}
+                                                onClick={() => replaceImageInputRef.current?.click()}
+                                            />
+                                            <PropButton
+                                                label={t('toolbars.image.aspectRatio')}
+                                                icon={<LuCrop className="h-5 w-5" />}
+                                                active={activeProp === 'image.aspectRatio'}
+                                                onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
+                                            />
+                                            <PropToggle
                                                 label={t('toolbars.image.crop')}
                                                 icon={<LuCrop className="h-5 w-5" />}
                                                 active={false}
                                                 onClick={() => setIsCropOpen(true)}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.image.scale')}
-                                                value={l.imageScale}
-                                                icon={<LuMaximize className="h-5 w-5" />}
-                                                active={activeProp === 'image.imageScale'}
-                                                onClick={() => setActiveProp(activeProp === 'image.imageScale' ? null : 'image.imageScale')}
                                             />
                                             <PropButton
                                                 label={t('toolbars.image.opacity')}
@@ -1421,17 +1481,66 @@ export default function EditorPage() {
                                     onDragStart={startChangeTransaction}
                                 />
                             )}
-                            {/* Image: scale */}
-                            {activeProp === 'image.imageScale' && (
-                                <SliderField
-                                    label={t('toolbars.image.scale')}
-                                    value={(selectedLayer as ImageLayer).imageScale}
-                                    min={0.1}
-                                    max={3}
-                                    step={0.05}
-                                    onChange={(v) => handleLayerChange(selectedLayer.id, { imageScale: v } as Partial<AnyLayer>)}
-                                    onDragStart={startChangeTransaction}
-                                />
+                            {/* Image: aspect ratio */}
+                            {activeProp === 'image.aspectRatio' && (
+                                <div className="space-y-3">
+                                    <label className="block text-sm font-medium text-foreground">
+                                        {t('toolbars.image.aspectRatio')}
+                                    </label>
+                                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                                        {ASPECT_RATIOS.map((ratio, idx) => {
+                                            const currentRatio = (selectedLayer as ImageLayer).width / (selectedLayer as ImageLayer).height;
+                                            const isSelected = Math.abs(currentRatio - ratio.ratio) < 0.01;
+                                            const previewColors = [
+                                                'bg-brand-primary/30', 'bg-blue-500/30', 'bg-green-500/30',
+                                                'bg-purple-500/30', 'bg-orange-500/30', 'bg-pink-500/30',
+                                                'bg-teal-500/30', 'bg-indigo-500/30', 'bg-amber-500/30',
+                                            ];
+                                            const previewColor = isSelected ? 'bg-white/40' : previewColors[idx % previewColors.length];
+                                            return (
+                                                <button
+                                                    key={ratio.label}
+                                                    onClick={() => {
+                                                        const layer = selectedLayer as ImageLayer;
+                                                        const currentW = layer.width;
+                                                        const currentH = layer.height;
+                                                        // Use the larger dimension as base so the box doesn't shrink
+                                                        const base = Math.max(currentW, currentH);
+                                                        let newW: number, newH: number;
+                                                        if (ratio.ratio >= 1) {
+                                                            newW = base;
+                                                            newH = base / ratio.ratio;
+                                                        } else {
+                                                            newH = base;
+                                                            newW = base * ratio.ratio;
+                                                        }
+                                                        // Keep center fixed
+                                                        const newX = layer.x + (currentW - newW) / 2;
+                                                        const newY = layer.y + (currentH - newH) / 2;
+                                                        handleLayerChange(layer.id, {
+                                                            width: newW, height: newH,
+                                                            maskWidth: newW, maskHeight: newH,
+                                                            x: newX, y: newY,
+                                                        } as Partial<AnyLayer>);
+                                                    }}
+                                                    className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 transition-colors ${isSelected
+                                                        ? 'border-brand-primary bg-brand-primary text-white'
+                                                        : 'border-stroke bg-card-bg text-foreground hover:bg-muted'
+                                                        }`}
+                                                >
+                                                    <div
+                                                        className={`rounded-md ${previewColor}`}
+                                                        style={{
+                                                            width: ratio.ratio >= 1 ? '36px' : `${36 * ratio.ratio}px`,
+                                                            height: ratio.ratio >= 1 ? `${36 / ratio.ratio}px` : '36px',
+                                                        }}
+                                                    />
+                                                    <span className="text-[11px] font-medium">{ratio.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
                             )}
                             {/* Image: opacity */}
                             {activeProp === 'image.opacity' && (

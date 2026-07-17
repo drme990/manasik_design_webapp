@@ -105,6 +105,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     startHeight: number;
     startFontSize?: number;
     startStrokeWidth?: number;
+    startImageScale?: number;
     mode: 'proportional' | 'free';
     direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
   } | null>(null);
@@ -163,6 +164,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         startHeight: layer.height,
         startFontSize: layer.type === 'text' ? layer.fontSize : layer.type === 'dynamic_field' ? layer.fontSize : undefined,
         startStrokeWidth: layer.type === 'shape' ? layer.strokeWidth : undefined,
+        startImageScale: layer.type === 'image' ? layer.imageScale : undefined,
         mode,
         direction,
       });
@@ -304,7 +306,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         height: rawHeight,
       };
 
-      // Proportional resize scales content too (font size, stroke width)
+      // Proportional resize scales content too (font size, stroke width, image scale)
       if (resizeState.mode === 'proportional') {
         const scaleFactor = rawWidth / resizeState.startWidth;
         if (resizeState.startFontSize !== undefined) {
@@ -318,6 +320,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
         if (resizeState.startStrokeWidth !== undefined) {
           (updates as Record<string, unknown>).strokeWidth = Math.max(0, resizeState.startStrokeWidth * scaleFactor);
+        }
+        // For images, scale the image content proportionally with the box
+        if (resizeState.startImageScale !== undefined) {
+          (updates as Record<string, unknown>).imageScale = Math.max(0.1, resizeState.startImageScale * scaleFactor);
         }
       }
 
