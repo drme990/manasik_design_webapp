@@ -31,6 +31,7 @@ import {
     LuArrowLeftRight,
     LuArrowRightLeft,
     LuLanguages,
+    LuPipette,
 } from 'react-icons/lu';
 import { TbBorderCorners } from 'react-icons/tb';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
@@ -120,6 +121,7 @@ export interface PropertiesBarProps {
     replaceImageInputRef: RefObject<HTMLInputElement | null>;
     onDuplicateLayer: (id: string) => void;
     onDeleteLayer: (id: string) => void;
+    onEyeDropper?: () => void;
 }
 
 export default function PropertiesBar({
@@ -139,6 +141,7 @@ export default function PropertiesBar({
     replaceImageInputRef,
     onDuplicateLayer,
     onDeleteLayer,
+    onEyeDropper,
 }: PropertiesBarProps) {
     const t = useTranslations('editor');
 
@@ -184,6 +187,14 @@ export default function PropertiesBar({
                                 active={colorPickerProp === 'text.color'}
                                 onClick={() => setColorPickerProp(colorPickerProp === 'text.color' ? null : 'text.color')}
                             />
+                            {onEyeDropper && (
+                                <PropToggle
+                                    label={t('toolbars.text.eyeDropper')}
+                                    icon={<LuPipette className="h-5 w-5" />}
+                                    active={false}
+                                    onClick={onEyeDropper}
+                                />
+                            )}
                             <PropToggle
                                 label={t('toolbars.text.bold')}
                                 icon={<LuBold className="h-5 w-5" />}

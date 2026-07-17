@@ -945,6 +945,21 @@ export default function EditorPage() {
         }
     };
 
+    // Direct eye dropper for text color — no color picker drawer needed
+    const handleTextEyeDropper = async () => {
+        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+        if (!EyeDropperAPI || !selectedLayerId) return;
+
+        try {
+            const eyeDropper = new EyeDropperAPI();
+            const result = await eyeDropper.open();
+            const pickedColor = result.sRGBHex;
+            handleLayerChange(selectedLayerId, { color: pickedColor } as Partial<AnyLayer>);
+        } catch {
+            // user cancelled
+        }
+    };
+
     return (
         <DndProvider backend={HTML5Backend}>
             <div className="relative flex h-svh flex-col">
@@ -1166,6 +1181,7 @@ export default function EditorPage() {
                             replaceImageInputRef={replaceImageInputRef}
                             onDuplicateLayer={handleDuplicateLayer}
                             onDeleteLayer={handleDeleteLayer}
+                            onEyeDropper={handleTextEyeDropper}
                         />
                     )}
                 </div>
