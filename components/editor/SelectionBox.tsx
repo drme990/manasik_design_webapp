@@ -32,12 +32,12 @@ export interface SelectionBoxProps {
 }
 
 // Visual sizes (px on screen) — bigger on mobile, smaller on large screens
-const BTN_SIZE_MOBILE = 64;
+const BTN_SIZE_MOBILE = 32;
 const BTN_SIZE_DESKTOP = 44;
-const ICON_SIZE_MOBILE = 32;
+const ICON_SIZE_MOBILE = 16;
 const ICON_SIZE_DESKTOP = 22;
-const BTN_OFFSET = 64; // base offset (mobile)
-const BTN_OFFSET_LG = 72; // base offset (mobile)
+const BTN_OFFSET = 32; // base offset (mobile)
+const BTN_OFFSET_LG = 36; // base offset (mobile)
 
 const ALIGN_ICONS = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
 
