@@ -56,6 +56,5 @@ export const reservedCollections: readonly string[] = [
  * Add any new collection name here when it is introduced.
  */
 export const designAppCollections: string[] = [
-    // Currently no design-app-specific collections are in use.
-    // The only shared collection used is 'users_admin_panel' (reserved above).
+    'design_saved_colors',
 ];

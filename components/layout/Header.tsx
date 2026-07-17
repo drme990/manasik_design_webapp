@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { cn } from '@/lib/utils/cn';
-import ThemeToggle from '@/components/shared/ThemeToggle';
+import { LuSettings } from 'react-icons/lu';
 
 export interface HeaderProps {
   className?: string;
@@ -33,7 +33,14 @@ export default function Header({ className }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <ThemeToggle />
+          <Link
+            href="/settings"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+            aria-label={t('settings')}
+            title={t('settings')}
+          >
+            <LuSettings className="h-5 w-5" />
+          </Link>
         </div>
       </div>
     </header>

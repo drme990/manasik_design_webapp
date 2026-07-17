@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { LuPipette, LuPlus, LuX } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 import { rgbToHex, hsvToRgb, rgbToHsv, hexToRgb } from '@/lib/utils/color';
 import { useTranslations } from '@/lib/i18n/strings';
@@ -13,6 +14,14 @@ export interface ColorPickerDrawerProps {
   onChange: (value: string) => void;
   title?: string;
   onDragStart?: () => void;
+  /** Called when the eye dropper is clicked. Parent should close drawer, pick color, then reopen. */
+  onEyeDropper?: () => void;
+  /** Saved colors from DB (session-cached by parent). */
+  savedColors?: string[];
+  /** Add the current color to saved colors. */
+  onSaveColor?: (color: string) => void;
+  /** Remove a color from saved colors. */
+  onRemoveSavedColor?: (color: string) => void;
 }
 
 const RECENT_KEY = 'color-picker-recent';
@@ -44,6 +53,10 @@ export default function ColorPickerDrawer({
   onChange,
   title,
   onDragStart,
+  onEyeDropper,
+  savedColors = [],
+  onSaveColor,
+  onRemoveSavedColor,
 }: ColorPickerDrawerProps) {
   const t = useTranslations('editor.colorPicker');
   const [recent, setRecent] = useState<string[]>([]);
@@ -56,6 +69,7 @@ export default function ColorPickerDrawer({
   const [bInput, setBInput] = useState('0');
 
   const fieldRef = useRef<HTMLDivElement>(null);
+  const hueFieldRef = useRef<HTMLDivElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -113,6 +127,9 @@ export default function ColorPickerDrawer({
     if (indicatorRef.current) {
       indicatorRef.current.style.left = `${s * 100}%`;
       indicatorRef.current.style.top = `${(1 - v) * 100}%`;
+      // Update indicator background to match the actual current color
+      const rgb = hsvToRgb(hueRef.current / 360, s, v);
+      indicatorRef.current.style.backgroundColor = rgbToHex(rgb.r, rgb.g, rgb.b);
     }
   }, []);
 
@@ -196,6 +213,15 @@ export default function ColorPickerDrawer({
     const rgb = hsvToRgb(h / 360, satRef.current, valRef.current);
     const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
     syncInputsFromHex(hex);
+    // Direct DOM updates for zero-lag during slider drag
+    const hueRgb = hsvToRgb(h / 360, 1, 1);
+    const hueHex = rgbToHex(hueRgb.r, hueRgb.g, hueRgb.b);
+    if (hueFieldRef.current) {
+      hueFieldRef.current.style.backgroundColor = hueHex;
+    }
+    if (indicatorRef.current) {
+      indicatorRef.current.style.backgroundColor = hex;
+    }
     onChange(hex);
   };
 
@@ -244,15 +270,40 @@ export default function ColorPickerDrawer({
     onClose();
   };
 
+  const handleEyeDropper = () => {
+    addRecent(value.toUpperCase());
+    onEyeDropper?.();
+  };
+
   // Current hue as a solid color
   const hueColor = useMemo(() => {
     const rgb = hsvToRgb(hue / 360, 1, 1);
     return rgbToHex(rgb.r, rgb.g, rgb.b);
   }, [hue]);
 
+  // Current color computed from HSV state — used for indicator background
+  // so it always matches the indicator position, not the lagging value prop
+  const currentColor = useMemo(() => {
+    const rgb = hsvToRgb(hue / 360, sat, val);
+    return rgbToHex(rgb.r, rgb.g, rgb.b);
+  }, [hue, sat, val]);
+
   // Indicator position (only used for initial render / non-drag updates)
   const indicatorX = `${sat * 100}%`;
   const indicatorY = `${(1 - val) * 100}%`;
+
+  // Header actions: eye dropper only
+  const headerActions = onEyeDropper ? (
+    <button
+      type="button"
+      onClick={handleEyeDropper}
+      className="rounded-full p-2 text-foreground transition-colors hover:bg-muted"
+      aria-label={t('eyeDropper')}
+      title={t('eyeDropper')}
+    >
+      <LuPipette className="h-5 w-5" />
+    </button>
+  ) : undefined;
 
   return (
     <Drawer
@@ -260,11 +311,12 @@ export default function ColorPickerDrawer({
       onClose={handleClose}
       title={title || t('pickColor')}
       height="full"
+      headerActions={headerActions}
     >
       <div className="space-y-5">
         {/* 1 — Color Field (saturation × brightness) */}
         <div
-          ref={fieldRef}
+          ref={(el) => { fieldRef.current = el; hueFieldRef.current = el; }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -281,16 +333,18 @@ export default function ColorPickerDrawer({
             className="absolute inset-0"
             style={{ background: 'linear-gradient(to top, #000000, transparent)' }}
           />
-          {/* Indicator — positioned via ref during drag, via style otherwise */}
+          {/* Indicator — positioned via ref during drag, via style otherwise.
+              Background uses currentColor (computed from HSV state) so it
+              always matches the position, not the lagging value prop. */}
           <div
             ref={indicatorRef}
             className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white shadow-lg"
-            style={{ left: indicatorX, top: indicatorY, backgroundColor: value }}
+            style={{ left: indicatorX, top: indicatorY, backgroundColor: currentColor }}
           />
         </div>
 
         {/* 2 — Hue slider (red → red rainbow) with custom thumb */}
-        <div className="relative h-6">
+        <div className="relative h-6 touch-none" dir="ltr">
           <div
             className="absolute inset-0 rounded-full"
             style={{
@@ -305,7 +359,7 @@ export default function ColorPickerDrawer({
             value={hue}
             onChange={(e) => handleHueChange(Number(e.target.value))}
             onPointerDown={() => onDragStart?.()}
-            className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent focus:outline-none [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-transparent [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-4 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-transparent [&::-moz-range-thumb]:shadow-lg"
+            className="absolute inset-0 h-full w-full cursor-pointer touch-none appearance-none bg-transparent focus:outline-none [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-4 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-lg"
           />
         </div>
 
@@ -363,10 +417,59 @@ export default function ColorPickerDrawer({
           </div>
         </div>
 
-        {/* 5 — Recent colors (circles) */}
+        {/* 5 — Saved colors (circles) — from DB, session-cached */}
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <label className="block text-xs font-medium text-secondary">{t('savedColors')}</label>
+            {onSaveColor && (
+              <button
+                type="button"
+                onClick={() => onSaveColor(value.toUpperCase())}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-primary transition-colors hover:bg-brand-primary/10"
+                aria-label={t('saveCurrentColor')}
+                title={t('saveCurrentColor')}
+              >
+                <LuPlus className="h-3.5 w-3.5" />
+                {t('saveCurrentColor')}
+              </button>
+            )}
+          </div>
+          {savedColors.length > 0 ? (
+            <div className="flex flex-wrap gap-2.5">
+              {savedColors.map((color, index) => (
+                <div key={`${color}-${index}`} className="group relative">
+                  <button
+                    onClick={() => handleRecentSelect(color)}
+                    className={cn(
+                      'h-9 w-9 rounded-full border-2 transition-transform active:scale-90',
+                      value.toLowerCase() === color.toLowerCase()
+                        ? 'border-foreground'
+                        : 'border-stroke',
+                    )}
+                    style={{ backgroundColor: color }}
+                    aria-label={color}
+                  />
+                  {onRemoveSavedColor && (
+                    <button
+                      onClick={() => onRemoveSavedColor(color)}
+                      className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label={t('removeColor')}
+                    >
+                      <LuX className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-secondary">{t('savedColorsEmpty')}</p>
+          )}
+        </div>
+
+        {/* 6 — Recent colors (circles) */}
         {recent.length > 0 && (
           <div>
-            <label className="mb-2 block text-xs font-medium text-secondary">الأخيرة</label>
+            <label className="mb-2 block text-xs font-medium text-secondary">{t('recent')}</label>
             <div className="flex flex-wrap gap-2.5">
               {recent.map((color, index) => (
                 <button

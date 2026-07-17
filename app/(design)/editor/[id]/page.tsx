@@ -49,6 +49,7 @@ import {
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
+import { useSavedColors } from '@/lib/hooks/useSavedColors';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -171,6 +172,8 @@ export default function EditorPage() {
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
     const [freeDrag, setFreeDrag] = useState(false);
+    const eyeDropperReopenRef = useRef<string | null>(null);
+    const { savedColors, persistColor: addSavedColor, removeColor: removeSavedColor } = useSavedColors();
 
     // Close drawers when selection changes
     const skipDrawerResetRef = useRef(false);
@@ -888,6 +891,47 @@ export default function EditorPage() {
 
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
 
+    // Eye dropper: close drawer → pick color from screen → apply → reopen drawer
+    const handleEyeDropper = async () => {
+        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+        if (!EyeDropperAPI) return;
+
+        eyeDropperReopenRef.current = colorPickerProp;
+        setColorPickerProp(null);
+
+        try {
+            const eyeDropper = new EyeDropperAPI();
+            const result = await eyeDropper.open();
+            const pickedColor = result.sRGBHex;
+
+            const prop = eyeDropperReopenRef.current;
+            if (prop) {
+                if (prop === 'canvas.bg') {
+                    handleBackgroundColorChange(pickedColor);
+                } else if (selectedLayer) {
+                    if (prop === 'image.collageBg') {
+                        const imgLayer = selectedLayer as ImageLayer;
+                        if (imgLayer.collage) {
+                            handleLayerChange(selectedLayer.id, {
+                                collage: { ...imgLayer.collage, bgColor: pickedColor },
+                            } as Partial<AnyLayer>);
+                        }
+                    } else {
+                        handleLayerChange(selectedLayer.id, getColorPickerUpdate(prop, pickedColor));
+                    }
+                }
+            }
+
+            setColorPickerProp(eyeDropperReopenRef.current);
+        } catch {
+            if (eyeDropperReopenRef.current) {
+                setColorPickerProp(eyeDropperReopenRef.current);
+            }
+        } finally {
+            eyeDropperReopenRef.current = null;
+        }
+    };
+
     return (
         <DndProvider backend={HTML5Backend}>
             <div className="relative flex h-svh flex-col">
@@ -1480,11 +1524,59 @@ export default function EditorPage() {
                     )}
                 </Drawer>
 
+                {/* Eye dropper: close drawer → pick color from screen → apply → reopen drawer */}
+                {(() => {
+                    const handleEyeDropper = async () => {
+                        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+                        if (!EyeDropperAPI) return;
+
+                        eyeDropperReopenRef.current = colorPickerProp;
+                        setColorPickerProp(null);
+
+                        try {
+                            const eyeDropper = new EyeDropperAPI();
+                            const result = await eyeDropper.open();
+                            const pickedColor = result.sRGBHex;
+
+                            const prop = eyeDropperReopenRef.current;
+                            if (prop) {
+                                if (prop === 'canvas.bg') {
+                                    handleBackgroundColorChange(pickedColor);
+                                } else if (selectedLayer) {
+                                    if (prop === 'image.collageBg') {
+                                        const imgLayer = selectedLayer as ImageLayer;
+                                        if (imgLayer.collage) {
+                                            handleLayerChange(selectedLayer.id, {
+                                                collage: { ...imgLayer.collage, bgColor: pickedColor },
+                                            } as Partial<AnyLayer>);
+                                        }
+                                    } else {
+                                        handleLayerChange(selectedLayer.id, getColorPickerUpdate(prop, pickedColor));
+                                    }
+                                }
+                            }
+
+                            setColorPickerProp(eyeDropperReopenRef.current);
+                        } catch {
+                            if (eyeDropperReopenRef.current) {
+                                setColorPickerProp(eyeDropperReopenRef.current);
+                            }
+                        } finally {
+                            eyeDropperReopenRef.current = null;
+                        }
+                    };
+                    return null;
+                })()}
+
                 {/* Color picker drawer — handles all color properties (layers + canvas bg) */}
                 <ColorPickerDrawer
                     isOpen={!!colorPickerProp}
                     onClose={() => setColorPickerProp(null)}
                     onDragStart={startChangeTransaction}
+                    onEyeDropper={handleEyeDropper}
+                    savedColors={savedColors}
+                    onSaveColor={addSavedColor}
+                    onRemoveSavedColor={removeSavedColor}
                     title={colorPickerProp === 'canvas.bg' ? t('canvasBackground') : colorPickerProp ? t(`toolbars.${COLOR_PROP_TYPE_PREFIX[colorPickerProp]}.${COLOR_PROP_LABEL_KEYS[colorPickerProp]}`) : ''}
                     value={(() => {
                         if (!colorPickerProp) return '#000000';

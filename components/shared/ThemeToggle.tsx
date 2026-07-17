@@ -24,7 +24,10 @@ export default function ThemeToggle({ className }: ThemeToggleProps) {
                 id="theme-toggle"
                 value={theme ?? 'manasik'}
                 onChange={(e) => setTheme(e.target.value)}
-                className="appearance-none rounded-lg border border-stroke bg-background px-3 py-1.5 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                className={cn(
+                    'appearance-none rounded-lg border border-stroke bg-background px-3 py-2 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary',
+                    className
+                )}
             >
                 {THEMES.map((themeId) => (
                     <option key={themeId} value={themeId}>

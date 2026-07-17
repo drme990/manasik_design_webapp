@@ -113,7 +113,8 @@
     "openMenu": "فتح القائمة",
     "toggleSidebar": "إظهار/إخفاء الشريط الجانبي",
     "notifications": "الإشعارات",
-    "userAvatar": "المستخدم"
+    "userAvatar": "المستخدم",
+    "settings": "الإعدادات"
   },
   "footer": {
     "tagline": "تصميمات مناسك — تطبيق التصميم للمناسبات",
@@ -121,7 +122,25 @@
   },
   "sidebar": {
     "storage": "مساحة التخزين",
-    "used": "مستخدم"
+    "used": "مستخدم",
+    "settings": "الإعدادات"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "subtitle": "تخصيص التطبيق",
+    "themeSection": "المظهر",
+    "themeSectionDesc": "اختر الثيم المناسب لك",
+    "themes": {
+      "light": "فاتح",
+      "black": "داكن",
+      "manasik": "مناسك",
+      "ghadaq": "غدق",
+      "colors": "ألوان"
+    },
+    "savedColorsSection": "الألوان المحفوظة",
+    "savedColorsSectionDesc": "الألوان التي تستخدمها بكثرة",
+    "addColor": "إضافة لون",
+    "saveColors": "حفظ الألوان"
   },
   "sync": {
     "syncing": "جاري المزامنة...",
@@ -347,7 +366,13 @@
       "hue": "تدرج اللون",
       "saturation": "التشبع",
       "value": "الإضاءة",
-      "pickColor": "اختيار اللون"
+      "pickColor": "اختيار اللون",
+      "eyeDropper": "التقاط لون من الشاشة",
+      "savedColors": "الألوان المحفوظة",
+      "savedColorsEmpty": "لا توجد ألوان محفوظة بعد",
+      "saveCurrentColor": "حفظ اللون الحالي",
+      "removeColor": "إزالة اللون",
+      "recent": "الأخيرة"
     }
   },
   "common": {

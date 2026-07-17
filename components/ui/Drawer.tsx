@@ -21,6 +21,8 @@ export interface DrawerProps {
   /** Optional "Done" button shown in the header (top-right). */
   onDone?: () => void;
   doneLabel?: string;
+  /** Optional custom actions rendered in the header (right side, before Done). */
+  headerActions?: ReactNode;
 }
 
 const HEIGHT_CLASSES = {
@@ -66,6 +68,7 @@ export default function Drawer({
   hideCloseButton = false,
   onDone,
   doneLabel,
+  headerActions,
 }: DrawerProps) {
   const t = useTranslations('ui');
 
@@ -149,7 +152,7 @@ export default function Drawer({
           </div>
         )}
 
-        {(title || !hideCloseButton || onDone) && (
+        {(title || !hideCloseButton || onDone || headerActions) && (
           <div className="flex items-center gap-3 border-b border-stroke px-4 py-3">
             {/* Close button — left */}
             {!hideCloseButton && (
@@ -164,8 +167,8 @@ export default function Drawer({
               </Button>
             )}
 
-            {/* Title — left-aligned when no Done, centered when Done present */}
-            <div className={`flex-1 ${onDone ? 'text-center' : 'text-start'}`}>
+            {/* Title — left-aligned when no actions, centered when actions present */}
+            <div className={`flex-1 ${(onDone || headerActions) ? 'text-center' : 'text-start'}`}>
               {title && (
                 <h2 className="text-base font-semibold text-foreground">
                   {title}
@@ -177,6 +180,13 @@ export default function Drawer({
                 </p>
               )}
             </div>
+
+            {/* Custom header actions — right side, before Done */}
+            {headerActions && (
+              <div className="flex items-center gap-1">
+                {headerActions}
+              </div>
+            )}
 
             {/* Done button — right */}
             {onDone && (
