@@ -372,19 +372,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       onPointerCancel={handlePointerEnd}
       onClick={() => onSelectLayer(null)}
     >
-      {showGrid && (
-        <div
-          className="pointer-events-none absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `
-              linear-gradient(var(--canvas-grid) 1px, transparent 1px),
-              linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px)
-            `,
-            backgroundSize: '20px 20px',
-          }}
-        />
-      )}
-
       {sortedLayers.map((layer) => (
         <LayerRenderer
           key={layer.id}
