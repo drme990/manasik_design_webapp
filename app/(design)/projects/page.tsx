@@ -99,11 +99,11 @@ export default function ProjectsPage() {
         <section className="mb-10">
           <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentDesigns')}</h2>
           {loading ? (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="flex flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg"
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg sm:w-56"
                 >
                   <div className="relative aspect-4/3 w-full overflow-hidden">
                     <div className="h-full w-full animate-pulse bg-muted" />
@@ -126,11 +126,11 @@ export default function ProjectsPage() {
               description={t('emptyDescription')}
             />
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
               {projects.map((project) => (
                 <div
                   key={project.id}
-                  className="group flex flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg transition-colors hover:border-brand-primary"
+                  className="group flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg transition-colors hover:border-brand-primary sm:w-56"
                 >
                   <Link href={`/editor/${project.id}`} className="block shrink-0">
                     <div className="relative aspect-4/3 w-full overflow-hidden">
@@ -143,9 +143,7 @@ export default function ProjectsPage() {
                       </div>
                     </div>
                   </Link>
-
-                  {/* Action buttons — icons only */}
-                  <div className="flex w-full items-center justify-strt gap-1 p-2">
+                  <div className="flex w-full items-center gap-1 p-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -209,7 +207,7 @@ export default function ProjectsPage() {
             </Link>
           </div>
         </section>
-      </div>
+      </div >
 
       <Modal
         isOpen={!!renameProjectId}
@@ -322,6 +320,6 @@ export default function ProjectsPage() {
         </div>
       </Drawer>
 
-    </main>
+    </main >
   );
 }

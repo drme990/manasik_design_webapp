@@ -146,7 +146,7 @@ export default function PropertiesBar({
     const t = useTranslations('editor');
 
     return (
-        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg" dir='ltr'>
             <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
 
                 {/* Text layer */}

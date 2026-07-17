@@ -6,7 +6,7 @@ import { ARABIC_SAFE_FONTS } from '../constants/arabic-fonts';
 const DEFAULT_FONT_SIZE = 24;
 const DEFAULT_COLOR = '#000000';
 const DEFAULT_BORDER_COLOR = '#000000';
-const DEFAULT_FILL_COLOR = '#ffffff';
+const DEFAULT_FILL_COLOR = '#0A5C36';
 const DEFAULT_STROKE_COLOR = '#000000';
 
 export function buildTextLayer(options: {

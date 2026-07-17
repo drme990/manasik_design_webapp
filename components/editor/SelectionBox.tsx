@@ -1,6 +1,6 @@
 'use client';
 
-import { cn } from '@/lib/utils/cn';
+import { useState, useEffect } from 'react';
 import {
   LuCopy,
   LuTrash2,
@@ -19,6 +19,7 @@ export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export interface SelectionBoxProps {
   layer?: AnyLayer;
+  scale?: number;
   onDuplicate?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
   onResizeStart?: (e: React.PointerEvent, direction: ResizeDirection, mode?: 'free' | 'proportional') => void;
@@ -30,15 +31,19 @@ export interface SelectionBoxProps {
   onWidthDragStart?: (e: React.PointerEvent) => void;
 }
 
-const ICON_BTN =
-  'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
-const DELETE_BTN =
-  'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
+// Visual sizes (px on screen) — bigger on mobile, smaller on large screens
+const BTN_SIZE_MOBILE = 64;
+const BTN_SIZE_DESKTOP = 44;
+const ICON_SIZE_MOBILE = 32;
+const ICON_SIZE_DESKTOP = 22;
+const BTN_OFFSET = 64; // base offset (mobile)
+const BTN_OFFSET_LG = 72; // base offset (mobile)
 
 const ALIGN_ICONS = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
 
 export default function SelectionBox({
   layer,
+  scale = 1,
   onDuplicate,
   onDelete,
   onResizeStart,
@@ -49,7 +54,27 @@ export default function SelectionBox({
   onHeightDragStart,
   onWidthDragStart,
 }: SelectionBoxProps) {
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   if (!layer) return null;
+
+  // Target visual size depends on screen — bigger on mobile, smaller on desktop
+  const targetBtnSize = isDesktop ? BTN_SIZE_DESKTOP : BTN_SIZE_MOBILE;
+  const targetIconSize = isDesktop ? ICON_SIZE_DESKTOP : ICON_SIZE_MOBILE;
+
+  // Counter-scale so icons stay at the target visual size regardless of canvas zoom
+  const s = 1 / scale;
+  const size = targetBtnSize * s;
+  const iconSize = targetIconSize * s;
+  const offset = (isDesktop ? BTN_SIZE_DESKTOP : BTN_OFFSET) * s;
+  const offsetLg = (isDesktop ? BTN_SIZE_DESKTOP + 8 : BTN_OFFSET_LG) * s;
 
   const isText = layer.type === 'text';
   const isRectangle = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle';
@@ -57,9 +82,18 @@ export default function SelectionBox({
 
   // Current align + next in cycle
   const currentAlign = textLayer.align;
-  const currentVAlign = textLayer.verticalAlign;
   const nextAlign = currentAlign === 'right' ? 'center' : currentAlign === 'center' ? 'left' : 'right';
   const AlignIcon = ALIGN_ICONS[currentAlign];
+
+  // Shared button style — counter-scaled to stay constant on screen
+  const btnStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
+    width: size,
+    height: size,
+    ...extra,
+  });
+
+  const iconClass = `shrink-0`;
+  const iconStyle: React.CSSProperties = { width: iconSize, height: iconSize };
 
   if (isText) {
     // Text layer — custom icon layout:
@@ -79,49 +113,46 @@ export default function SelectionBox({
       >
         {/* Edit — top-left */}
         {onEditText && (
-          <div className="pointer-events-auto absolute -top-16 -left-16">
-            <button
-              type="button"
-              data-action="edit"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onEditText(); }}
-              className={ICON_BTN}
-              aria-label="Edit text"
-            >
-              <LuPencil className="h-8 w-8" />
-            </button>
-          </div>
+          <button
+            type="button"
+            data-action="edit"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onEditText(); }}
+            className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+            style={btnStyle({ top: -offset, left: -offset, transformOrigin: 'bottom right' })}
+            aria-label="Edit text"
+          >
+            <LuPencil className={iconClass} style={iconStyle} />
+          </button>
         )}
 
         {/* Align — top-center */}
         {onAlign && (
-          <div className="pointer-events-auto absolute -top-16 left-1/2 -translate-x-1/2">
-            <button
-              type="button"
-              data-action="align"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onAlign(nextAlign); }}
-              className={ICON_BTN}
-              aria-label="Align"
-            >
-              <AlignIcon className="h-8 w-8" />
-            </button>
-          </div>
+          <button
+            type="button"
+            data-action="align"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onAlign(nextAlign); }}
+            className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+            style={btnStyle({ top: -offset, left: '50%', transform: `translateX(-50%)`, transformOrigin: 'center' })}
+            aria-label="Align"
+          >
+            <AlignIcon className={iconClass} style={iconStyle} />
+          </button>
         )}
 
         {/* Box width — top-right (drag to change box width on X axis) */}
         {onBoxWidthDragStart && (
-          <div className="pointer-events-auto absolute -top-16 -right-16">
-            <button
-              type="button"
-              data-action="boxWidth"
-              onPointerDown={(e) => { e.stopPropagation(); onBoxWidthDragStart(e); }}
-              className={cn(ICON_BTN, 'cursor-ew-resize active:cursor-grabbing')}
-              aria-label="Change box width"
-            >
-              <LuMoveHorizontal className="h-8 w-8" />
-            </button>
-          </div>
+          <button
+            type="button"
+            data-action="boxWidth"
+            onPointerDown={(e) => { e.stopPropagation(); onBoxWidthDragStart(e); }}
+            className="touch-none pointer-events-auto absolute flex cursor-ew-resize items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white active:cursor-grabbing"
+            style={btnStyle({ top: -offset, right: -offset, transformOrigin: 'bottom left' })}
+            aria-label="Change box width"
+          >
+            <LuMoveHorizontal className={iconClass} style={iconStyle} />
+          </button>
         )}
 
         {/* Delete — bottom-left */}
@@ -130,10 +161,11 @@ export default function SelectionBox({
           data-action="delete"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onDelete}
-          className={cn(DELETE_BTN, 'pointer-events-auto absolute -bottom-16 -left-16')}
+          className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white"
+          style={btnStyle({ bottom: -offset, left: -offset, transformOrigin: 'top right' })}
           aria-label="Delete"
         >
-          <LuTrash2 className="h-8 w-8" />
+          <LuTrash2 className={iconClass} style={iconStyle} />
         </button>
 
         {/* Duplicate — bottom-center */}
@@ -142,10 +174,11 @@ export default function SelectionBox({
           data-action="duplicate"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onDuplicate}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 left-1/2 -translate-x-1/2')}
+          className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+          style={btnStyle({ bottom: -offset, left: '50%', transform: `translateX(-50%)`, transformOrigin: 'center' })}
           aria-label="Duplicate"
         >
-          <LuCopy className="h-8 w-8" />
+          <LuCopy className={iconClass} style={iconStyle} />
         </button>
 
         {/* Proportional resize — bottom-right */}
@@ -155,10 +188,11 @@ export default function SelectionBox({
           data-direction="se"
           data-mode="proportional"
           onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -right-16 cursor-nwse-resize')}
+          className="touch-none pointer-events-auto absolute flex cursor-nwse-resize items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+          style={btnStyle({ bottom: -offset, right: -offset, transformOrigin: 'top left' })}
           aria-label="Scale"
         >
-          <LuMaximize className="h-8 w-8" />
+          <LuMaximize className={iconClass} style={iconStyle} />
         </button>
       </div>
     );
@@ -177,18 +211,17 @@ export default function SelectionBox({
         zIndex: layer.zIndex + 1000,
       }}
     >
-      {/* No dashed border box — clean canvas */}
-
       {/* Delete — top-left */}
       <button
         type="button"
         data-action="delete"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDelete}
-        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-18 -left-18')}
+        className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white"
+        style={btnStyle({ top: -offsetLg, left: -offsetLg, transformOrigin: 'bottom right' })}
         aria-label="Delete"
       >
-        <LuTrash2 className="h-8 w-8" />
+        <LuTrash2 className={iconClass} style={iconStyle} />
       </button>
 
       {/* Duplicate — top-right */}
@@ -197,10 +230,11 @@ export default function SelectionBox({
         data-action="duplicate"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDuplicate}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-18 -right-18')}
+        className="touch-none pointer-events-auto absolute flex items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+        style={btnStyle({ top: -offsetLg, right: -offsetLg, transformOrigin: 'bottom left' })}
         aria-label="Duplicate"
       >
-        <LuCopy className="h-8 w-8" />
+        <LuCopy className={iconClass} style={iconStyle} />
       </button>
 
       {/* Rotate — bottom-left */}
@@ -208,10 +242,11 @@ export default function SelectionBox({
         type="button"
         data-action="rotate"
         onPointerDown={onRotateStart}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-18 -left-18 cursor-grab active:cursor-grabbing')}
+        className="touch-none pointer-events-auto absolute flex cursor-grab items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white active:cursor-grabbing"
+        style={btnStyle({ bottom: -offsetLg, left: -offsetLg, transformOrigin: 'top right' })}
         aria-label="Rotate"
       >
-        <LuRotateCw className="h-8 w-8" />
+        <LuRotateCw className={iconClass} style={iconStyle} />
       </button>
 
       {/* Proportional resize — bottom-right (scales from center) */}
@@ -221,10 +256,11 @@ export default function SelectionBox({
         data-direction="se"
         data-mode="proportional"
         onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-18 -right-18 cursor-nwse-resize')}
+        className="touch-none pointer-events-auto absolute flex cursor-nwse-resize items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white"
+        style={btnStyle({ bottom: -offsetLg, right: -offsetLg, transformOrigin: 'top left' })}
         aria-label="Scale"
       >
-        <LuMaximize className="h-8 w-8" />
+        <LuMaximize className={iconClass} style={iconStyle} />
       </button>
 
       {/* Increase height — top-center (rectangle only, drag up/down) */}
@@ -233,10 +269,11 @@ export default function SelectionBox({
           type="button"
           data-action="increaseHeight"
           onPointerDown={(e) => { e.stopPropagation(); onHeightDragStart(e); }}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute -top-18 left-1/2 -translate-x-1/2 cursor-ns-resize active:cursor-grabbing')}
+          className="touch-none pointer-events-auto absolute flex cursor-ns-resize items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white active:cursor-grabbing"
+          style={btnStyle({ top: -offsetLg, left: '50%', transform: `translateX(-50%)`, transformOrigin: 'center' })}
           aria-label="Increase height"
         >
-          <LuMoveVertical className="h-8 w-8" />
+          <LuMoveVertical className={iconClass} style={iconStyle} />
         </button>
       )}
 
@@ -246,10 +283,11 @@ export default function SelectionBox({
           type="button"
           data-action="increaseWidth"
           onPointerDown={(e) => { e.stopPropagation(); onWidthDragStart(e); }}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute top-1/2 -right-18 -translate-y-1/2 cursor-ew-resize active:cursor-grabbing')}
+          className="touch-none pointer-events-auto absolute flex cursor-ew-resize items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white active:cursor-grabbing"
+          style={btnStyle({ top: '50%', right: -offsetLg, transform: `translateY(-50%)`, transformOrigin: 'center' })}
           aria-label="Increase width"
         >
-          <LuMoveHorizontal className="h-8 w-8" />
+          <LuMoveHorizontal className={iconClass} style={iconStyle} />
         </button>
       )}
     </div>

@@ -550,13 +550,18 @@ export default function EditorPage() {
             // Keep center fixed
             const newX = textLayer.x + (textLayer.width - newW) / 2;
             const newY = textLayer.y + (textLayer.height - newH) / 2;
-            handleLayerChange(selectedLayerId, {
+            const updates: Partial<AnyLayer> = {
                 fontSize: newFontSize,
                 width: newW,
                 height: newH,
                 x: newX,
                 y: newY,
-            } as Partial<AnyLayer>, false);
+            };
+            // When boxWidth is set, scale it too so the text wraps proportionally
+            if (textLayer.boxWidth !== undefined && textLayer.boxWidth > 0) {
+                (updates as Record<string, unknown>).boxWidth = Math.max(20, textLayer.boxWidth * ratio);
+            }
+            handleLayerChange(selectedLayerId, updates, false);
         },
         [selectedLayerId, handleLayerChange]
     );

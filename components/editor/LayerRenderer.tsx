@@ -117,10 +117,18 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     if (h !== lastMeasuredRef.current.h) {
       const oldH = lastMeasuredRef.current.h;
       lastMeasuredRef.current = { w: layer.boxWidth!, h };
-      // Keep vertical center fixed
-      const newY = layer.y + (oldH - h) / 2;
-      onLayerChange(layer.id, { height: h, y: newY }, false);
+      // Font size changes are handled by handleFontSizeChange which already
+      // adjusts x/y/height/boxWidth — only update height here, don't re-center.
+      const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
+      if (fontSizeChanged) {
+        onLayerChange(layer.id, { height: h }, false);
+      } else {
+        // Keep vertical center fixed
+        const newY = layer.y + (oldH - h) / 2;
+        onLayerChange(layer.id, { height: h, y: newY }, false);
+      }
     }
+    prevFontSizeRef.current = layer.fontSize;
   }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth]);
 
   return (

@@ -526,7 +526,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     >
       {/* Safe area hint — dashed border 30px inset from canvas edges */}
       <div
-        className="pointer-events-none absolute z-10 border-8 border-dashed border-layer-selected/30"
+        className="pointer-events-none absolute z-10 border-6 border-dashed border-layer-selected/30"
         style={{ top: 30, left: 30, right: 30, bottom: 30 }}
       />
 
@@ -546,6 +546,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       {selectedLayerId && (
         <SelectionBox
           layer={layers.find((l) => l.id === selectedLayerId)}
+          scale={scale}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onResizeStart={handleResizeStart}
