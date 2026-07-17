@@ -123,6 +123,18 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const boxWidthStateRef = useRef(boxWidthState);
   boxWidthStateRef.current = boxWidthState;
 
+  // Drag state for height/width adjustment buttons on rectangle shapes
+  const [hwDragState, setHwDragState] = useState<{
+    layerId: string;
+    axis: 'height' | 'width';
+    startClient: number;   // startX or startY depending on axis
+    startSize: number;
+    startScale: number;
+    startY?: number;       // for height: keep bottom fixed, move top
+  } | null>(null);
+  const hwDragStateRef = useRef(hwDragState);
+  hwDragStateRef.current = hwDragState;
+
   const [resizeState, setResizeState] = useState<{
     layerId: string;
     startX: number;
@@ -195,6 +207,27 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       startBoxWidth: layer.type === 'text' ? layer.boxWidth : undefined,
       startLayerWidth: layer.width,
       startScale: scaleRef.current,
+    });
+  }, [selectedLayerId, layers, onLayerDragStart]);
+
+  // Drag start for height/width adjustment buttons (rectangle shapes only)
+  const handleHwDragStart = useCallback((e: React.PointerEvent, axis: 'height' | 'width') => {
+    if (!e.isPrimary) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (!selectedLayerId) return;
+    const layer = layers.find((l) => l.id === selectedLayerId);
+    if (!layer || layer.locked || layer.type !== 'shape') return;
+
+    capturePointer(e);
+    onLayerDragStart?.(selectedLayerId);
+    setHwDragState({
+      layerId: selectedLayerId,
+      axis,
+      startClient: axis === 'height' ? e.clientY : e.clientX,
+      startSize: axis === 'height' ? layer.height : layer.width,
+      startScale: scaleRef.current,
+      startY: axis === 'height' ? layer.y : undefined,
     });
   }, [selectedLayerId, layers, onLayerDragStart]);
 
@@ -344,6 +377,26 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       return;
     }
 
+    // Height/width drag — adjust one dimension by dragging
+    const hw = hwDragStateRef.current;
+    if (hw) {
+      e.preventDefault();
+      // Height: invert delta so drag up = grow, drag down = shrink
+      const rawDelta = (hw.axis === 'height'
+        ? (e.clientY - hw.startClient)
+        : (e.clientX - hw.startClient)
+      ) / hw.startScale;
+      const delta = hw.axis === 'height' ? -rawDelta : rawDelta;
+      const newSize = Math.max(10, hw.startSize + delta);
+      if (hw.axis === 'height' && hw.startY !== undefined) {
+        // Keep bottom fixed: move y up as height grows
+        onLayerChangeRef.current(hw.layerId, { height: newSize, y: hw.startY - delta } as Partial<AnyLayer>, false);
+      } else {
+        onLayerChangeRef.current(hw.layerId, { [hw.axis]: newSize } as Partial<AnyLayer>, false);
+      }
+      return;
+    }
+
     const resize = resizeStateRef.current;
     if (resize) {
       e.preventDefault();
@@ -375,22 +428,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         // Keep center fixed: shift position by half the size change
         newX = resize.startXPos + (resize.startWidth - rawWidth) / 2;
         newY = resize.startYPos + (resize.startHeight - rawHeight) / 2;
-      } else {
-        // Free resize — only for "free square" shapes, drag borders freely
-        if (direction.includes('e')) {
-          rawWidth = Math.max(minSize, resize.startWidth + deltaX);
-        }
-        if (direction.includes('w')) {
-          rawWidth = Math.max(minSize, resize.startWidth - deltaX);
-          newX = resize.startXPos + (resize.startWidth - rawWidth);
-        }
-        if (direction.includes('s')) {
-          rawHeight = Math.max(minSize, resize.startHeight + deltaY);
-        }
-        if (direction.includes('n')) {
-          rawHeight = Math.max(minSize, resize.startHeight - deltaY);
-          newY = resize.startYPos + (resize.startHeight - rawHeight);
-        }
       }
 
       // Clamp: ensure at least 10% of the layer stays visible inside the canvas
@@ -451,13 +488,14 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, [updateLayerPosition]);
 
   const handlePointerEnd = useCallback((e: React.PointerEvent) => {
-    if (dragStateRef.current.isDragging || resizeStateRef.current || rotateStateRef.current || boxWidthStateRef.current) {
+    if (dragStateRef.current.isDragging || resizeStateRef.current || rotateStateRef.current || boxWidthStateRef.current || hwDragStateRef.current) {
       e.stopPropagation();
       releasePointer(e);
     }
     setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
     setResizeState(null);
     setBoxWidthState(null);
+    setHwDragState(null);
     setRotateState(null);
     setShowCenterX(false);
     setShowCenterY(false);
@@ -515,6 +553,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           onAlign={onAlign}
           onEditText={onEditText ? () => onEditText(selectedLayerId) : undefined}
           onBoxWidthDragStart={handleBoxWidthDragStart}
+          onHeightDragStart={(e) => handleHwDragStart(e, 'height')}
+          onWidthDragStart={(e) => handleHwDragStart(e, 'width')}
         />
       )}
 

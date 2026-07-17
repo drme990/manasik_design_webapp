@@ -279,7 +279,6 @@
       "shape": {
         "title": "إعدادات الشكل",
         "rectangle": "مستطيل",
-        "rectangleFree": "مستطيل حر",
         "circle": "دائرة",
         "triangle": "مثلث",
         "star4": "نجمة 4",
@@ -292,6 +291,8 @@
         "strokeColor": "لون الإطار",
         "strokeWidth": "سمك الإطار",
         "cornerRadius": "نصف قطر الزاوية",
+        "increaseHeight": "زيادة الارتفاع",
+        "increaseWidth": "زيادة العرض",
         "opacity": "الشفافية"
       },
       "dynamicField": {

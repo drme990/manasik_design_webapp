@@ -11,6 +11,7 @@ import {
   LuAlignRight,
   LuPencil,
   LuMoveHorizontal,
+  LuMoveVertical,
 } from 'react-icons/lu';
 import type { AnyLayer, TextLayer, ShapeLayer } from '@/types';
 
@@ -25,24 +26,14 @@ export interface SelectionBoxProps {
   onAlign?: (align: 'left' | 'center' | 'right') => void;
   onEditText?: () => void;
   onBoxWidthDragStart?: (e: React.PointerEvent) => void;
+  onHeightDragStart?: (e: React.PointerEvent) => void;
+  onWidthDragStart?: (e: React.PointerEvent) => void;
 }
 
 const ICON_BTN =
   'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 const DELETE_BTN =
   'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
-
-// Free resize handles — only shown for "free square" (rectangle_free) shapes
-const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
-  { direction: 'nw', className: '-top-3 -left-3', cursor: 'cursor-nw-resize' },
-  { direction: 'n', className: '-top-3 left-1/2 -translate-x-1/2', cursor: 'cursor-n-resize' },
-  { direction: 'ne', className: '-top-3 right-3', cursor: 'cursor-ne-resize' },
-  { direction: 'e', className: 'top-1/2 right-3 -translate-y-1/2', cursor: 'cursor-e-resize' },
-  { direction: 'se', className: 'bottom-3 right-3', cursor: 'cursor-se-resize' },
-  { direction: 's', className: 'bottom-3 left-1/2 -translate-x-1/2', cursor: 'cursor-s-resize' },
-  { direction: 'sw', className: 'bottom-3 -left-3', cursor: 'cursor-sw-resize' },
-  { direction: 'w', className: 'top-1/2 -left-3 -translate-y-1/2', cursor: 'cursor-w-resize' },
-];
 
 const ALIGN_ICONS = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
 
@@ -55,13 +46,14 @@ export default function SelectionBox({
   onAlign,
   onEditText,
   onBoxWidthDragStart,
+  onHeightDragStart,
+  onWidthDragStart,
 }: SelectionBoxProps) {
   if (!layer) return null;
 
   const isText = layer.type === 'text';
-  const isFreeSquare = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle_free';
+  const isRectangle = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle';
   const textLayer = layer as TextLayer;
-  const handle = 'touch-none absolute h-8 w-8 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   // Current align + next in cycle
   const currentAlign = textLayer.align;
@@ -235,21 +227,31 @@ export default function SelectionBox({
         <LuMaximize className="h-8 w-8" />
       </button>
 
-      {/* Free border handles — ONLY for "free square" (rectangle_free) shapes */}
-      {isFreeSquare && HANDLES.map(({ direction, className, cursor }) => (
-        <div
-          key={direction}
-          data-action="resize"
-          data-direction={direction}
-          data-mode="free"
-          className={cn('pointer-events-auto absolute', className, cursor)}
+      {/* Increase height — top-center (rectangle only, drag up/down) */}
+      {isRectangle && onHeightDragStart && (
+        <button
+          type="button"
+          data-action="increaseHeight"
+          onPointerDown={(e) => { e.stopPropagation(); onHeightDragStart(e); }}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute -top-18 left-1/2 -translate-x-1/2 cursor-ns-resize active:cursor-grabbing')}
+          aria-label="Increase height"
         >
-          <div
-            className={handle}
-            onPointerDown={(e) => onResizeStart?.(e, direction, 'free')}
-          />
-        </div>
-      ))}
+          <LuMoveVertical className="h-8 w-8" />
+        </button>
+      )}
+
+      {/* Increase width — right-center (rectangle only, drag left/right) */}
+      {isRectangle && onWidthDragStart && (
+        <button
+          type="button"
+          data-action="increaseWidth"
+          onPointerDown={(e) => { e.stopPropagation(); onWidthDragStart(e); }}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute top-1/2 -right-18 -translate-y-1/2 cursor-ew-resize active:cursor-grabbing')}
+          aria-label="Increase width"
+        >
+          <LuMoveHorizontal className="h-8 w-8" />
+        </button>
+      )}
     </div>
   );
 }

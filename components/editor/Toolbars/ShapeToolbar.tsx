@@ -20,7 +20,6 @@ export interface ShapeToolbarProps {
 
 const SHAPES: ShapeLayer['shape'][] = [
   'rectangle',
-  'rectangle_free',
   'circle',
   'triangle',
   'star_4',
@@ -32,7 +31,6 @@ const SHAPES: ShapeLayer['shape'][] = [
 
 const SHAPE_LABEL_KEYS: Record<ShapeLayer['shape'], string> = {
   rectangle: 'rectangle',
-  rectangle_free: 'rectangleFree',
   circle: 'circle',
   triangle: 'triangle',
   star_4: 'star4',
@@ -75,7 +73,7 @@ export default function ShapeToolbar({ layer, onChange, onSliderStart, className
               strokeColor="currentColor"
               strokeWidth={2}
               filled={layer.filled ?? true}
-              cornerRadius={shape === 'rectangle_free' ? 6 : 0}
+              cornerRadius={0}
             />
           </Button>
         ))}
@@ -122,7 +120,7 @@ export default function ShapeToolbar({ layer, onChange, onSliderStart, className
         suffix="%"
       />
 
-      {(layer.shape === 'rectangle' || layer.shape === 'rectangle_free') && (
+      {layer.shape === 'rectangle' && (
         <SliderField
           label={t('cornerRadius')}
           value={layer.cornerRadius ?? 0}

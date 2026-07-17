@@ -3,7 +3,7 @@ export type LayerType = 'text' | 'image' | 'shape' | 'dynamic_field';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
 export type TextDirection = 'auto' | 'rtl' | 'ltr';
-export type ShapeType = 'rectangle' | 'rectangle_free' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
+export type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
 export type ImageFit = 'cover' | 'contain';
 
 export interface BaseLayer {

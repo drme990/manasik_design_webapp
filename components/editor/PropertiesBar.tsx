@@ -397,7 +397,7 @@ export default function PropertiesBar({
                                 active={filled}
                                 onClick={() => onLayerChange(l.id, { filled: !filled } as Partial<AnyLayer>)}
                             />
-                            {(l.shape === 'rectangle' || l.shape === 'rectangle_free') && (
+                            {(l.shape === 'rectangle') && (
                                 <PropButton
                                     label={t('toolbars.shape.cornerRadius')}
                                     value={l.cornerRadius || 0}

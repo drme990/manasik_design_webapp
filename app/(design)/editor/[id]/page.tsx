@@ -57,7 +57,6 @@ const SYNC_INTERVAL_MS = 10_000;
 
 const SHAPES: { shape: ShapeLayer['shape']; labelKey: string }[] = [
     { shape: 'rectangle', labelKey: 'rectangle' },
-    { shape: 'rectangle_free', labelKey: 'rectangleFree' },
     { shape: 'circle', labelKey: 'circle' },
     { shape: 'triangle', labelKey: 'triangle' },
     { shape: 'star_4', labelKey: 'star4' },

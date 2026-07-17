@@ -187,7 +187,7 @@ export function buildCollageLayer(options: {
 }
 
 export function buildShapeLayer(options: {
-  shape: 'rectangle' | 'rectangle_free' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
+  shape: 'rectangle' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
   x?: number;
   y?: number;
   width?: number;
@@ -233,7 +233,7 @@ export function buildShapeLayer(options: {
     filled,
     strokeColor,
     strokeWidth,
-    cornerRadius: shape === 'rectangle_free' ? 20 : 0,
+    cornerRadius: 0,
     points
   };
 }
@@ -339,7 +339,6 @@ export function getLayerTypeLabel(type: string): string {
 export function getShapeLabel(shape: string): string {
   const labels: Record<string, string> = {
     rectangle: 'مستطيل',
-    rectangle_free: 'مستطيل حواف',
     circle: 'دائرة',
     triangle: 'مثلث',
     star_4: 'نجمة 4',
