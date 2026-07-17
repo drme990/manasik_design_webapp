@@ -89,7 +89,7 @@ function generateFieldId(project: Project): string {
     return `field_${max + 1}`;
 }
 
-/* --- Mobile-style bar buttons: icon on top, label below --- */
+/* --- Mobile-style bar buttons: icon+value on top, label below --- */
 
 function PropButton({
     label,
@@ -109,26 +109,22 @@ function PropButton({
     return (
         <button
             onClick={onClick}
-            className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl border px-1 py-2 transition-colors ${active
+            className={`flex w-16 shrink-0 flex-col items-center rounded-xl border px-1 py-2 transition-colors ${active
                 ? 'border-brand-primary bg-brand-primary text-primary-text'
                 : 'border-transparent text-foreground hover:bg-muted'
                 }`}
         >
-            <div className="relative flex h-6 w-6 items-center justify-center">
+            {/* Icon with optional color swatch */}
+            <div className="relative flex h-6 w-6 items-center justify-center mb-1.5">
                 {icon}
                 {swatch && (
                     <span
-                        className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-stroke"
+                        className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full border border-stroke"
                         style={{ backgroundColor: swatch }}
                     />
                 )}
             </div>
             <span className="text-[10px] font-medium leading-tight">{label}</span>
-            {value !== undefined && !swatch && (
-                <span className={`text-[9px] leading-none ${active ? 'text-primary-text/80' : 'text-secondary'}`}>
-                    {value}
-                </span>
-            )}
         </button>
     );
 }
@@ -147,12 +143,14 @@ function PropToggle({
     return (
         <button
             onClick={onClick}
-            className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl border px-1 py-2 transition-colors ${active
+            className={`flex w-16 shrink-0 flex-col items-center rounded-xl border px-1 py-2 transition-colors ${active
                 ? 'border-brand-primary bg-brand-primary text-primary-text'
                 : 'border-transparent text-foreground hover:bg-muted'
                 }`}
         >
-            <div className="flex h-6 w-6 items-center justify-center">{icon}</div>
+            <div className="relative flex h-6 w-6 items-center justify-center mb-1.5">
+                {icon}
+            </div>
             <span className="text-[10px] font-medium leading-tight">{label}</span>
         </button>
     );
@@ -198,6 +196,7 @@ export default function EditorPage() {
     const { id } = useParams<{ id: string }>();
     const router = useRouter();
     const t = useTranslations('editor');
+    const uiT = useTranslations('ui');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const bgFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -250,7 +249,13 @@ export default function EditorPage() {
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
 
     // Close drawers when selection changes
+    const skipDrawerResetRef = useRef(false);
+
     useEffect(() => {
+        if (skipDrawerResetRef.current) {
+            skipDrawerResetRef.current = false;
+            return;
+        }
         setActiveProp(null);
         setColorPickerProp(null);
         setFontDrawerOpen(false);
@@ -710,66 +715,78 @@ export default function EditorPage() {
 
     const handleDuplicateLayer = useCallback(
         (layerId: string) => {
-            updateProjectState((prev) => {
-                const layer = prev.layers.find((l) => l.id === layerId);
-                if (!layer) return prev;
-                const cloned = cloneLayer(layer);
-                cloned.x += 20;
-                cloned.y += 20;
-                cloned.zIndex = nextZIndex(prev.layers);
-                return { ...prev, layers: [...prev.layers, cloned] };
-            });
+            if (!project) return;
+            const layer = project.layers.find((l) => l.id === layerId);
+            if (!layer) return;
+            const cloned = cloneLayer(layer);
+            cloned.x += 20;
+            cloned.y += 20;
+            cloned.zIndex = nextZIndex(project.layers);
+            updateProjectState((prev) => ({
+                ...prev,
+                layers: [...prev.layers, cloned],
+            }));
+            setSelectedLayerId(cloned.id);
         },
-        [updateProjectState]
+        [updateProjectState, project]
     );
 
     const handleAddText = useCallback(() => {
-        updateProjectState((prev) => {
-            const layer = buildTextLayer({
-                text: t('newText') || 'نص جديد',
-                x: prev.canvasWidth * 0.1,
-                y: prev.canvasHeight * 0.1,
-                canvasWidth: prev.canvasWidth,
-                canvasHeight: prev.canvasHeight,
-            });
-            layer.zIndex = nextZIndex(prev.layers);
-            setSelectedLayerId(layer.id);
-            setAddDrawerOpen(false);
-            return { ...prev, layers: [...prev.layers, layer] };
+        const newLayer = buildTextLayer({
+            text: '',
+            x: 0,
+            y: 0,
+            canvasWidth: project?.canvasWidth ?? 1080,
+            canvasHeight: project?.canvasHeight ?? 1080,
         });
-    }, [updateProjectState, t]);
+        newLayer.zIndex = nextZIndex(project?.layers ?? []);
+        updateProjectState((prev) => ({
+            ...prev,
+            layers: [...prev.layers, newLayer],
+        }));
+        skipDrawerResetRef.current = true;
+        setSelectedLayerId(newLayer.id);
+        setAddDrawerOpen(false);
+        setTextEditDrawerOpen(true);
+    }, [updateProjectState, project]);
 
     const handleAddShape = useCallback((shape: ShapeLayer['shape']) => {
-        updateProjectState((prev) => {
-            const layer = buildShapeLayer({
-                shape,
-                x: prev.canvasWidth * 0.1,
-                y: prev.canvasHeight * 0.1,
-                width: prev.canvasWidth * 0.25,
-                height: prev.canvasWidth * 0.25,
-            });
-            layer.zIndex = nextZIndex(prev.layers);
-            setSelectedLayerId(layer.id);
-            setAddDrawerOpen(false);
-            return { ...prev, layers: [...prev.layers, layer] };
+        const w = project?.canvasWidth ?? 1080;
+        const h = project?.canvasHeight ?? 1080;
+        const newLayer = buildShapeLayer({
+            shape,
+            x: w * 0.1,
+            y: h * 0.1,
+            width: w * 0.25,
+            height: w * 0.25,
         });
-    }, [updateProjectState]);
+        newLayer.zIndex = nextZIndex(project?.layers ?? []);
+        updateProjectState((prev) => ({
+            ...prev,
+            layers: [...prev.layers, newLayer],
+        }));
+        setSelectedLayerId(newLayer.id);
+        setAddDrawerOpen(false);
+    }, [updateProjectState, project]);
 
     const handleAddDynamicField = useCallback(() => {
-        updateProjectState((prev) => {
-            const layer = buildDynamicFieldLayer({
-                variableId: generateFieldId(prev),
-                variableName: t('newField') || 'حقل جديد',
-                fieldType: 'text',
-                x: prev.canvasWidth * 0.1,
-                y: prev.canvasHeight * 0.1,
-            });
-            layer.zIndex = nextZIndex(prev.layers);
-            setSelectedLayerId(layer.id);
-            setAddDrawerOpen(false);
-            return { ...prev, layers: [...prev.layers, layer] };
+        const w = project?.canvasWidth ?? 1080;
+        const h = project?.canvasHeight ?? 1080;
+        const newLayer = buildDynamicFieldLayer({
+            variableId: generateFieldId(project!),
+            variableName: t('newField') || 'حقل جديد',
+            fieldType: 'text',
+            x: w * 0.1,
+            y: h * 0.1,
         });
-    }, [updateProjectState, t]);
+        newLayer.zIndex = nextZIndex(project?.layers ?? []);
+        updateProjectState((prev) => ({
+            ...prev,
+            layers: [...prev.layers, newLayer],
+        }));
+        setSelectedLayerId(newLayer.id);
+        setAddDrawerOpen(false);
+    }, [updateProjectState, project, t]);
 
     const handleFileSelect = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -781,21 +798,22 @@ export default function EditorPage() {
                 const uri = event.target?.result as string;
                 const img = new Image();
                 img.onload = () => {
-                    updateProjectState((prev) => {
-                        const layer = buildImageLayer({
-                            uri,
-                            naturalWidth: img.naturalWidth,
-                            naturalHeight: img.naturalHeight,
-                            x: prev.canvasWidth * 0.1,
-                            y: prev.canvasHeight * 0.1,
-                            canvasWidth: prev.canvasWidth,
-                            canvasHeight: prev.canvasHeight,
-                        });
-                        layer.zIndex = nextZIndex(prev.layers);
-                        setSelectedLayerId(layer.id);
-                        setAddDrawerOpen(false);
-                        return { ...prev, layers: [...prev.layers, layer] };
+                    const newLayer = buildImageLayer({
+                        uri,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        x: project.canvasWidth * 0.1,
+                        y: project.canvasHeight * 0.1,
+                        canvasWidth: project.canvasWidth,
+                        canvasHeight: project.canvasHeight,
                     });
+                    newLayer.zIndex = nextZIndex(project.layers);
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: [...prev.layers, newLayer],
+                    }));
+                    setSelectedLayerId(newLayer.id);
+                    setAddDrawerOpen(false);
                 };
                 img.src = uri;
             };
@@ -1276,6 +1294,8 @@ export default function EditorPage() {
                     onClose={() => setAddDrawerOpen(false)}
                     title={t('addElement')}
                     height="half"
+                    onDone={() => setAddDrawerOpen(false)}
+                    doneLabel={uiT('done')}
                 >
                     {/* Add text, image, field options */}
                     <div className="mb-6">
@@ -1338,6 +1358,8 @@ export default function EditorPage() {
                     onClose={() => setLayersDrawerOpen(false)}
                     title={t('layers')}
                     height="half"
+                    onDone={() => setLayersDrawerOpen(false)}
+                    doneLabel={uiT('done')}
                 >
                     <DraggableLayerList
                         layers={project.layers}
@@ -1359,6 +1381,8 @@ export default function EditorPage() {
                     onClose={() => setActiveProp(null)}
                     title={selectedLayer ? t('properties') : ''}
                     height="auto"
+                    onDone={() => setActiveProp(null)}
+                    doneLabel={uiT('done')}
                 >
                     {selectedLayer && activeProp && (
                         <div className="space-y-4">
@@ -1531,6 +1555,8 @@ export default function EditorPage() {
                     onClose={() => setFontDrawerOpen(false)}
                     title={t('toolbars.text.font')}
                     height="auto"
+                    onDone={() => setFontDrawerOpen(false)}
+                    doneLabel={uiT('done')}
                 >
                     <div className="space-y-2">
                         {ARABIC_SAFE_FONTS.map((font) => (
@@ -1560,6 +1586,8 @@ export default function EditorPage() {
                     onClose={() => setTextEditDrawerOpen(false)}
                     title={t('toolbars.text.text')}
                     height="auto"
+                    onDone={() => setTextEditDrawerOpen(false)}
+                    doneLabel={uiT('done')}
                 >
                     {selectedLayer && selectedLayer.type === 'text' && (
                         <textarea

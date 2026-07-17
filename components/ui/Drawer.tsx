@@ -18,6 +18,9 @@ export interface DrawerProps {
   /** Height fraction of the viewport. Only applies to bottom/top. Defaults to 'half'. */
   height?: 'auto' | 'half' | 'full' | 'twoThirds';
   hideCloseButton?: boolean;
+  /** Optional "Done" button shown in the header (top-right). */
+  onDone?: () => void;
+  doneLabel?: string;
 }
 
 const HEIGHT_CLASSES = {
@@ -61,6 +64,8 @@ export default function Drawer({
   side = 'bottom',
   height = 'half',
   hideCloseButton = false,
+  onDone,
+  doneLabel,
 }: DrawerProps) {
   const t = useTranslations('ui');
 
@@ -144,20 +149,9 @@ export default function Drawer({
           </div>
         )}
 
-        {(title || !hideCloseButton) && (
-          <div className="flex items-center justify-between border-b border-stroke px-6 py-4">
-            <div>
-              {title && (
-                <h2 className="text-xl font-semibold text-foreground">
-                  {title}
-                </h2>
-              )}
-              {description && (
-                <p className="mt-1 text-sm text-secondary">
-                  {description}
-                </p>
-              )}
-            </div>
+        {(title || !hideCloseButton || onDone) && (
+          <div className="flex items-center justify-between gap-3 border-b border-stroke px-4 py-3">
+            {/* Close button — left */}
             {!hideCloseButton && (
               <Button
                 variant="ghost"
@@ -169,6 +163,34 @@ export default function Drawer({
                 <LuX className="h-5 w-5" />
               </Button>
             )}
+
+            {/* Title — center */}
+            <div className="flex-1 text-center">
+              {title && (
+                <h2 className="text-base font-semibold text-foreground">
+                  {title}
+                </h2>
+              )}
+              {description && (
+                <p className="mt-0.5 text-sm text-secondary">
+                  {description}
+                </p>
+              )}
+            </div>
+
+            {/* Done button — right */}
+            {onDone && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onDone}
+                className="rounded-lg px-4"
+              >
+                {doneLabel || t('done')}
+              </Button>
+            )}
+            {/* Spacer to balance layout when no done button but close exists */}
+            {!onDone && hideCloseButton && <div className="w-9" />}
           </div>
         )}
 

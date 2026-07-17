@@ -34,6 +34,9 @@ const HANDLES: { direction: ResizeDirection; className: string; cursor: string }
   { direction: 'w', className: 'top-1/2 -left-3 -translate-y-1/2', cursor: 'cursor-w-resize' },
 ];
 
+const ALIGN_ICONS = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
+const VALIGN_ICONS = { top: LuAlignStartVertical, middle: LuAlignCenterVertical, bottom: LuAlignEndVertical };
+
 export default function SelectionBox({
   layer,
   onPointerDown,
@@ -48,24 +51,19 @@ export default function SelectionBox({
 
   const isText = layer.type === 'text';
   const isFreeSquare = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle_free';
-  const currentAlign = isText ? (layer as TextLayer).align : undefined;
-  const currentVAlign = isText ? (layer as TextLayer).verticalAlign : undefined;
+  const textLayer = layer as TextLayer;
   const handle = 'touch-none absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   const ALIGN_BTN =
-    'touch-none flex h-10 w-10 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+    'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 
-  const alignButtons: { align: 'left' | 'center' | 'right'; icon: typeof LuAlignLeft; label: string }[] = [
-    { align: 'left', icon: LuAlignLeft, label: 'Left' },
-    { align: 'center', icon: LuAlignCenter, label: 'Center' },
-    { align: 'right', icon: LuAlignRight, label: 'Right' },
-  ];
-
-  const vAlignButtons: { align: 'top' | 'middle' | 'bottom'; icon: typeof LuAlignStartVertical; label: string }[] = [
-    { align: 'top', icon: LuAlignStartVertical, label: 'Top' },
-    { align: 'middle', icon: LuAlignCenterVertical, label: 'Middle' },
-    { align: 'bottom', icon: LuAlignEndVertical, label: 'Bottom' },
-  ];
+  // Current align + next in cycle
+  const currentAlign = textLayer.align;
+  const currentVAlign = textLayer.verticalAlign;
+  const nextAlign = currentAlign === 'right' ? 'center' : currentAlign === 'center' ? 'left' : 'right';
+  const nextVAlign = currentVAlign === 'bottom' ? 'middle' : currentVAlign === 'middle' ? 'top' : 'bottom';
+  const AlignIcon = ALIGN_ICONS[currentAlign];
+  const VAlignIcon = VALIGN_ICONS[currentVAlign];
 
   return (
     <div
@@ -81,47 +79,35 @@ export default function SelectionBox({
     >
       {/* No dashed border box — clean canvas */}
 
-      {/* Text alignment — top-center */}
+      {/* Text alignment — top-center (single cycling icon) */}
       {isText && onAlign && (
-        <div className="pointer-events-auto absolute -top-14 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {alignButtons.map(({ align, icon: Icon, label }) => (
-            <button
-              key={align}
-              type="button"
-              data-action="align"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onAlign(align); }}
-              className={cn(
-                ALIGN_BTN,
-                currentAlign === align && 'bg-layer-selected text-white'
-              )}
-              aria-label={label}
-            >
-              <Icon className="h-5 w-5" />
-            </button>
-          ))}
+        <div className="pointer-events-auto absolute -top-14 left-1/2 -translate-x-1/2">
+          <button
+            type="button"
+            data-action="align"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onAlign(nextAlign); }}
+            className={ALIGN_BTN}
+            aria-label="Align"
+          >
+            <AlignIcon className="h-5 w-5" />
+          </button>
         </div>
       )}
 
-      {/* Text vertical alignment — bottom-center */}
+      {/* Text vertical alignment — bottom-center (single cycling icon) */}
       {isText && onVerticalAlign && (
-        <div className="pointer-events-auto absolute -bottom-14 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {vAlignButtons.map(({ align, icon: Icon, label }) => (
-            <button
-              key={align}
-              type="button"
-              data-action="valign"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onVerticalAlign(align); }}
-              className={cn(
-                ALIGN_BTN,
-                currentVAlign === align && 'bg-layer-selected text-white'
-              )}
-              aria-label={label}
-            >
-              <Icon className="h-5 w-5" />
-            </button>
-          ))}
+        <div className="pointer-events-auto absolute -bottom-14 left-1/2 -translate-x-1/2">
+          <button
+            type="button"
+            data-action="valign"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onVerticalAlign(nextVAlign); }}
+            className={ALIGN_BTN}
+            aria-label="Vertical align"
+          >
+            <VAlignIcon className="h-5 w-5" />
+          </button>
         </div>
       )}
 
