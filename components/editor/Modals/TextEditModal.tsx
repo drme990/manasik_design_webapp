@@ -20,7 +20,7 @@ export interface TextEditModalProps {
   initialFontFamily?: string;
   initialFontSize?: number;
   initialColor?: string;
-  onSave: (text: string, fontFamily: string, fontSize: number, color: string) => void;
+  onSave: (text: string, fontFamily: string, fontWeight: number, fontSize: number, color: string) => void;
 }
 
 export default function TextEditModal({
@@ -33,7 +33,8 @@ export default function TextEditModal({
   onSave,
 }: TextEditModalProps) {
   const [text, setText] = useState(initialText);
-  const [fontFamily, setFontFamily] = useState(initialFontFamily || ARABIC_SAFE_FONTS[0].id);
+  const [fontFamily, setFontFamily] = useState(initialFontFamily || ARABIC_SAFE_FONTS[0].family);
+  const [fontWeight, setFontWeight] = useState(ARABIC_SAFE_FONTS[0].weight);
   const [fontSize, setFontSize] = useState(initialFontSize);
   const [color, setColor] = useState(initialColor);
   const t = useTranslations('editor.modals.textEdit');
@@ -41,7 +42,8 @@ export default function TextEditModal({
 
   useEffect(() => {
     setText(initialText);
-    setFontFamily(initialFontFamily || ARABIC_SAFE_FONTS[0].id);
+    setFontFamily(initialFontFamily || ARABIC_SAFE_FONTS[0].family);
+    setFontWeight(ARABIC_SAFE_FONTS[0].weight);
     setFontSize(initialFontSize);
     setColor(initialColor);
   }, [isOpen, initialText, initialFontFamily, initialFontSize, initialColor]);
@@ -49,13 +51,13 @@ export default function TextEditModal({
   const fontItems: DropdownItem[] = ARABIC_SAFE_FONTS.map((font) => ({
     id: font.id,
     label: font.name,
-    onClick: () => setFontFamily(font.id),
+    onClick: () => { setFontFamily(font.family); setFontWeight(font.weight); },
   }));
 
-  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.id === fontFamily);
+  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.family === fontFamily && f.weight === fontWeight);
 
   const handleSave = () => {
-    onSave(text, fontFamily, fontSize, color);
+    onSave(text, fontFamily, fontWeight, fontSize, color);
     onClose();
   };
 
@@ -94,23 +96,26 @@ export default function TextEditModal({
               <button type="button" className={TRIGGER_BTN}>
                 <span
                   className="truncate text-start"
-                  style={{ fontFamily: resolveFontFamily(fontFamily) }}
+                  style={{ fontFamily: resolveFontFamily(fontFamily), fontWeight }}
                 >
                   {selectedFont?.name || fontFamily}
                 </span>
                 <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
               </button>
             }
-            items={fontItems.map((item) => ({
-              ...item,
-              label: undefined as unknown as string,
-              icon: (
-                <span className="flex w-full items-center justify-between">
-                  <span style={{ fontFamily: resolveFontFamily(item.id) }}>{item.label}</span>
-                  {item.id === fontFamily && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
-                </span>
-              ),
-            }))}
+            items={fontItems.map((item) => {
+              const font = ARABIC_SAFE_FONTS.find((f) => f.id === item.id)!;
+              return {
+                ...item,
+                label: undefined as unknown as string,
+                icon: (
+                  <span className="flex w-full items-center justify-between">
+                    <span style={{ fontFamily: resolveFontFamily(font.family), fontWeight: font.weight }}>{item.label}</span>
+                    {font.family === fontFamily && font.weight === fontWeight && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
+                  </span>
+                ),
+              };
+            })}
           />
         </div>
 

@@ -37,7 +37,7 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
   const fontItems: DropdownItem[] = ARABIC_SAFE_FONTS.map((font) => ({
     id: font.id,
     label: font.name,
-    onClick: () => onChange({ fontFamily: font.id }),
+    onClick: () => onChange({ fontFamily: font.family, fontWeight: font.weight }),
   }));
 
   const alignItems: DropdownItem[] = [
@@ -52,21 +52,25 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
     { id: 'bottom', label: t('bottom'), onClick: () => onChange({ verticalAlign: 'bottom' }) },
   ];
 
-  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.id === layer.fontFamily);
+  const selectedFont = ARABIC_SAFE_FONTS.find((f) => f.family === layer.fontFamily && f.weight === (layer.fontWeight || 400));
   const selectedAlign = layer.align;
   const selectedVAlign = layer.verticalAlign;
 
-  const renderItem = (item: DropdownItem, isSelected: boolean) => (
-    <span className="flex w-full items-center justify-between">
-      <span
-        className="truncate"
-        style={item.id === layer.fontFamily ? { fontFamily: resolveFontFamily(item.id) } : undefined}
-      >
-        {item.label}
+  const renderItem = (item: DropdownItem, isSelected: boolean) => {
+    const font = ARABIC_SAFE_FONTS.find((f) => f.id === item.id);
+    const isSelectedFont = font && font.family === layer.fontFamily && font.weight === (layer.fontWeight || 400);
+    return (
+      <span className="flex w-full items-center justify-between">
+        <span
+          className="truncate"
+          style={isSelectedFont ? { fontFamily: resolveFontFamily(font.family), fontWeight: font.weight } : undefined}
+        >
+          {item.label}
+        </span>
+        {isSelected && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
       </span>
-      {isSelected && <LuCheck className="ms-2 h-4 w-4 shrink-0 text-brand-primary" />}
-    </span>
-  );
+    );
+  };
 
   return (
     <div className={cn('space-y-4 rounded-lg border border-stroke bg-card-bg p-4', className)}>
@@ -89,18 +93,22 @@ export default function TextToolbar({ layer, onChange, onSliderStart, className 
             <button type="button" className={TRIGGER_BTN}>
               <span
                 className="truncate text-start"
-                style={{ fontFamily: resolveFontFamily(layer.fontFamily) }}
+                style={{ fontFamily: resolveFontFamily(layer.fontFamily), fontWeight: layer.fontWeight || 400 }}
               >
                 {selectedFont?.name || layer.fontFamily}
               </span>
               <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
             </button>
           }
-          items={fontItems.map((item) => ({
-            ...item,
-            label: undefined as unknown as string,
-            icon: renderItem(item, item.id === layer.fontFamily),
-          }))}
+          items={fontItems.map((item) => {
+            const font = ARABIC_SAFE_FONTS.find((f) => f.id === item.id);
+            const isSelectedFont = font && font.family === layer.fontFamily && font.weight === (layer.fontWeight || 400);
+            return {
+              ...item,
+              label: undefined as unknown as string,
+              icon: renderItem(item, !!isSelectedFont),
+            };
+          })}
         />
       </div>
 

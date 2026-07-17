@@ -24,6 +24,7 @@ export interface CanvasProps {
   onAlign?: (align: 'left' | 'center' | 'right') => void;
   onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
   onEditText?: (id: string) => void;
+  freeDrag?: boolean;
 }
 
 function capturePointer(e: React.PointerEvent) {
@@ -63,6 +64,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     onAlign,
     onVerticalAlign,
     onEditText,
+    freeDrag = false,
   }: CanvasProps,
   forwardedRef
 ) {
@@ -80,6 +82,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   heightRef.current = height;
   const onLayerChangeRef = useRef(onLayerChange);
   onLayerChangeRef.current = onLayerChange;
+  const freeDragRef = useRef(freeDrag);
+  freeDragRef.current = freeDrag;
 
   const setCanvasRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -272,15 +276,22 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const layer = layersRef.current.find((l) => l.id === layerId);
     const w = widthRef.current;
     const h = heightRef.current;
-    // Clamp: ensure at least 10% of the layer stays visible inside the canvas
+    // Clamp: when freeDrag is off, keep the element fully inside the canvas.
+    // When freeDrag is on, allow dragging outside (10% visible minimum).
     if (layer) {
-      const minVisible = 0.1;
-      const minX = -layer.width * (1 - minVisible);
-      const maxX = w - layer.width * minVisible;
-      const minY = -layer.height * (1 - minVisible);
-      const maxY = h - layer.height * minVisible;
-      newX = Math.max(minX, Math.min(maxX, newX));
-      newY = Math.max(minY, Math.min(maxY, newY));
+      if (freeDragRef.current) {
+        const minVisible = 0.1;
+        const minX = -layer.width * (1 - minVisible);
+        const maxX = w - layer.width * minVisible;
+        const minY = -layer.height * (1 - minVisible);
+        const maxY = h - layer.height * minVisible;
+        newX = Math.max(minX, Math.min(maxX, newX));
+        newY = Math.max(minY, Math.min(maxY, newY));
+      } else {
+        // Keep element fully inside the canvas
+        newX = Math.max(0, Math.min(w - layer.width, newX));
+        newY = Math.max(0, Math.min(h - layer.height, newY));
+      }
     }
 
     // Snap to center: if the layer center is within the snap threshold,
@@ -475,6 +486,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       onPointerCancel={handlePointerEnd}
       onClick={() => onSelectLayer(null)}
     >
+      {/* Safe area hint — dashed border 30px inset from canvas edges */}
+      <div
+        className="pointer-events-none absolute z-10 border-8 border-dashed border-layer-selected/30"
+        style={{ top: 30, left: 30, right: 30, bottom: 30 }}
+      />
+
       {sortedLayers.map((layer) => (
         <LayerRenderer
           key={layer.id}

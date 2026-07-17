@@ -201,6 +201,8 @@
     "setBgImage": "تعيين صورة",
     "changeBgImage": "تغيير الصورة",
     "removeBgImage": "إزالة الصورة",
+    "freeDragOff": "قفل داخل اللوحة",
+    "freeDragOn": "سحب حر",
     "properties": "الخصائص",
     "duplicate": "نسخ",
     "delete": "حذف",

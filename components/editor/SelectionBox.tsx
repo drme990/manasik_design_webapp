@@ -9,9 +9,6 @@ import {
   LuAlignLeft,
   LuAlignCenter,
   LuAlignRight,
-  LuAlignStartVertical,
-  LuAlignCenterVertical,
-  LuAlignEndVertical,
   LuPencil,
   LuMoveHorizontal,
 } from 'react-icons/lu';
@@ -31,9 +28,9 @@ export interface SelectionBoxProps {
 }
 
 const ICON_BTN =
-  'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
+  'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-layer-selected bg-white text-layer-selected shadow-lg transition-colors hover:bg-layer-selected hover:text-white';
 const DELETE_BTN =
-  'touch-none flex h-12 w-12 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
+  'touch-none flex h-16 w-16 items-center justify-center rounded-full border-2 border-error bg-white text-error shadow-lg transition-colors hover:bg-error hover:text-white';
 
 // Free resize handles — only shown for "free square" (rectangle_free) shapes
 const HANDLES: { direction: ResizeDirection; className: string; cursor: string }[] = [
@@ -48,7 +45,6 @@ const HANDLES: { direction: ResizeDirection; className: string; cursor: string }
 ];
 
 const ALIGN_ICONS = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
-const VALIGN_ICONS = { top: LuAlignStartVertical, middle: LuAlignCenterVertical, bottom: LuAlignEndVertical };
 
 export default function SelectionBox({
   layer,
@@ -65,15 +61,13 @@ export default function SelectionBox({
   const isText = layer.type === 'text';
   const isFreeSquare = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle_free';
   const textLayer = layer as TextLayer;
-  const handle = 'touch-none absolute h-6 w-6 rounded-full bg-layer-selected border-2 border-white shadow-lg';
+  const handle = 'touch-none absolute h-8 w-8 rounded-full bg-layer-selected border-2 border-white shadow-lg';
 
   // Current align + next in cycle
   const currentAlign = textLayer.align;
   const currentVAlign = textLayer.verticalAlign;
   const nextAlign = currentAlign === 'right' ? 'center' : currentAlign === 'center' ? 'left' : 'right';
-  const nextVAlign = currentVAlign === 'bottom' ? 'middle' : currentVAlign === 'middle' ? 'top' : 'bottom';
   const AlignIcon = ALIGN_ICONS[currentAlign];
-  const VAlignIcon = VALIGN_ICONS[currentVAlign];
 
   if (isText) {
     // Text layer — custom icon layout:
@@ -93,7 +87,7 @@ export default function SelectionBox({
       >
         {/* Edit — top-left */}
         {onEditText && (
-          <div className="pointer-events-auto absolute -top-14 -left-14">
+          <div className="pointer-events-auto absolute -top-16 -left-16">
             <button
               type="button"
               data-action="edit"
@@ -102,14 +96,14 @@ export default function SelectionBox({
               className={ICON_BTN}
               aria-label="Edit text"
             >
-              <LuPencil className="h-5 w-5" />
+              <LuPencil className="h-8 w-8" />
             </button>
           </div>
         )}
 
         {/* Align — top-center */}
         {onAlign && (
-          <div className="pointer-events-auto absolute -top-14 left-1/2 -translate-x-1/2">
+          <div className="pointer-events-auto absolute -top-16 left-1/2 -translate-x-1/2">
             <button
               type="button"
               data-action="align"
@@ -118,14 +112,14 @@ export default function SelectionBox({
               className={ICON_BTN}
               aria-label="Align"
             >
-              <AlignIcon className="h-5 w-5" />
+              <AlignIcon className="h-8 w-8" />
             </button>
           </div>
         )}
 
         {/* Box width — top-right (drag to change box width on X axis) */}
         {onBoxWidthDragStart && (
-          <div className="pointer-events-auto absolute -top-14 -right-14">
+          <div className="pointer-events-auto absolute -top-16 -right-16">
             <button
               type="button"
               data-action="boxWidth"
@@ -133,7 +127,7 @@ export default function SelectionBox({
               className={cn(ICON_BTN, 'cursor-ew-resize active:cursor-grabbing')}
               aria-label="Change box width"
             >
-              <LuMoveHorizontal className="h-5 w-5" />
+              <LuMoveHorizontal className="h-8 w-8" />
             </button>
           </div>
         )}
@@ -144,10 +138,10 @@ export default function SelectionBox({
           data-action="delete"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onDelete}
-          className={cn(DELETE_BTN, 'pointer-events-auto absolute -bottom-14 -left-14')}
+          className={cn(DELETE_BTN, 'pointer-events-auto absolute -bottom-16 -left-16')}
           aria-label="Delete"
         >
-          <LuTrash2 className="h-5 w-5" />
+          <LuTrash2 className="h-8 w-8" />
         </button>
 
         {/* Duplicate — bottom-center */}
@@ -156,10 +150,10 @@ export default function SelectionBox({
           data-action="duplicate"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onDuplicate}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-14 left-1/2 -translate-x-1/2')}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 left-1/2 -translate-x-1/2')}
           aria-label="Duplicate"
         >
-          <LuCopy className="h-5 w-5" />
+          <LuCopy className="h-8 w-8" />
         </button>
 
         {/* Proportional resize — bottom-right */}
@@ -169,10 +163,10 @@ export default function SelectionBox({
           data-direction="se"
           data-mode="proportional"
           onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
-          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-14 -right-14 cursor-nwse-resize')}
+          className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -right-16 cursor-nwse-resize')}
           aria-label="Scale"
         >
-          <LuMaximize className="h-5 w-5" />
+          <LuMaximize className="h-8 w-8" />
         </button>
       </div>
     );
@@ -199,10 +193,10 @@ export default function SelectionBox({
         data-action="delete"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDelete}
-        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-16 -left-16')}
+        className={cn(DELETE_BTN, 'pointer-events-auto absolute -top-18 -left-18')}
         aria-label="Delete"
       >
-        <LuTrash2 className="h-7 w-7" />
+        <LuTrash2 className="h-8 w-8" />
       </button>
 
       {/* Duplicate — top-right */}
@@ -211,10 +205,10 @@ export default function SelectionBox({
         data-action="duplicate"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDuplicate}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-16 -right-16')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -top-18 -right-18')}
         aria-label="Duplicate"
       >
-        <LuCopy className="h-7 w-7" />
+        <LuCopy className="h-8 w-8" />
       </button>
 
       {/* Rotate — bottom-left */}
@@ -222,10 +216,10 @@ export default function SelectionBox({
         type="button"
         data-action="rotate"
         onPointerDown={onRotateStart}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -left-16 cursor-grab active:cursor-grabbing')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-18 -left-18 cursor-grab active:cursor-grabbing')}
         aria-label="Rotate"
       >
-        <LuRotateCw className="h-7 w-7" />
+        <LuRotateCw className="h-8 w-8" />
       </button>
 
       {/* Proportional resize — bottom-right (scales from center) */}
@@ -235,10 +229,10 @@ export default function SelectionBox({
         data-direction="se"
         data-mode="proportional"
         onPointerDown={(e) => onResizeStart?.(e, 'se', 'proportional')}
-        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-16 -right-16 cursor-nwse-resize')}
+        className={cn(ICON_BTN, 'pointer-events-auto absolute -bottom-18 -right-18 cursor-nwse-resize')}
         aria-label="Scale"
       >
-        <LuMaximize className="h-7 w-7" />
+        <LuMaximize className="h-8 w-8" />
       </button>
 
       {/* Free border handles — ONLY for "free square" (rectangle_free) shapes */}

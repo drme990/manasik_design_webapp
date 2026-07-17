@@ -24,7 +24,7 @@ export function buildTextLayer(options: {
     y = 50,
     text = '',
     fontSize = DEFAULT_FONT_SIZE,
-    fontFamily = ARABIC_SAFE_FONTS[0].id,
+    fontFamily = ARABIC_SAFE_FONTS[0].family,
     color = DEFAULT_COLOR,
     canvasWidth = 1080,
     canvasHeight = 1080
@@ -45,6 +45,7 @@ export function buildTextLayer(options: {
     name: 'نص',
     text,
     fontFamily,
+    fontWeight: ARABIC_SAFE_FONTS[0].weight,
     fontSize,
     color,
     bold: false,

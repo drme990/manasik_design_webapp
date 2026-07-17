@@ -25,6 +25,7 @@ export interface TextLayer extends BaseLayer {
   type: 'text';
   text: string;
   fontFamily: string;
+  fontWeight: number;
   fontSize: number;
   color: string;
   bold: boolean;

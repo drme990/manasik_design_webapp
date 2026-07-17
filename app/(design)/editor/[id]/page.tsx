@@ -9,7 +9,6 @@ import {
     LuType,
     LuImage,
     LuTrash2,
-    LuCopy,
     LuSave,
     LuLayers,
     LuUndo2,
@@ -18,31 +17,10 @@ import {
     LuText,
     LuDownload,
     LuPlus,
-    LuCrop,
-    LuFlipHorizontal,
-    LuFlipVertical,
-    LuLayoutGrid,
-    LuColumns3,
     LuPalette,
-    LuDroplet,
-    LuBold,
-    LuItalic,
-    LuSquare,
-    LuPenLine,
-    LuCircle,
-    LuAlignVerticalJustifyCenter,
-    LuAlignLeft,
-    LuAlignCenter,
-    LuAlignRight,
-    LuAlignStartVertical,
-    LuAlignCenterVertical,
-    LuAlignEndVertical,
-    LuALargeSmall,
-    LuArrowLeftRight,
-    LuArrowRightLeft,
-    LuLanguages,
+    LuLock,
+    LuLockOpen,
 } from 'react-icons/lu';
-import { TbBorderCorners } from "react-icons/tb";
 
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -51,6 +29,7 @@ import Drawer from '@/components/ui/Drawer';
 import ColorPickerDrawer from '@/components/ui/ColorPickerDrawer';
 import SliderField from '@/components/ui/SliderField';
 import Canvas from '@/components/editor/Canvas';
+import PropertiesBar, { PropButton, PropToggle } from '@/components/editor/PropertiesBar';
 import DraggableLayerList from '@/components/common/DraggableLayerList';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -68,6 +47,7 @@ import {
     cloneLayer,
 } from '@/lib/utils/layer-utils';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
+import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
@@ -93,73 +73,6 @@ function generateFieldId(project: Project): string {
         .filter((n) => !isNaN(n));
     const max = existing.length > 0 ? Math.max(...existing) : 0;
     return `field_${max + 1}`;
-}
-
-/* --- Mobile-style bar buttons: icon+value on top, label below --- */
-
-function PropButton({
-    label,
-    value,
-    swatch,
-    icon,
-    active,
-    onClick,
-}: {
-    label: string;
-    value?: string | number;
-    swatch?: string;
-    icon: React.ReactNode;
-    active?: boolean;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            onClick={onClick}
-            className={`flex w-16 shrink-0 flex-col items-center rounded-xl border px-1 py-2 transition-colors ${active
-                ? 'border-brand-primary bg-brand-primary text-primary-text'
-                : 'border-transparent text-foreground hover:bg-muted'
-                }`}
-        >
-            {/* Icon with optional color swatch */}
-            <div className="relative flex h-6 w-6 items-center justify-center mb-1.5">
-                {icon}
-                {swatch && (
-                    <span
-                        className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full border border-stroke rtl:right-auto rtl:-left-1"
-                        style={{ backgroundColor: swatch }}
-                    />
-                )}
-            </div>
-            <span className="text-[10px] font-medium leading-tight">{label}</span>
-        </button>
-    );
-}
-
-function PropToggle({
-    label,
-    icon,
-    active,
-    onClick,
-}: {
-    label: string;
-    icon: React.ReactNode;
-    active: boolean;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            onClick={onClick}
-            className={`flex w-16 shrink-0 flex-col items-center rounded-xl border px-1 py-2 transition-colors ${active
-                ? 'border-brand-primary bg-brand-primary text-primary-text'
-                : 'border-transparent text-foreground hover:bg-muted'
-                }`}
-        >
-            <div className="relative flex h-6 w-6 items-center justify-center mb-1.5">
-                {icon}
-            </div>
-            <span className="text-[10px] font-medium leading-tight">{label}</span>
-        </button>
-    );
 }
 
 /* --- Color picker helpers --- */
@@ -257,6 +170,7 @@ export default function EditorPage() {
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
+    const [freeDrag, setFreeDrag] = useState(false);
 
     // Close drawers when selection changes
     const skipDrawerResetRef = useRef(false);
@@ -1099,6 +1013,7 @@ export default function EditorPage() {
                                         onAlign={handleAlign}
                                         onVerticalAlign={handleVerticalAlign}
                                         onEditText={() => setTextEditDrawerOpen(true)}
+                                        freeDrag={freeDrag}
                                     />
                                 </div>
                             </div>
@@ -1130,6 +1045,12 @@ export default function EditorPage() {
                                         onClick={handleRemoveBackgroundImage}
                                     />
                                 )}
+                                <PropToggle
+                                    label={freeDrag ? t('freeDragOn') : t('freeDragOff')}
+                                    icon={freeDrag ? <LuLockOpen className="h-5 w-5" /> : <LuLock className="h-5 w-5" />}
+                                    active={freeDrag}
+                                    onClick={() => setFreeDrag(!freeDrag)}
+                                />
                             </div>
                         </div>
                     )}
@@ -1169,327 +1090,26 @@ export default function EditorPage() {
                         onChange={handleReplaceImage}
                     />
 
-                    {/* Properties bar — absolute bottom, mobile-style icon buttons */}
+                    {/* Properties bar */}
                     {selectedLayer && (
-                        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
-                            <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
-
-                                {/* Text layer */}
-                                {selectedLayer.type === 'text' && (() => {
-                                    const l = selectedLayer as TextLayer;
-                                    const alignIcons = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
-                                    const vAlignIcons = { top: LuAlignStartVertical, middle: LuAlignCenterVertical, bottom: LuAlignEndVertical };
-                                    const AlignIcon = alignIcons[l.align];
-                                    const VAlignIcon = vAlignIcons[l.verticalAlign];
-                                    const nextAlign: TextLayer['align'] = l.align === 'right' ? 'center' : l.align === 'center' ? 'left' : 'right';
-                                    const nextVAlign: TextLayer['verticalAlign'] = l.verticalAlign === 'bottom' ? 'middle' : l.verticalAlign === 'middle' ? 'top' : 'bottom';
-                                    return (
-                                        <>
-                                            <PropToggle
-                                                label={t('toolbars.text.text')}
-                                                icon={<LuPencil className="h-5 w-5" />}
-                                                active={textEditDrawerOpen}
-                                                onClick={() => setTextEditDrawerOpen(true)}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.text.color')}
-                                                swatch={l.color}
-                                                icon={<LuPalette className="h-5 w-5" />}
-                                                active={colorPickerProp === 'text.color'}
-                                                onClick={() => setColorPickerProp(colorPickerProp === 'text.color' ? null : 'text.color')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.text.font')}
-                                                value={l.fontFamily}
-                                                icon={<LuType className="h-5 w-5" />}
-                                                active={fontDrawerOpen}
-                                                onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.text.size')}
-                                                value={l.fontSize}
-                                                icon={<LuALargeSmall className="h-5 w-5" />}
-                                                active={activeProp === 'text.fontSize'}
-                                                onClick={() => setActiveProp(activeProp === 'text.fontSize' ? null : 'text.fontSize')}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.text.align')}
-                                                icon={<AlignIcon className="h-5 w-5" />}
-                                                active={false}
-                                                onClick={() => handleLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.text.vAlign')}
-                                                icon={<VAlignIcon className="h-5 w-5" />}
-                                                active={false}
-                                                onClick={() => handleLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.text.lineHeight')}
-                                                value={l.lineHeight}
-                                                icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
-                                                active={activeProp === 'text.lineHeight'}
-                                                onClick={() => setActiveProp(activeProp === 'text.lineHeight' ? null : 'text.lineHeight')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.text.opacity')}
-                                                value={`${Math.round(l.opacity * 100)}%`}
-                                                icon={<LuDroplet className="h-5 w-5" />}
-                                                active={activeProp === 'text.opacity'}
-                                                onClick={() => setActiveProp(activeProp === 'text.opacity' ? null : 'text.opacity')}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.text.bold')}
-                                                icon={<LuBold className="h-5 w-5" />}
-                                                active={l.bold}
-                                                onClick={() => handleLayerChange(l.id, { bold: !l.bold })}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.text.italic')}
-                                                icon={<LuItalic className="h-5 w-5" />}
-                                                active={l.italic}
-                                                onClick={() => handleLayerChange(l.id, { italic: !l.italic })}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.text.direction')}
-                                                icon={
-                                                    l.direction === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
-                                                        l.direction === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
-                                                            <LuLanguages className="h-5 w-5" />
-                                                }
-                                                active={false}
-                                                onClick={() => {
-                                                    const next = l.direction === 'auto' ? 'rtl' : l.direction === 'rtl' ? 'ltr' : 'auto';
-                                                    handleLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
-                                                }}
-                                            />
-                                        </>
-                                    );
-                                })()}
-
-                                {/* Image layer */}
-                                {selectedLayer.type === 'image' && (() => {
-                                    const l = selectedLayer as ImageLayer;
-                                    const isCollage = !!l.collage;
-                                    return (
-                                        <>
-                                            {isCollage ? (
-                                                <>
-                                                    {/* Collage: edit modal */}
-                                                    <PropToggle
-                                                        label={t('toolbars.image.collageEdit')}
-                                                        icon={<LuPencil className="h-5 w-5" />}
-                                                        active={false}
-                                                        onClick={() => setCollageEditOpen(true)}
-                                                    />
-                                                    {/* Collage: layout picker */}
-                                                    <PropButton
-                                                        label={t('toolbars.image.collageLayout')}
-                                                        icon={<LuLayoutGrid className="h-5 w-5" />}
-                                                        active={activeProp === 'image.collageLayout'}
-                                                        onClick={() => setActiveProp(activeProp === 'image.collageLayout' ? null : 'image.collageLayout')}
-                                                    />
-                                                    {/* Collage: gap between images */}
-                                                    <PropButton
-                                                        label={t('toolbars.image.collageGap')}
-                                                        value={l.collage?.gap ?? 4}
-                                                        icon={<LuColumns3 className="h-5 w-5" />}
-                                                        active={activeProp === 'image.collageGap'}
-                                                        onClick={() => setActiveProp(activeProp === 'image.collageGap' ? null : 'image.collageGap')}
-                                                    />
-                                                    {/* Collage: background color */}
-                                                    <PropButton
-                                                        label={t('toolbars.image.collageBg')}
-                                                        swatch={l.collage?.bgColor ?? '#000000'}
-                                                        icon={<LuPalette className="h-5 w-5" />}
-                                                        active={colorPickerProp === 'image.collageBg'}
-                                                        onClick={() => setColorPickerProp(colorPickerProp === 'image.collageBg' ? null : 'image.collageBg')}
-                                                    />
-                                                    {/* Collage: container rounded */}
-                                                    <PropButton
-                                                        label={t('toolbars.image.collageRounded')}
-                                                        value={l.collage?.containerRadius ?? 0}
-                                                        icon={<TbBorderCorners className="h-5 w-5" />}
-                                                        active={activeProp === 'image.collageRounded'}
-                                                        onClick={() => setActiveProp(activeProp === 'image.collageRounded' ? null : 'image.collageRounded')}
-                                                    />
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <PropToggle
-                                                        label={t('toolbars.image.replace')}
-                                                        icon={<LuImage className="h-5 w-5" />}
-                                                        active={false}
-                                                        onClick={() => replaceImageInputRef.current?.click()}
-                                                    />
-                                                    <PropButton
-                                                        label={t('toolbars.image.aspectRatio')}
-                                                        icon={<LuCrop className="h-5 w-5" />}
-                                                        active={activeProp === 'image.aspectRatio'}
-                                                        onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
-                                                    />
-                                                    <PropToggle
-                                                        label={t('toolbars.image.crop')}
-                                                        icon={<LuCrop className="h-5 w-5" />}
-                                                        active={false}
-                                                        onClick={() => setIsCropOpen(true)}
-                                                    />
-                                                </>
-                                            )}
-                                            <PropButton
-                                                label={t('toolbars.image.opacity')}
-                                                value={`${Math.round(l.opacity * 100)}%`}
-                                                icon={<LuDroplet className="h-5 w-5" />}
-                                                active={activeProp === 'image.opacity'}
-                                                onClick={() => setActiveProp(activeProp === 'image.opacity' ? null : 'image.opacity')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.image.borderRadius')}
-                                                value={l.borderRadius}
-                                                icon={<TbBorderCorners className="h-5 w-5" />}
-                                                active={activeProp === 'image.borderRadius'}
-                                                onClick={() => setActiveProp(activeProp === 'image.borderRadius' ? null : 'image.borderRadius')}
-                                            />
-                                            {!isCollage && (
-                                                <>
-                                                    <PropButton
-                                                        label={t('toolbars.image.borderWidth')}
-                                                        value={l.borderWidth}
-                                                        icon={<LuSquare className="h-5 w-5" />}
-                                                        active={activeProp === 'image.borderWidth'}
-                                                        onClick={() => setActiveProp(activeProp === 'image.borderWidth' ? null : 'image.borderWidth')}
-                                                    />
-                                                    <PropButton
-                                                        label={t('toolbars.image.borderColor')}
-                                                        swatch={l.borderColor}
-                                                        icon={<LuPalette className="h-5 w-5" />}
-                                                        active={colorPickerProp === 'image.borderColor'}
-                                                        onClick={() => setColorPickerProp(colorPickerProp === 'image.borderColor' ? null : 'image.borderColor')}
-                                                    />
-                                                    <PropToggle
-                                                        label={t('toolbars.image.flipHorizontal')}
-                                                        icon={<LuFlipHorizontal className="h-5 w-5" />}
-                                                        active={l.flipX}
-                                                        onClick={() => handleLayerChange(l.id, { flipX: !l.flipX })}
-                                                    />
-                                                    <PropToggle
-                                                        label={t('toolbars.image.flipVertical')}
-                                                        icon={<LuFlipVertical className="h-5 w-5" />}
-                                                        active={l.flipY}
-                                                        onClick={() => handleLayerChange(l.id, { flipY: !l.flipY })}
-                                                    />
-                                                </>
-                                            )}
-                                        </>
-                                    );
-                                })()}
-
-                                {/* Shape layer */}
-                                {selectedLayer.type === 'shape' && (() => {
-                                    const l = selectedLayer as ShapeLayer;
-                                    const filled = l.filled ?? true;
-                                    return (
-                                        <>
-                                            <PropButton
-                                                label={t('toolbars.shape.fillColor')}
-                                                swatch={l.fillColor}
-                                                icon={<LuPalette className="h-5 w-5" />}
-                                                active={colorPickerProp === 'shape.fillColor'}
-                                                onClick={() => setColorPickerProp(colorPickerProp === 'shape.fillColor' ? null : 'shape.fillColor')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.shape.strokeColor')}
-                                                swatch={l.strokeColor}
-                                                icon={<LuPenLine className="h-5 w-5" />}
-                                                active={colorPickerProp === 'shape.strokeColor'}
-                                                onClick={() => setColorPickerProp(colorPickerProp === 'shape.strokeColor' ? null : 'shape.strokeColor')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.shape.strokeWidth')}
-                                                value={l.strokeWidth}
-                                                icon={<LuSquare className="h-5 w-5" />}
-                                                active={activeProp === 'shape.strokeWidth'}
-                                                onClick={() => setActiveProp(activeProp === 'shape.strokeWidth' ? null : 'shape.strokeWidth')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.shape.opacity')}
-                                                value={`${Math.round(l.opacity * 100)}%`}
-                                                icon={<LuDroplet className="h-5 w-5" />}
-                                                active={activeProp === 'shape.opacity'}
-                                                onClick={() => setActiveProp(activeProp === 'shape.opacity' ? null : 'shape.opacity')}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.shape.filled')}
-                                                icon={
-                                                    <LuCircle
-                                                        className="h-5 w-5"
-                                                        fill={filled ? 'currentColor' : 'none'}
-                                                        strokeWidth={2}
-                                                    />
-                                                }
-                                                active={filled}
-                                                onClick={() => handleLayerChange(l.id, { filled: !filled })}
-                                            />
-                                            {(l.shape === 'rectangle' || l.shape === 'rectangle_free') && (
-                                                <PropButton
-                                                    label={t('toolbars.shape.cornerRadius')}
-                                                    value={l.cornerRadius || 0}
-                                                    icon={<TbBorderCorners className="h-5 w-5" />}
-                                                    active={activeProp === 'shape.cornerRadius'}
-                                                    onClick={() => setActiveProp(activeProp === 'shape.cornerRadius' ? null : 'shape.cornerRadius')}
-                                                />
-                                            )}
-                                        </>
-                                    );
-                                })()}
-
-                                {/* Dynamic field layer */}
-                                {selectedLayer.type === 'dynamic_field' && (() => {
-                                    const l = selectedLayer as DynamicFieldLayer;
-                                    return (
-                                        <>
-                                            <PropButton
-                                                label={t('toolbars.dynamicField.opacity')}
-                                                value={`${Math.round(l.opacity * 100)}%`}
-                                                icon={<LuDroplet className="h-5 w-5" />}
-                                                active={activeProp === 'df.opacity'}
-                                                onClick={() => setActiveProp(activeProp === 'df.opacity' ? null : 'df.opacity')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.dynamicField.strokeWidth')}
-                                                value={l.borderWidth ?? 0}
-                                                icon={<LuSquare className="h-5 w-5" />}
-                                                active={activeProp === 'df.strokeWidth'}
-                                                onClick={() => setActiveProp(activeProp === 'df.strokeWidth' ? null : 'df.strokeWidth')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.dynamicField.strokeColor')}
-                                                swatch={l.borderColor ?? '#cccccc'}
-                                                icon={<LuPalette className="h-5 w-5" />}
-                                                active={colorPickerProp === 'df.strokeColor'}
-                                                onClick={() => setColorPickerProp(colorPickerProp === 'df.strokeColor' ? null : 'df.strokeColor')}
-                                            />
-                                        </>
-                                    );
-                                })()}
-
-                                <div className="h-10 w-px shrink-0 bg-stroke" />
-
-                                {/* Actions */}
-                                <PropToggle
-                                    label={t('duplicate')}
-                                    icon={<LuCopy className="h-5 w-5" />}
-                                    active={false}
-                                    onClick={() => handleDuplicateLayer(selectedLayer.id)}
-                                />
-                                <PropToggle
-                                    label={t('delete')}
-                                    icon={<LuTrash2 className="h-5 w-5 text-error" />}
-                                    active={false}
-                                    onClick={() => handleDeleteLayer(selectedLayer.id)}
-                                />
-                            </div>
-                        </div>
+                        <PropertiesBar
+                            selectedLayer={selectedLayer}
+                            bottomBarRef={bottomBarRef}
+                            onLayerChange={handleLayerChange}
+                            activeProp={activeProp}
+                            setActiveProp={setActiveProp}
+                            colorPickerProp={colorPickerProp}
+                            setColorPickerProp={setColorPickerProp}
+                            fontDrawerOpen={fontDrawerOpen}
+                            setFontDrawerOpen={setFontDrawerOpen}
+                            textEditDrawerOpen={textEditDrawerOpen}
+                            setTextEditDrawerOpen={setTextEditDrawerOpen}
+                            setCollageEditOpen={setCollageEditOpen}
+                            setIsCropOpen={setIsCropOpen}
+                            replaceImageInputRef={replaceImageInputRef}
+                            onDuplicateLayer={handleDuplicateLayer}
+                            onDeleteLayer={handleDeleteLayer}
+                        />
                     )}
                 </div>
 
@@ -1908,15 +1528,15 @@ export default function EditorPage() {
                                 key={font.id}
                                 onClick={() => {
                                     if (selectedLayer) {
-                                        handleLayerChange(selectedLayer.id, { fontFamily: font.id } as Partial<AnyLayer>);
+                                        handleLayerChange(selectedLayer.id, { fontFamily: font.family, fontWeight: font.weight } as Partial<AnyLayer>);
                                     }
                                     setFontDrawerOpen(false);
                                 }}
-                                className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.id
+                                className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.family && (selectedLayer as TextLayer).fontWeight === font.weight
                                     ? 'border-brand-primary bg-brand-primary text-primary-text'
                                     : 'border-stroke bg-background text-foreground hover:bg-muted'
                                     }`}
-                                style={{ fontFamily: font.family }}
+                                style={{ fontFamily: resolveFontFamily(font.family), fontWeight: font.weight }}
                             >
                                 {font.name}
                             </button>
@@ -1940,7 +1560,8 @@ export default function EditorPage() {
                             onChange={(e) => handleLayerChange(selectedLayer.id, { text: e.target.value } as Partial<AnyLayer>, false)}
                             className="w-full rounded-xl border border-stroke bg-background px-4 py-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
                             style={{
-                                fontFamily: (selectedLayer as TextLayer).fontFamily,
+                                fontFamily: resolveFontFamily((selectedLayer as TextLayer).fontFamily),
+                                fontWeight: (selectedLayer as TextLayer).fontWeight || 400,
                                 minHeight: 120,
                                 resize: 'vertical',
                             }}

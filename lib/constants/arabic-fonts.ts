@@ -2,16 +2,16 @@ export interface FontDefinition {
   id: string;
   name: string;
   family: string;
+  weight: number;
   category: 'arabic' | 'english';
 }
 
 export const ARABIC_SAFE_FONTS: FontDefinition[] = [
-  { id: 'Tajawal', name: 'Tajawal', family: 'Tajawal', category: 'arabic' },
-  { id: 'IBM Plex Sans Arabic', name: 'IBM Plex Sans Arabic', family: 'IBM Plex Sans Arabic', category: 'arabic' },
-  { id: 'Cairo', name: 'Cairo', family: 'Cairo', category: 'arabic' },
-  { id: 'Almarai', name: 'Almarai', family: 'Almarai', category: 'arabic' },
-  { id: 'Amiri', name: 'Amiri', family: 'Amiri', category: 'arabic' },
-  { id: 'Reem Kufi', name: 'Reem Kufi', family: 'Reem Kufi', category: 'arabic' },
-  { id: 'El Messiri', name: 'El Messiri', family: 'El Messiri', category: 'arabic' },
-  { id: 'Vazirmatn', name: 'Vazirmatn', family: 'Vazirmatn', category: 'arabic' },
+  { id: 'Expo Arabic|700', name: 'Expo Arabic Bold', family: 'Expo Arabic', weight: 700, category: 'arabic' },
+  { id: 'Tajawal|700', name: 'Tajawal Bold', family: 'Tajawal', weight: 700, category: 'arabic' },
+  { id: 'Tajawal|400', name: 'Tajawal', family: 'Tajawal', weight: 400, category: 'arabic' },
+  { id: 'Tajawal|800', name: 'Tajawal Extra', family: 'Tajawal', weight: 800, category: 'arabic' },
+  { id: 'IBM Plex Sans Arabic|700', name: 'IBM Plex Bold', family: 'IBM Plex Sans Arabic', weight: 700, category: 'arabic' },
+  { id: 'IBM Plex Sans Arabic|400', name: 'IBM Plex', family: 'IBM Plex Sans Arabic', weight: 400, category: 'arabic' },
+  { id: 'IBM Plex Sans Arabic|500', name: 'IBM Plex Med', family: 'IBM Plex Sans Arabic', weight: 500, category: 'arabic' },
 ];
