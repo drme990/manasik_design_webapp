@@ -26,12 +26,6 @@ export interface CanvasProps {
   onEditText?: (id: string) => void;
 }
 
-function getOverlapArea(a: AnyLayer, b: AnyLayer): number {
-  const xOverlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
-  const yOverlap = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-  return xOverlap * yOverlap;
-}
-
 function capturePointer(e: React.PointerEvent) {
   const target = e.currentTarget as HTMLElement;
   try {
@@ -73,7 +67,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   forwardedRef
 ) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const lastSwapRef = useRef<number>(0);
 
   const setCanvasRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -242,26 +235,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       setShowCenterY(Math.abs(elemCenterX - canvasCenterX) < 5);
       setShowCenterX(Math.abs(elemCenterY - canvasCenterY) < 5);
     }
-
-    const currentLayer = layers.find((l) => l.id === layerId);
-    if (currentLayer && !currentLayer.locked) {
-      const draggedArea = currentLayer.width * currentLayer.height;
-      const now = Date.now();
-      if (now - lastSwapRef.current > 300) {
-        const overlapping = layers
-          .filter((l) => l.id !== layerId && l.visible && !l.locked)
-          .find((l) => {
-            const overlap = getOverlapArea({ ...currentLayer, x: newX, y: newY }, l);
-            return overlap > draggedArea * 0.5;
-          });
-        if (overlapping) {
-          onLayerChange(layerId, { zIndex: overlapping.zIndex }, false);
-          onLayerChange(overlapping.id, { zIndex: currentLayer.zIndex }, false);
-          lastSwapRef.current = now;
-        }
-      }
-    }
-  }, [onLayerChange, layers, width, height]);
+  }, [width, height]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return;
