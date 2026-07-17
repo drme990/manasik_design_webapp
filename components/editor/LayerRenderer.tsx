@@ -4,6 +4,7 @@ import { useRef, useLayoutEffect } from 'react';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
+import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import ShapeRenderer from './ShapeRenderer';
 
 export interface LayerRendererProps {
@@ -138,6 +139,61 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
 }
 
 function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: ImageLayer }) {
+  // Collage rendering
+  if (layer.collage) {
+    const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
+    const gap = layer.collage.gap ?? 4;
+    const bgColor = layer.collage.bgColor ?? '#000000';
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          borderRadius: 0,
+          border: 'none',
+          overflow: 'hidden',
+          backgroundColor: bgColor,
+          transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
+        }}
+        onPointerDown={onPointerDown}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {layout.cells.map((cellDef, i) => {
+          const cellUri = layer.collage!.cells[i]?.uri;
+          const cellW = cellDef.w * layer.width - gap;
+          const cellH = cellDef.h * layer.height - gap;
+          const cellX = cellDef.x * layer.width + gap / 2;
+          const cellY = cellDef.y * layer.height + gap / 2;
+          return (
+            <div
+              key={i}
+              className="absolute overflow-hidden bg-muted"
+              style={{
+                left: cellX,
+                top: cellY,
+                width: cellW,
+                height: cellH,
+                borderRadius: layer.borderRadius,
+              }}
+            >
+              {cellUri ? (
+                <img
+                  src={cellUri}
+                  alt={`collage ${i + 1}`}
+                  draggable={false}
+                  className="pointer-events-none h-full w-full select-none object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-muted" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Single image rendering
   return (
     <div
       className={className}

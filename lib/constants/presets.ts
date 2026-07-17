@@ -68,3 +68,103 @@ export function getPresetSize(category: string): typeof PRESET_SIZES[0] | undefi
 export function getAspectRatio(ratio: number): typeof ASPECT_RATIOS[0] | undefined {
     return ASPECT_RATIOS.find(ar => Math.abs(ar.ratio - ratio) < 0.01);
 }
+
+// Collage layouts — each layout splits the box into cells
+// Layouts support 2, 3, or 4 images
+export const COLLAGE_LAYOUTS = [
+    // 2 images
+    {
+        id: '2h', name: '2 أفقي', count: 2, cells: [
+            { x: 0, y: 0, w: 0.5, h: 1 },
+            { x: 0.5, y: 0, w: 0.5, h: 1 },
+        ]
+    },
+    {
+        id: '2v', name: '2 رأسي', count: 2, cells: [
+            { x: 0, y: 0, w: 1, h: 0.5 },
+            { x: 0, y: 0.5, w: 1, h: 0.5 },
+        ]
+    },
+    // 3 images
+    {
+        id: '3h', name: '3 أفقي', count: 3, cells: [
+            { x: 0, y: 0, w: 0.333, h: 1 },
+            { x: 0.333, y: 0, w: 0.334, h: 1 },
+            { x: 0.667, y: 0, w: 0.333, h: 1 },
+        ]
+    },
+    {
+        id: '3v', name: '3 رأسي', count: 3, cells: [
+            { x: 0, y: 0, w: 1, h: 0.333 },
+            { x: 0, y: 0.333, w: 1, h: 0.334 },
+            { x: 0, y: 0.667, w: 1, h: 0.333 },
+        ]
+    },
+    {
+        id: '3-1t-2b', name: '1 فوق + 2', count: 3, cells: [
+            { x: 0, y: 0, w: 1, h: 0.5 },
+            { x: 0, y: 0.5, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+        ]
+    },
+    {
+        id: '3-2t-1b', name: '2 فوق + 1', count: 3, cells: [
+            { x: 0, y: 0, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+            { x: 0, y: 0.5, w: 1, h: 0.5 },
+        ]
+    },
+    {
+        id: '3-1l-2r', name: '1 يسار + 2', count: 3, cells: [
+            { x: 0, y: 0, w: 0.5, h: 1 },
+            { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+        ]
+    },
+    {
+        id: '3-2l-1r', name: '2 يسار + 1', count: 3, cells: [
+            { x: 0, y: 0, w: 0.5, h: 0.5 },
+            { x: 0, y: 0.5, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0, w: 0.5, h: 1 },
+        ]
+    },
+    {
+        id: '3-big-left', name: 'كبير يسار', count: 3, cells: [
+            { x: 0, y: 0, w: 0.667, h: 1 },
+            { x: 0.667, y: 0, w: 0.333, h: 0.5 },
+            { x: 0.667, y: 0.5, w: 0.333, h: 0.5 },
+        ]
+    },
+    {
+        id: '3-big-right', name: 'كبير يمين', count: 3, cells: [
+            { x: 0, y: 0, w: 0.333, h: 0.5 },
+            { x: 0, y: 0.5, w: 0.333, h: 0.5 },
+            { x: 0.333, y: 0, w: 0.667, h: 1 },
+        ]
+    },
+    // 4 images
+    {
+        id: '4grid', name: '4 شبكي', count: 4, cells: [
+            { x: 0, y: 0, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+            { x: 0, y: 0.5, w: 0.5, h: 0.5 },
+            { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+        ]
+    },
+    {
+        id: '4h', name: '4 أفقي', count: 4, cells: [
+            { x: 0, y: 0, w: 0.25, h: 1 },
+            { x: 0.25, y: 0, w: 0.25, h: 1 },
+            { x: 0.5, y: 0, w: 0.25, h: 1 },
+            { x: 0.75, y: 0, w: 0.25, h: 1 },
+        ]
+    },
+    {
+        id: '4v', name: '4 رأسي', count: 4, cells: [
+            { x: 0, y: 0, w: 1, h: 0.25 },
+            { x: 0, y: 0.25, w: 1, h: 0.25 },
+            { x: 0, y: 0.5, w: 1, h: 0.25 },
+            { x: 0, y: 0.75, w: 1, h: 0.25 },
+        ]
+    },
+] as const;

@@ -117,6 +117,73 @@ export function buildImageLayer(options: {
   };
 }
 
+export function buildCollageLayer(options: {
+  uris: string[];
+  naturalSizes: { width: number; height: number }[];
+  layoutId: string;
+  canvasWidth: number;
+  canvasHeight: number;
+}): ImageLayer {
+  const { uris, naturalSizes, layoutId, canvasWidth, canvasHeight } = options;
+
+  // Box: 60% of canvas, matching project aspect
+  const projectRatio = canvasWidth / canvasHeight;
+  const boxSize = Math.min(canvasWidth, canvasHeight) * 0.6;
+  let boxW: number, boxH: number;
+  if (projectRatio >= 1) {
+    boxW = boxSize;
+    boxH = boxSize / projectRatio;
+  } else {
+    boxH = boxSize;
+    boxW = boxSize * projectRatio;
+  }
+
+  const cells = uris.map((uri, i) => ({
+    uri,
+    offsetX: 0,
+    offsetY: 0,
+    scale: 1,
+  }));
+
+  return {
+    id: generateId(),
+    type: 'image',
+    x: (canvasWidth - boxW) / 2,
+    y: (canvasHeight - boxH) / 2,
+    width: boxW,
+    height: boxH,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    visible: true,
+    locked: false,
+    name: 'كولاج',
+    uri: uris[0] || '',
+    originalUri: uris[0] || '',
+    originalNaturalWidth: naturalSizes[0]?.width ?? 1080,
+    originalNaturalHeight: naturalSizes[0]?.height ?? 1080,
+    naturalWidth: naturalSizes[0]?.width ?? 1080,
+    naturalHeight: naturalSizes[0]?.height ?? 1080,
+    maskWidth: boxW,
+    maskHeight: boxH,
+    offsetX: 0,
+    offsetY: 0,
+    imageScale: 1,
+    borderRadius: 0,
+    borderColor: DEFAULT_BORDER_COLOR,
+    borderWidth: 0,
+    flipX: false,
+    flipY: false,
+    collage: {
+      uris,
+      layout: layoutId,
+      cells,
+      gap: 4,
+      bgColor: '#000000',
+    },
+  };
+}
+
 export function buildShapeLayer(options: {
   shape: 'rectangle' | 'rectangle_free' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
   x?: number;

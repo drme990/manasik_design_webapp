@@ -21,6 +21,9 @@ import {
     LuCrop,
     LuFlipHorizontal,
     LuFlipVertical,
+    LuLayoutGrid,
+    LuArrowLeftRight,
+    LuColumns3,
     LuPalette,
     LuDroplet,
     LuBold,
@@ -57,13 +60,14 @@ import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/
 import {
     buildTextLayer,
     buildImageLayer,
+    buildCollageLayer,
     buildShapeLayer,
     buildDynamicFieldLayer,
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
-import { ASPECT_RATIOS } from '@/lib/constants/presets';
+import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -162,6 +166,7 @@ function PropToggle({
 const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
     'text.color': 'color',
     'image.borderColor': 'borderColor',
+    'image.collageBg': 'collageBg',
     'shape.fillColor': 'fillColor',
     'shape.strokeColor': 'strokeColor',
     'df.strokeColor': 'strokeColor',
@@ -170,6 +175,7 @@ const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
 const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
     'text.color': 'text',
     'image.borderColor': 'image',
+    'image.collageBg': 'image',
     'shape.fillColor': 'shape',
     'shape.strokeColor': 'shape',
     'df.strokeColor': 'dynamicField',
@@ -804,32 +810,70 @@ export default function EditorPage() {
 
     const handleFileSelect = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            if (!file || !project) return;
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0 || !project) return;
 
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const uri = event.target?.result as string;
-                const img = new Image();
-                img.onload = () => {
-                    // Set image box to match project canvas aspect ratio
-                    const projectRatio = project.canvasWidth / project.canvasHeight;
-                    const boxSize = Math.min(project.canvasWidth, project.canvasHeight) * 0.6;
-                    let boxW: number, boxH: number;
-                    if (projectRatio >= 1) {
-                        boxW = boxSize;
-                        boxH = boxSize / projectRatio;
-                    } else {
-                        boxH = boxSize;
-                        boxW = boxSize * projectRatio;
-                    }
+            // Project box dimensions (matching project aspect)
+            const projectRatio = project.canvasWidth / project.canvasHeight;
+            const boxSize = Math.min(project.canvasWidth, project.canvasHeight) * 0.6;
+            let boxW: number, boxH: number;
+            if (projectRatio >= 1) {
+                boxW = boxSize;
+                boxH = boxSize / projectRatio;
+            } else {
+                boxH = boxSize;
+                boxW = boxSize * projectRatio;
+            }
 
+            // Load all files to get URIs + natural sizes
+            const maxImages = Math.min(files.length, 4);
+            const promises = files.slice(0, maxImages).map((file) => {
+                return new Promise<{ uri: string; width: number; height: number }>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const uri = event.target?.result as string;
+                        const img = new Image();
+                        img.onload = () => resolve({ uri, width: img.naturalWidth, height: img.naturalHeight });
+                        img.src = uri;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(promises).then((results) => {
+                if (results.length === 1) {
+                    // Single image — normal image layer
+                    const { uri, width: nw, height: nh } = results[0];
                     const newLayer = buildImageLayer({
                         uri,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
+                        naturalWidth: nw,
+                        naturalHeight: nh,
                         x: (project.canvasWidth - boxW) / 2,
                         y: (project.canvasHeight - boxH) / 2,
+                        canvasWidth: project.canvasWidth,
+                        canvasHeight: project.canvasHeight,
+                    });
+                    newLayer.width = boxW;
+                    newLayer.height = boxH;
+                    newLayer.maskWidth = boxW;
+                    newLayer.maskHeight = boxH;
+                    newLayer.imageScale = Math.max(boxW / nw, boxH / nh) * 1.1;
+                    newLayer.zIndex = nextZIndex(project.layers);
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: [...prev.layers, newLayer],
+                    }));
+                    setSelectedLayerId(newLayer.id);
+                    setAddDrawerOpen(false);
+                } else {
+                    // Multiple images — collage layer
+                    const uris = results.map(r => r.uri);
+                    const naturalSizes = results.map(r => ({ width: r.width, height: r.height }));
+                    const layout = COLLAGE_LAYOUTS.find(l => l.count === uris.length) || COLLAGE_LAYOUTS[0];
+                    const newLayer = buildCollageLayer({
+                        uris,
+                        naturalSizes,
+                        layoutId: layout.id,
                         canvasWidth: project.canvasWidth,
                         canvasHeight: project.canvasHeight,
                     });
@@ -838,12 +882,8 @@ export default function EditorPage() {
                     newLayer.height = boxH;
                     newLayer.maskWidth = boxW;
                     newLayer.maskHeight = boxH;
-                    // Recalculate imageScale to cover the box
-                    newLayer.imageScale = Math.max(
-                        boxW / img.naturalWidth,
-                        boxH / img.naturalHeight
-                    ) * 1.1;
-
+                    newLayer.x = (project.canvasWidth - boxW) / 2;
+                    newLayer.y = (project.canvasHeight - boxH) / 2;
                     newLayer.zIndex = nextZIndex(project.layers);
                     updateProjectState((prev) => ({
                         ...prev,
@@ -851,10 +891,8 @@ export default function EditorPage() {
                     }));
                     setSelectedLayerId(newLayer.id);
                     setAddDrawerOpen(false);
-                };
-                img.src = uri;
-            };
-            reader.readAsDataURL(file);
+                }
+            });
             e.target.value = '';
         },
         [project, updateProjectState]
@@ -887,6 +925,43 @@ export default function EditorPage() {
             e.target.value = '';
         },
         [selectedLayerId, handleLayerChange]
+    );
+
+    // Swap the first two collage images
+    const handleCollageSwap = useCallback(
+        (layerId: string) => {
+            const current = projectRef.current;
+            if (!current) return;
+            const layer = current.layers.find(l => l.id === layerId);
+            if (!layer || layer.type !== 'image' || !layer.collage) return;
+            const cells = [...layer.collage.cells];
+            if (cells.length < 2) return;
+            // Rotate: shift all cells by 1 position
+            const first = cells[0];
+            for (let i = 0; i < cells.length - 1; i++) {
+                cells[i] = cells[i + 1];
+            }
+            cells[cells.length - 1] = first;
+            const newUris = cells.map(c => c.uri);
+            handleLayerChange(layerId, {
+                collage: { ...layer.collage, cells, uris: newUris },
+            } as Partial<AnyLayer>);
+        },
+        [handleLayerChange]
+    );
+
+    // Change collage layout (only between layouts with the same image count)
+    const handleCollageLayoutChange = useCallback(
+        (layerId: string, layoutId: string) => {
+            const current = projectRef.current;
+            if (!current) return;
+            const layer = current.layers.find(l => l.id === layerId);
+            if (!layer || layer.type !== 'image' || !layer.collage) return;
+            handleLayerChange(layerId, {
+                collage: { ...layer.collage, layout: layoutId },
+            } as Partial<AnyLayer>);
+        },
+        [handleLayerChange]
     );
 
     if (loading) {
@@ -1088,6 +1163,7 @@ export default function EditorPage() {
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
+                        multiple
                         className="hidden"
                         onChange={handleFileSelect}
                     />
@@ -1209,26 +1285,64 @@ export default function EditorPage() {
                                 {/* Image layer */}
                                 {selectedLayer.type === 'image' && (() => {
                                     const l = selectedLayer as ImageLayer;
+                                    const isCollage = !!l.collage;
                                     return (
                                         <>
-                                            <PropToggle
-                                                label={t('toolbars.image.replace')}
-                                                icon={<LuImage className="h-5 w-5" />}
-                                                active={false}
-                                                onClick={() => replaceImageInputRef.current?.click()}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.image.aspectRatio')}
-                                                icon={<LuCrop className="h-5 w-5" />}
-                                                active={activeProp === 'image.aspectRatio'}
-                                                onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.image.crop')}
-                                                icon={<LuCrop className="h-5 w-5" />}
-                                                active={false}
-                                                onClick={() => setIsCropOpen(true)}
-                                            />
+                                            {isCollage ? (
+                                                <>
+                                                    {/* Collage: layout picker */}
+                                                    <PropButton
+                                                        label={t('toolbars.image.collageLayout')}
+                                                        icon={<LuLayoutGrid className="h-5 w-5" />}
+                                                        active={activeProp === 'image.collageLayout'}
+                                                        onClick={() => setActiveProp(activeProp === 'image.collageLayout' ? null : 'image.collageLayout')}
+                                                    />
+                                                    {/* Collage: swap images */}
+                                                    <PropToggle
+                                                        label={t('toolbars.image.swapImages')}
+                                                        icon={<LuArrowLeftRight className="h-5 w-5" />}
+                                                        active={false}
+                                                        onClick={() => handleCollageSwap(l.id)}
+                                                    />
+                                                    {/* Collage: gap between images */}
+                                                    <PropButton
+                                                        label={t('toolbars.image.collageGap')}
+                                                        value={l.collage.gap ?? 4}
+                                                        icon={<LuColumns3 className="h-5 w-5" />}
+                                                        active={activeProp === 'image.collageGap'}
+                                                        onClick={() => setActiveProp(activeProp === 'image.collageGap' ? null : 'image.collageGap')}
+                                                    />
+                                                    {/* Collage: background color */}
+                                                    <PropButton
+                                                        label={t('toolbars.image.collageBg')}
+                                                        swatch={l.collage.bgColor ?? '#000000'}
+                                                        icon={<LuPalette className="h-5 w-5" />}
+                                                        active={colorPickerProp === 'image.collageBg'}
+                                                        onClick={() => setColorPickerProp(colorPickerProp === 'image.collageBg' ? null : 'image.collageBg')}
+                                                    />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <PropToggle
+                                                        label={t('toolbars.image.replace')}
+                                                        icon={<LuImage className="h-5 w-5" />}
+                                                        active={false}
+                                                        onClick={() => replaceImageInputRef.current?.click()}
+                                                    />
+                                                    <PropButton
+                                                        label={t('toolbars.image.aspectRatio')}
+                                                        icon={<LuCrop className="h-5 w-5" />}
+                                                        active={activeProp === 'image.aspectRatio'}
+                                                        onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
+                                                    />
+                                                    <PropToggle
+                                                        label={t('toolbars.image.crop')}
+                                                        icon={<LuCrop className="h-5 w-5" />}
+                                                        active={false}
+                                                        onClick={() => setIsCropOpen(true)}
+                                                    />
+                                                </>
+                                            )}
                                             <PropButton
                                                 label={t('toolbars.image.opacity')}
                                                 value={`${Math.round(l.opacity * 100)}%`}
@@ -1243,32 +1357,36 @@ export default function EditorPage() {
                                                 active={activeProp === 'image.borderRadius'}
                                                 onClick={() => setActiveProp(activeProp === 'image.borderRadius' ? null : 'image.borderRadius')}
                                             />
-                                            <PropButton
-                                                label={t('toolbars.image.borderWidth')}
-                                                value={l.borderWidth}
-                                                icon={<LuSquare className="h-5 w-5" />}
-                                                active={activeProp === 'image.borderWidth'}
-                                                onClick={() => setActiveProp(activeProp === 'image.borderWidth' ? null : 'image.borderWidth')}
-                                            />
-                                            <PropButton
-                                                label={t('toolbars.image.borderColor')}
-                                                swatch={l.borderColor}
-                                                icon={<LuPalette className="h-5 w-5" />}
-                                                active={colorPickerProp === 'image.borderColor'}
-                                                onClick={() => setColorPickerProp(colorPickerProp === 'image.borderColor' ? null : 'image.borderColor')}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.image.flipHorizontal')}
-                                                icon={<LuFlipHorizontal className="h-5 w-5" />}
-                                                active={l.flipX}
-                                                onClick={() => handleLayerChange(l.id, { flipX: !l.flipX })}
-                                            />
-                                            <PropToggle
-                                                label={t('toolbars.image.flipVertical')}
-                                                icon={<LuFlipVertical className="h-5 w-5" />}
-                                                active={l.flipY}
-                                                onClick={() => handleLayerChange(l.id, { flipY: !l.flipY })}
-                                            />
+                                            {!isCollage && (
+                                                <>
+                                                    <PropButton
+                                                        label={t('toolbars.image.borderWidth')}
+                                                        value={l.borderWidth}
+                                                        icon={<LuSquare className="h-5 w-5" />}
+                                                        active={activeProp === 'image.borderWidth'}
+                                                        onClick={() => setActiveProp(activeProp === 'image.borderWidth' ? null : 'image.borderWidth')}
+                                                    />
+                                                    <PropButton
+                                                        label={t('toolbars.image.borderColor')}
+                                                        swatch={l.borderColor}
+                                                        icon={<LuPalette className="h-5 w-5" />}
+                                                        active={colorPickerProp === 'image.borderColor'}
+                                                        onClick={() => setColorPickerProp(colorPickerProp === 'image.borderColor' ? null : 'image.borderColor')}
+                                                    />
+                                                    <PropToggle
+                                                        label={t('toolbars.image.flipHorizontal')}
+                                                        icon={<LuFlipHorizontal className="h-5 w-5" />}
+                                                        active={l.flipX}
+                                                        onClick={() => handleLayerChange(l.id, { flipX: !l.flipX })}
+                                                    />
+                                                    <PropToggle
+                                                        label={t('toolbars.image.flipVertical')}
+                                                        icon={<LuFlipVertical className="h-5 w-5" />}
+                                                        active={l.flipY}
+                                                        onClick={() => handleLayerChange(l.id, { flipY: !l.flipY })}
+                                                    />
+                                                </>
+                                            )}
                                         </>
                                     );
                                 })()}
@@ -1387,7 +1505,7 @@ export default function EditorPage() {
                             </button>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
-                                className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                             >
                                 <LuImage className="h-8 w-8 text-brand-primary" />
                                 <span className="text-sm font-medium text-foreground">{t('addImage')}</span>
@@ -1561,6 +1679,68 @@ export default function EditorPage() {
                                     </div>
                                 </div>
                             )}
+                            {/* Image: collage layout */}
+                            {activeProp === 'image.collageLayout' && (selectedLayer as ImageLayer).collage && (() => {
+                                const collage = (selectedLayer as ImageLayer).collage!;
+                                const imageCount = collage.uris.length;
+                                const availableLayouts = COLLAGE_LAYOUTS.filter(l => l.count === imageCount);
+                                return (
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium text-foreground">
+                                            {t('toolbars.image.collageLayout')}
+                                        </label>
+                                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                                            {availableLayouts.map((layout) => {
+                                                const isSelected = collage.layout === layout.id;
+                                                return (
+                                                    <button
+                                                        key={layout.id}
+                                                        onClick={() => handleCollageLayoutChange(selectedLayer.id, layout.id)}
+                                                        className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 text-center transition-colors ${isSelected
+                                                            ? 'border-brand-primary bg-brand-primary text-white'
+                                                            : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary hover:bg-brand-primary-light/10'
+                                                            }`}
+                                                    >
+                                                        {/* Mini layout preview */}
+                                                        <div className="relative h-12 w-12">
+                                                            {layout.cells.map((cell, i) => (
+                                                                <div
+                                                                    key={i}
+                                                                    className={`absolute rounded-sm border ${isSelected ? 'border-white/60 bg-white/30' : 'border-foreground/40 bg-foreground/10'}`}
+                                                                    style={{
+                                                                        left: `${cell.x * 100}%`,
+                                                                        top: `${cell.y * 100}%`,
+                                                                        width: `${cell.w * 100}%`,
+                                                                        height: `${cell.h * 100}%`,
+                                                                    }}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        <p className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-secondary'}`}>{layout.name}</p>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                            {/* Image: collage gap */}
+                            {activeProp === 'image.collageGap' && (selectedLayer as ImageLayer).collage && (() => {
+                                const collage = (selectedLayer as ImageLayer).collage!;
+                                return (
+                                    <SliderField
+                                        label={t('toolbars.image.collageGap')}
+                                        value={collage.gap ?? 4}
+                                        min={0}
+                                        max={40}
+                                        suffix="px"
+                                        onChange={(v) => handleLayerChange(selectedLayer.id, {
+                                            collage: { ...collage, gap: v },
+                                        } as Partial<AnyLayer>)}
+                                        onDragStart={startChangeTransaction}
+                                    />
+                                );
+                            })()}
                             {/* Image: opacity */}
                             {activeProp === 'image.opacity' && (
                                 <SliderField
@@ -1664,6 +1844,7 @@ export default function EditorPage() {
                         if (!colorPickerProp) return '#000000';
                         if (colorPickerProp === 'canvas.bg') return project?.backgroundColor ?? '#ffffff';
                         if (!selectedLayer) return '#000000';
+                        if (colorPickerProp === 'image.collageBg') return (selectedLayer as ImageLayer).collage?.bgColor ?? '#000000';
                         return getColorPickerValue(selectedLayer, colorPickerProp);
                     })()}
                     onChange={(c) => {
@@ -1673,6 +1854,15 @@ export default function EditorPage() {
                             return;
                         }
                         if (!selectedLayer) return;
+                        if (colorPickerProp === 'image.collageBg') {
+                            const imgLayer = selectedLayer as ImageLayer;
+                            if (imgLayer.collage) {
+                                handleLayerChange(selectedLayer.id, {
+                                    collage: { ...imgLayer.collage, bgColor: c },
+                                } as Partial<AnyLayer>);
+                            }
+                            return;
+                        }
                         handleLayerChange(selectedLayer.id, getColorPickerUpdate(colorPickerProp, c));
                     }}
                 />

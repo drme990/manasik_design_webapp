@@ -47,6 +47,8 @@ export interface ImageLayerCollage {
   uris: string[];
   layout: string;
   cells: ImageLayerCollageCell[];
+  gap: number;
+  bgColor: string;
 }
 
 export interface ImageLayer extends BaseLayer {
