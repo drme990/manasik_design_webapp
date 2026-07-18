@@ -2,12 +2,56 @@ import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } f
 import { generateId } from './id';
 import { ARABIC_SAFE_FONTS } from '../constants/arabic-fonts';
 
-// Default values
+// ─── Default values ──────────────────────────────────────────────────────────
+
+// Canvas / Project
+const DEFAULT_CANVAS_WIDTH = 1080;
+const DEFAULT_CANVAS_HEIGHT = 1350;       // 4:5 aspect ratio
+
+// Colors
+const DEFAULT_COLOR = '#000000';           // Text color
+const DEFAULT_FILL_COLOR = '#0A5C36';      // Shape fill (dark green)
+const DEFAULT_STROKE_COLOR = '#000000';    // Shape stroke
+const DEFAULT_BORDER_COLOR = '#000000';    // Image border
+
+// Font
 const DEFAULT_FONT_SIZE = 24;
-const DEFAULT_COLOR = '#000000';
-const DEFAULT_BORDER_COLOR = '#000000';
-const DEFAULT_FILL_COLOR = '#0A5C36';
-const DEFAULT_STROKE_COLOR = '#000000';
+const DEFAULT_FONT_WEIGHT = 400;           // ARABIC_SAFE_FONTS[0].weight
+const DEFAULT_LINE_HEIGHT = 1.3;
+
+// Layer sizing
+const TEXT_WIDTH_RATIO = 0.5;              // canvasWidth * 0.5
+const TEXT_HEIGHT_RATIO = 1.5;             // fontSize * 1.5
+const IMAGE_WIDTH_RATIO = 0.6;             // canvasWidth * 0.6
+const IMAGE_COVER_OVERFLOW = 1.1;          // imageScale * 1.1 (10% overflow for pan)
+const SHAPE_DEFAULT_SIZE = 200;            // 200×200 default
+const COLLAGE_BOX_RATIO = 0.6;             // min(canvasW, canvasH) * 0.6
+const DYNAMIC_FIELD_TEXT_WIDTH = 300;
+const DYNAMIC_FIELD_TEXT_HEIGHT_RATIO = 2; // fontSize * 2
+const DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE = 200;
+
+// Collage built defaults
+const COLLAGE_BUILT_GAP = 4;
+const COLLAGE_BUILT_BG_COLOR = '#000000';
+const COLLAGE_BUILT_CONTAINER_RADIUS = 0;
+
+// Color palette
+const COLOR_PALETTE = [
+  '#000000',
+  '#ffffff',
+  '#ef4444',
+  '#f97316',
+  '#f59e0b',
+  '#84cc16',
+  '#10b981',
+  '#06b6d4',
+  '#0ea5e9',
+  '#3b82f6',
+  '#6366f1',
+  '#8b5cf6',
+  '#d946ef',
+  '#f43f5e',
+];
 
 export function buildTextLayer(options: {
   x?: number;
@@ -26,8 +70,8 @@ export function buildTextLayer(options: {
     fontSize = DEFAULT_FONT_SIZE,
     fontFamily = ARABIC_SAFE_FONTS[0].family,
     color = DEFAULT_COLOR,
-    canvasWidth = 1080,
-    canvasHeight = 1080
+    canvasWidth = DEFAULT_CANVAS_WIDTH,
+    canvasHeight = DEFAULT_CANVAS_HEIGHT
   } = options;
 
   return {
@@ -35,8 +79,8 @@ export function buildTextLayer(options: {
     type: 'text',
     x,
     y,
-    width: canvasWidth * 0.5,
-    height: fontSize * 1.5,
+    width: canvasWidth * TEXT_WIDTH_RATIO,
+    height: fontSize * TEXT_HEIGHT_RATIO,
     rotation: 0,
     opacity: 1,
     zIndex: 1,
@@ -45,14 +89,14 @@ export function buildTextLayer(options: {
     name: 'نص',
     text,
     fontFamily,
-    fontWeight: ARABIC_SAFE_FONTS[0].weight,
+    fontWeight: DEFAULT_FONT_WEIGHT,
     fontSize,
     color,
     bold: false,
     italic: false,
     align: 'center',
     verticalAlign: 'middle',
-    lineHeight: 1.3,
+    lineHeight: DEFAULT_LINE_HEIGHT,
     direction: 'auto'
   };
 }
@@ -72,19 +116,19 @@ export function buildImageLayer(options: {
     naturalHeight,
     x = 50,
     y = 50,
-    canvasWidth = 1080,
-    canvasHeight = 1080
+    canvasWidth = DEFAULT_CANVAS_WIDTH,
+    canvasHeight = DEFAULT_CANVAS_HEIGHT
   } = options;
 
   // Default to 60% of canvas
-  const defaultMaskWidth = canvasWidth * 0.6;
+  const defaultMaskWidth = canvasWidth * IMAGE_WIDTH_RATIO;
   const defaultMaskHeight = (defaultMaskWidth / naturalWidth) * naturalHeight;
 
   // Calculate scale to cover the mask
   const imageScale = Math.max(
     defaultMaskWidth / naturalWidth,
     defaultMaskHeight / naturalHeight
-  ) * 1.1;
+  ) * IMAGE_COVER_OVERFLOW;
 
   return {
     id: generateId(),
@@ -129,7 +173,7 @@ export function buildCollageLayer(options: {
 
   // Box: 60% of canvas, matching project aspect
   const projectRatio = canvasWidth / canvasHeight;
-  const boxSize = Math.min(canvasWidth, canvasHeight) * 0.6;
+  const boxSize = Math.min(canvasWidth, canvasHeight) * COLLAGE_BOX_RATIO;
   let boxW: number, boxH: number;
   if (projectRatio >= 1) {
     boxW = boxSize;
@@ -179,9 +223,9 @@ export function buildCollageLayer(options: {
       uris,
       layout: layoutId,
       cells,
-      gap: 4,
-      bgColor: '#000000',
-      containerRadius: 0,
+      gap: COLLAGE_BUILT_GAP,
+      bgColor: COLLAGE_BUILT_BG_COLOR,
+      containerRadius: COLLAGE_BUILT_CONTAINER_RADIUS,
     },
   };
 }
@@ -201,8 +245,8 @@ export function buildShapeLayer(options: {
     shape = 'rectangle',
     x = 50,
     y = 50,
-    width = 200,
-    height = 200,
+    width = SHAPE_DEFAULT_SIZE,
+    height = SHAPE_DEFAULT_SIZE,
     fillColor = DEFAULT_FILL_COLOR,
     strokeColor = DEFAULT_STROKE_COLOR,
     strokeWidth = 2,
@@ -259,8 +303,8 @@ export function buildDynamicFieldLayer(options: {
     fontSize = DEFAULT_FONT_SIZE,
     color = DEFAULT_COLOR,
     placeholder = 'اسم العميل',
-    imageWidth = 200,
-    imageHeight = 200
+    imageWidth = DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE,
+    imageHeight = DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE
   } = options;
 
   return {
@@ -268,8 +312,8 @@ export function buildDynamicFieldLayer(options: {
     type: 'dynamic_field',
     x,
     y,
-    width: fieldType === 'image' ? imageWidth : 300,
-    height: fieldType === 'image' ? imageHeight : fontSize * 2,
+    width: fieldType === 'image' ? imageWidth : DYNAMIC_FIELD_TEXT_WIDTH,
+    height: fieldType === 'image' ? imageHeight : fontSize * DYNAMIC_FIELD_TEXT_HEIGHT_RATIO,
     rotation: 0,
     opacity: 1,
     zIndex: 1,
@@ -304,23 +348,7 @@ export function nextZIndex(layers: AnyLayer[]): number {
   return Math.max(...layers.map(l => l.zIndex)) + 1;
 }
 
-// Color palette for layer defaults
-export const COLOR_PALETTE = [
-  '#000000',
-  '#ffffff',
-  '#ef4444',
-  '#f97316',
-  '#f59e0b',
-  '#84cc16',
-  '#10b981',
-  '#06b6d4',
-  '#0ea5e9',
-  '#3b82f6',
-  '#6366f1',
-  '#8b5cf6',
-  '#d946ef',
-  '#f43f5e',
-];
+export { COLOR_PALETTE };
 
 export function getRandomColor(): string {
   return COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)];

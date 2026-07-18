@@ -123,7 +123,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const boxWidthStateRef = useRef(boxWidthState);
   boxWidthStateRef.current = boxWidthState;
 
-  // Drag state for height/width adjustment buttons on rectangle shapes
+  // Drag state for height/width adjustment buttons on shapes
   const [hwDragState, setHwDragState] = useState<{
     layerId: string;
     axis: 'height' | 'width';
@@ -166,6 +166,27 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const rotateStateRef = useRef(rotateState);
   rotateStateRef.current = rotateState;
 
+  // --- Two-finger pinch (zoom) + rotate gesture state ---
+  // Tracks active pointers to detect two-finger gestures on the selected layer.
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const [pinchState, setPinchState] = useState<{
+    layerId: string;
+    startDistance: number;
+    startAngle: number;       // angle between two fingers at gesture start
+    startRotation: number;    // layer rotation at start
+    startWidth: number;
+    startHeight: number;
+    startFontSize?: number;
+    startStrokeWidth?: number;
+    startImageScale?: number;
+    startBoxWidth?: number;
+    startScale: number;       // canvas zoom
+    centerX: number;          // layer center in canvas coords
+    centerY: number;
+  } | null>(null);
+  const pinchStateRef = useRef(pinchState);
+  pinchStateRef.current = pinchState;
+
   const startDrag = useCallback((clientX: number, clientY: number, layerId: string) => {
     const layer = layers.find((l) => l.id === layerId);
     if (!layer || layer.locked) return;
@@ -182,14 +203,50 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, [layers]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent, layerId: string) => {
-    if (!e.isPrimary) return;
     e.stopPropagation();
     e.preventDefault();
+    // Track all pointers for multi-touch gestures
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // If this is the second pointer on the same layer, start a pinch/rotate gesture
+    if (pointersRef.current.size === 2 && selectedLayerId === layerId) {
+      const layer = layers.find((l) => l.id === layerId);
+      if (!layer || layer.locked) return;
+      const pts = Array.from(pointersRef.current.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const startDistance = Math.hypot(dx, dy);
+      const startAngle = Math.atan2(dy, dx);
+
+      // Cancel any ongoing single-pointer drag
+      setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
+      capturePointer(e);
+      onLayerDragStart?.(layerId);
+
+      setPinchState({
+        layerId,
+        startDistance,
+        startAngle,
+        startRotation: layer.rotation,
+        startWidth: layer.width,
+        startHeight: layer.height,
+        startFontSize: layer.type === 'text' ? layer.fontSize : layer.type === 'dynamic_field' ? layer.fontSize : undefined,
+        startStrokeWidth: layer.type === 'shape' ? layer.strokeWidth : undefined,
+        startImageScale: layer.type === 'image' ? layer.imageScale : undefined,
+        startBoxWidth: layer.type === 'text' ? layer.boxWidth : undefined,
+        startScale: scaleRef.current,
+        centerX: layer.x + layer.width / 2,
+        centerY: layer.y + layer.height / 2,
+      });
+      return;
+    }
+
+    if (!e.isPrimary) return;
     capturePointer(e);
     onSelectLayer(layerId);
     onLayerDragStart?.(layerId);
     startDrag(e.clientX, e.clientY, layerId);
-  }, [onSelectLayer, onLayerDragStart, startDrag]);
+  }, [onSelectLayer, onLayerDragStart, startDrag, layers, selectedLayerId]);
 
   const handleBoxWidthDragStart = useCallback((e: React.PointerEvent) => {
     if (!e.isPrimary) return;
@@ -210,7 +267,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     });
   }, [selectedLayerId, layers, onLayerDragStart]);
 
-  // Drag start for height/width adjustment buttons (rectangle shapes only)
+  // Drag start for height/width adjustment buttons (all shapes)
   const handleHwDragStart = useCallback((e: React.PointerEvent, axis: 'height' | 'width') => {
     if (!e.isPrimary) return;
     e.stopPropagation();
@@ -354,6 +411,71 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Update tracked pointer position for multi-touch
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // --- Two-finger pinch + rotate ---
+    const pinch = pinchStateRef.current;
+    if (pinch && pointersRef.current.size >= 2) {
+      e.preventDefault();
+      const pts = Array.from(pointersRef.current.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const currentDistance = Math.hypot(dx, dy);
+      const currentAngle = Math.atan2(dy, dx);
+
+      // Scale factor from pinch distance
+      const scaleFactor = currentDistance / pinch.startDistance;
+      const newWidth = Math.max(10, pinch.startWidth * scaleFactor);
+      const newHeight = Math.max(10, pinch.startHeight * scaleFactor);
+
+      // Keep center fixed
+      const newX = pinch.centerX - newWidth / 2;
+      const newY = pinch.centerY - newHeight / 2;
+
+      // Rotation delta (degrees)
+      const angleDelta = (currentAngle - pinch.startAngle) * (180 / Math.PI);
+      let newRotation = pinch.startRotation + angleDelta;
+
+      // Magnetic snapping to 45° increments
+      const SNAP_THRESHOLD = 8; // degrees — how close before snapping
+      const snapped = Math.round(newRotation / 45) * 45;
+      if (Math.abs(newRotation - snapped) < SNAP_THRESHOLD) {
+        newRotation = snapped;
+      }
+
+      const updates: Partial<AnyLayer> = {
+        x: newX,
+        y: newY,
+        width: newWidth,
+        height: newHeight,
+        rotation: newRotation,
+      };
+
+      // Scale content proportionally (font size, stroke width, image scale, boxWidth)
+      if (pinch.startFontSize !== undefined) {
+        const newFontSize = Math.max(1, Math.round(pinch.startFontSize * scaleFactor));
+        (updates as Record<string, unknown>).fontSize = newFontSize;
+        if (pinch.startBoxWidth !== undefined) {
+          (updates as Record<string, unknown>).boxWidth = Math.max(20, pinch.startBoxWidth * scaleFactor);
+        } else {
+          delete (updates as Record<string, unknown>).width;
+          delete (updates as Record<string, unknown>).height;
+        }
+      }
+      if (pinch.startStrokeWidth !== undefined) {
+        (updates as Record<string, unknown>).strokeWidth = Math.max(0, pinch.startStrokeWidth * scaleFactor);
+      }
+      if (pinch.startImageScale !== undefined) {
+        (updates as Record<string, unknown>).imageScale = Math.max(0.1, pinch.startImageScale * scaleFactor);
+      }
+
+      onLayerChangeRef.current(pinch.layerId, updates, false);
+      return;
+    }
+
     if (!e.isPrimary) return;
 
     const drag = dragStateRef.current;
@@ -488,6 +610,18 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   }, [updateLayerPosition]);
 
   const handlePointerEnd = useCallback((e: React.PointerEvent) => {
+    // Remove pointer from tracking
+    pointersRef.current.delete(e.pointerId);
+
+    // If a pinch was active and one finger lifted, end the pinch
+    if (pinchStateRef.current) {
+      e.stopPropagation();
+      releasePointer(e);
+      setPinchState(null);
+      // Clear remaining pointers — the gesture is done
+      pointersRef.current.clear();
+    }
+
     if (dragStateRef.current.isDragging || resizeStateRef.current || rotateStateRef.current || boxWidthStateRef.current || hwDragStateRef.current) {
       e.stopPropagation();
       releasePointer(e);
@@ -500,6 +634,44 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     setShowCenterX(false);
     setShowCenterY(false);
   }, []);
+
+  // Canvas-level pointer down — tracks pointers that land on the canvas background
+  // (not on a layer). This enables two-finger pinch/rotate when the second finger
+  // touches the canvas while the first is on the selected layer.
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // If we already have a selected layer and this is the second pointer, start pinch
+    if (pointersRef.current.size === 2 && selectedLayerId) {
+      const layer = layers.find((l) => l.id === selectedLayerId);
+      if (!layer || layer.locked) return;
+      const pts = Array.from(pointersRef.current.values());
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const startDistance = Math.hypot(dx, dy);
+      const startAngle = Math.atan2(dy, dx);
+
+      setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
+      capturePointer(e);
+      onLayerDragStart?.(selectedLayerId);
+
+      setPinchState({
+        layerId: selectedLayerId,
+        startDistance,
+        startAngle,
+        startRotation: layer.rotation,
+        startWidth: layer.width,
+        startHeight: layer.height,
+        startFontSize: layer.type === 'text' ? layer.fontSize : layer.type === 'dynamic_field' ? layer.fontSize : undefined,
+        startStrokeWidth: layer.type === 'shape' ? layer.strokeWidth : undefined,
+        startImageScale: layer.type === 'image' ? layer.imageScale : undefined,
+        startBoxWidth: layer.type === 'text' ? layer.boxWidth : undefined,
+        startScale: scaleRef.current,
+        centerX: layer.x + layer.width / 2,
+        centerY: layer.y + layer.height / 2,
+      });
+    }
+  }, [selectedLayerId, layers, onLayerDragStart]);
 
   const sortedLayers = [...layers].sort((a, b) => a.zIndex - b.zIndex);
 
@@ -519,6 +691,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         backgroundPosition: 'center',
         touchAction: 'none',
       }}
+      onPointerDown={handleCanvasPointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}

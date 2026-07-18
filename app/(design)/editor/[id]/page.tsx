@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import { toJpeg } from 'html-to-image';
+import { ImageColorPicker } from 'react-image-color-picker';
 import {
     LuArrowLeft,
     LuType,
@@ -172,6 +173,11 @@ export default function EditorPage() {
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
     const [freeDrag, setFreeDrag] = useState(false);
     const eyeDropperReopenRef = useRef<string | null>(null);
+    // Mobile eye dropper fallback — shows a canvas snapshot overlay for tapping a color
+    const [mobileEyeDropper, setMobileEyeDropper] = useState<{
+        dataUrl: string;
+        onPick: (color: string) => void;
+    } | null>(null);
     const { savedColors, persistColor: addSavedColor, removeColor: removeSavedColor } = useSavedColors();
 
     // Close drawers when selection changes
@@ -909,19 +915,57 @@ export default function EditorPage() {
 
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
 
+    // Capture the canvas as a snapshot image for the mobile eye dropper fallback
+    const captureCanvasSnapshot = async (): Promise<string | null> => {
+        if (!canvasRef.current || !project) return null;
+        try {
+            // Temporarily hide selection for a clean snapshot
+            const prevSelection = selectedLayerId;
+            setSelectedLayerId(null);
+            setIsExporting(true);
+            await new Promise((r) => setTimeout(r, 100));
+            const dataUrl = await toJpeg(canvasRef.current, {
+                quality: 0.95,
+                backgroundColor: project.backgroundColor || '#ffffff',
+                pixelRatio: 1,
+            });
+            setIsExporting(false);
+            setSelectedLayerId(prevSelection);
+            return dataUrl;
+        } catch {
+            setIsExporting(false);
+            return null;
+        }
+    };
+
+    // Unified eye dropper — uses native API on desktop, canvas snapshot on mobile
+    const pickColor = async (onPick: (color: string) => void): Promise<void> => {
+        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+        if (EyeDropperAPI) {
+            try {
+                const eyeDropper = new EyeDropperAPI();
+                const result = await eyeDropper.open();
+                onPick(result.sRGBHex);
+            } catch {
+                // user cancelled
+            }
+        } else {
+            // Mobile fallback — capture canvas and show tap-to-pick overlay
+            const dataUrl = await captureCanvasSnapshot();
+            if (dataUrl) {
+                setMobileEyeDropper({ dataUrl, onPick });
+            }
+        }
+    };
+
     // Eye dropper: close drawer → pick color from screen → apply → reopen drawer
     const handleEyeDropper = async () => {
         const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
-        if (!EyeDropperAPI) return;
 
         eyeDropperReopenRef.current = colorPickerProp;
         setColorPickerProp(null);
 
-        try {
-            const eyeDropper = new EyeDropperAPI();
-            const result = await eyeDropper.open();
-            const pickedColor = result.sRGBHex;
-
+        const applyColor = (pickedColor: string) => {
             const prop = eyeDropperReopenRef.current;
             if (prop) {
                 if (prop === 'canvas.bg') {
@@ -939,30 +983,47 @@ export default function EditorPage() {
                     }
                 }
             }
-
             setColorPickerProp(eyeDropperReopenRef.current);
-        } catch {
-            if (eyeDropperReopenRef.current) {
-                setColorPickerProp(eyeDropperReopenRef.current);
-            }
-        } finally {
             eyeDropperReopenRef.current = null;
+        };
+
+        if (EyeDropperAPI) {
+            try {
+                const eyeDropper = new EyeDropperAPI();
+                const result = await eyeDropper.open();
+                applyColor(result.sRGBHex);
+            } catch {
+                if (eyeDropperReopenRef.current) {
+                    setColorPickerProp(eyeDropperReopenRef.current);
+                }
+                eyeDropperReopenRef.current = null;
+            }
+        } else {
+            // Mobile fallback
+            const dataUrl = await captureCanvasSnapshot();
+            if (dataUrl) {
+                setMobileEyeDropper({
+                    dataUrl,
+                    onPick: (color) => {
+                        applyColor(color);
+                    },
+                });
+            } else {
+                // Restore drawer if capture failed
+                if (eyeDropperReopenRef.current) {
+                    setColorPickerProp(eyeDropperReopenRef.current);
+                }
+                eyeDropperReopenRef.current = null;
+            }
         }
     };
 
     // Direct eye dropper for text color — no color picker drawer needed
     const handleTextEyeDropper = async () => {
-        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
-        if (!EyeDropperAPI || !selectedLayerId) return;
-
-        try {
-            const eyeDropper = new EyeDropperAPI();
-            const result = await eyeDropper.open();
-            const pickedColor = result.sRGBHex;
+        if (!selectedLayerId) return;
+        await pickColor((pickedColor) => {
             handleLayerChange(selectedLayerId, { color: pickedColor } as Partial<AnyLayer>);
-        } catch {
-            // user cancelled
-        }
+        });
     };
 
     return (
@@ -1558,50 +1619,6 @@ export default function EditorPage() {
                     )}
                 </Drawer>
 
-                {/* Eye dropper: close drawer → pick color from screen → apply → reopen drawer */}
-                {(() => {
-                    const handleEyeDropper = async () => {
-                        const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
-                        if (!EyeDropperAPI) return;
-
-                        eyeDropperReopenRef.current = colorPickerProp;
-                        setColorPickerProp(null);
-
-                        try {
-                            const eyeDropper = new EyeDropperAPI();
-                            const result = await eyeDropper.open();
-                            const pickedColor = result.sRGBHex;
-
-                            const prop = eyeDropperReopenRef.current;
-                            if (prop) {
-                                if (prop === 'canvas.bg') {
-                                    handleBackgroundColorChange(pickedColor);
-                                } else if (selectedLayer) {
-                                    if (prop === 'image.collageBg') {
-                                        const imgLayer = selectedLayer as ImageLayer;
-                                        if (imgLayer.collage) {
-                                            handleLayerChange(selectedLayer.id, {
-                                                collage: { ...imgLayer.collage, bgColor: pickedColor },
-                                            } as Partial<AnyLayer>);
-                                        }
-                                    } else {
-                                        handleLayerChange(selectedLayer.id, getColorPickerUpdate(prop, pickedColor));
-                                    }
-                                }
-                            }
-
-                            setColorPickerProp(eyeDropperReopenRef.current);
-                        } catch {
-                            if (eyeDropperReopenRef.current) {
-                                setColorPickerProp(eyeDropperReopenRef.current);
-                            }
-                        } finally {
-                            eyeDropperReopenRef.current = null;
-                        }
-                    };
-                    return null;
-                })()}
-
                 {/* Color picker drawer — handles all color properties (layers + canvas bg) */}
                 <ColorPickerDrawer
                     isOpen={!!colorPickerProp}
@@ -1673,10 +1690,21 @@ export default function EditorPage() {
                 {/* Text edit drawer — edit the text content */}
                 <Drawer
                     isOpen={textEditDrawerOpen}
-                    onClose={() => setTextEditDrawerOpen(false)}
+                    onClose={() => {
+                        // If the text layer has no text, remove it from the canvas
+                        if (selectedLayer && selectedLayer.type === 'text' && !(selectedLayer as TextLayer).text.trim()) {
+                            handleDeleteLayer(selectedLayer.id);
+                        }
+                        setTextEditDrawerOpen(false);
+                    }}
                     title={t('toolbars.text.text')}
                     height="auto"
-                    onDone={() => setTextEditDrawerOpen(false)}
+                    onDone={() => {
+                        if (selectedLayer && selectedLayer.type === 'text' && !(selectedLayer as TextLayer).text.trim()) {
+                            handleDeleteLayer(selectedLayer.id);
+                        }
+                        setTextEditDrawerOpen(false);
+                    }}
                     doneLabel={uiT('done')}
                 >
                     {selectedLayer && selectedLayer.type === 'text' && (
@@ -1738,6 +1766,48 @@ export default function EditorPage() {
                         layer={selectedLayer as ImageLayer}
                         onUpdate={(updates) => handleLayerChange(selectedLayer.id, updates)}
                     />
+                )}
+
+                {/* Mobile eye dropper fallback — uses react-image-color-picker for touch-friendly color picking */}
+                {mobileEyeDropper && (
+                    <div className="fixed inset-0 z-100 flex flex-col items-center justify-center bg-black/90 p-4">
+                        <p className="mb-3 text-center text-sm text-white/80">
+                            {t('toolbars.text.eyeDropper')}
+                        </p>
+                        <div className="max-h-[75vh] max-w-full overflow-hidden rounded-lg shadow-2xl">
+                            <ImageColorPicker
+                                imgSrc={mobileEyeDropper.dataUrl}
+                                zoom={1}
+                                onColorPick={(color: string) => {
+                                    // Library returns "rgb(r, g, b)" — convert to hex
+                                    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                                    if (match) {
+                                        const hex = '#' + [match[1], match[2], match[3]]
+                                            .map((v) => parseInt(v).toString(16).padStart(2, '0'))
+                                            .join('');
+                                        mobileEyeDropper.onPick(hex);
+                                    } else if (color.startsWith('#')) {
+                                        mobileEyeDropper.onPick(color);
+                                    }
+                                    setMobileEyeDropper(null);
+                                }}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setMobileEyeDropper(null);
+                                // Restore color picker drawer if it was open
+                                if (eyeDropperReopenRef.current) {
+                                    setColorPickerProp(eyeDropperReopenRef.current);
+                                    eyeDropperReopenRef.current = null;
+                                }
+                            }}
+                            className="mt-4 rounded-lg bg-white/20 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-white/30"
+                        >
+                            {uiT('cancel')}
+                        </button>
+                    </div>
                 )}
             </div>
         </DndProvider>

@@ -77,7 +77,7 @@ export default function SelectionBox({
   const offsetLg = (isDesktop ? BTN_SIZE_DESKTOP + 8 : BTN_OFFSET_LG) * s;
 
   const isText = layer.type === 'text';
-  const isRectangle = layer.type === 'shape' && (layer as ShapeLayer).shape === 'rectangle';
+  const isShape = layer.type === 'shape';
   const textLayer = layer as TextLayer;
 
   // Current align + next in cycle
@@ -263,8 +263,8 @@ export default function SelectionBox({
         <LuMaximize className={iconClass} style={iconStyle} />
       </button>
 
-      {/* Increase height — top-center (rectangle only, drag up/down) */}
-      {isRectangle && onHeightDragStart && (
+      {/* Increase height — top-center (all shapes, drag up/down) */}
+      {isShape && onHeightDragStart && (
         <button
           type="button"
           data-action="increaseHeight"
@@ -277,8 +277,8 @@ export default function SelectionBox({
         </button>
       )}
 
-      {/* Increase width — right-center (rectangle only, drag left/right) */}
-      {isRectangle && onWidthDragStart && (
+      {/* Increase width — right-center (all shapes, drag left/right) */}
+      {isShape && onWidthDragStart && (
         <button
           type="button"
           data-action="increaseWidth"
