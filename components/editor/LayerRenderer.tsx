@@ -188,7 +188,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   );
 }
 
-function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: ImageLayer }) {
+function ImageLayerComponent({ layer, className, style, onPointerDown, onDoubleClick }: LayerComponentProps & { layer: ImageLayer }) {
   // Collage rendering
   if (layer.collage) {
     const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
@@ -207,6 +207,7 @@ function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerCo
           transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
         }}
         onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
         onClick={(e) => e.stopPropagation()}
       >
         {layout.cells.map((cellDef, i) => {
@@ -260,6 +261,7 @@ function ImageLayerComponent({ layer, className, style, onPointerDown }: LayerCo
         transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
       }}
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
       onClick={(e) => e.stopPropagation()}
     >
       <img

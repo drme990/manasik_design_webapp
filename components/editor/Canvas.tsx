@@ -24,6 +24,8 @@ export interface CanvasProps {
   onAlign?: (align: 'left' | 'center' | 'right') => void;
   onVerticalAlign?: (align: 'top' | 'middle' | 'bottom') => void;
   onEditText?: (id: string) => void;
+  onCropImage?: (id: string) => void;
+  onEditCollage?: (id: string) => void;
   freeDrag?: boolean;
 }
 
@@ -64,6 +66,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     onAlign,
     onVerticalAlign,
     onEditText,
+    onCropImage,
+    onEditCollage,
     freeDrag = false,
   }: CanvasProps,
   forwardedRef
@@ -84,6 +88,14 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   onLayerChangeRef.current = onLayerChange;
   const freeDragRef = useRef(freeDrag);
   freeDragRef.current = freeDrag;
+  const onCropImageRef = useRef(onCropImage);
+  onCropImageRef.current = onCropImage;
+  const onEditCollageRef = useRef(onEditCollage);
+  onEditCollageRef.current = onEditCollage;
+
+  // Double-tap detection for mobile — tracks last tap time + layer id
+  const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+  const DOUBLE_TAP_MS = 300;
 
   const setCanvasRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -207,6 +219,25 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     e.preventDefault();
     // Track all pointers for multi-touch gestures
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Double-tap detection (mobile-friendly — fires faster than onDoubleClick)
+    const now = Date.now();
+    const lastTap = lastTapRef.current;
+    if (lastTap && lastTap.id === layerId && now - lastTap.time < DOUBLE_TAP_MS) {
+      // Double tap detected — open crop or collage editor
+      lastTapRef.current = null;
+      const layer = layers.find((l) => l.id === layerId);
+      if (layer?.type === 'image') {
+        const imgLayer = layer as import('@/types').ImageLayer;
+        if (imgLayer.collage) {
+          onEditCollageRef.current?.(layerId);
+        } else {
+          onCropImageRef.current?.(layerId);
+        }
+      }
+      return;
+    }
+    lastTapRef.current = { id: layerId, time: now };
 
     // If this is the second pointer on the same layer, start a pinch/rotate gesture
     if (pointersRef.current.size === 2 && selectedLayerId === layerId) {
@@ -711,7 +742,16 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           onPointerDown={(e) => handlePointerDown(e, layer.id)}
           onLayerChange={onLayerChange}
           onDoubleClick={() => {
-            if (layer.type === 'text' && onEditText) onEditText(layer.id);
+            if (layer.type === 'text' && onEditText) {
+              onEditText(layer.id);
+            } else if (layer.type === 'image') {
+              const imgLayer = layer as import('@/types').ImageLayer;
+              if (imgLayer.collage && onEditCollage) {
+                onEditCollage(layer.id);
+              } else if (!imgLayer.collage && onCropImage) {
+                onCropImage(layer.id);
+              }
+            }
           }}
         />
       ))}

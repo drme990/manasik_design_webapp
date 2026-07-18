@@ -12,7 +12,9 @@ export interface ImageCropModalProps {
   imageUri: string;
   naturalWidth: number;
   naturalHeight: number;
-  onApply: (croppedUri: string, newWidth: number, newHeight: number) => void;
+  /** Last crop area in original image pixel coords — restored on open */
+  lastCropRect?: { x: number; y: number; width: number; height: number } | null;
+  onApply: (croppedUri: string, newWidth: number, newHeight: number, cropRect: { x: number; y: number; width: number; height: number }) => void;
 }
 
 interface CropRect {
@@ -32,6 +34,7 @@ export default function ImageCropModal({
   imageUri,
   naturalWidth,
   naturalHeight,
+  lastCropRect,
   onApply,
 }: ImageCropModalProps) {
   const t = useTranslations('editor.modals.imageCrop');
@@ -68,18 +71,34 @@ export default function ImageCropModal({
     const w = img.offsetWidth;
     const h = img.offsetHeight;
     setDisplaySize({ width: w, height: h });
-    const cropW = w * 0.8;
-    const cropH = h * 0.8;
-    const newCrop = {
-      x: (w - cropW) / 2,
-      y: (h - cropH) / 2,
-      width: cropW,
-      height: cropH,
-    };
-    setCrop(newCrop);
-    cropRef.current = newCrop;
+
+    // Restore last crop area if available (convert from original pixel coords to display coords)
+    if (lastCropRect && naturalWidth > 0 && naturalHeight > 0) {
+      const scaleX = w / naturalWidth;
+      const scaleY = h / naturalHeight;
+      const newCrop = {
+        x: lastCropRect.x * scaleX,
+        y: lastCropRect.y * scaleY,
+        width: lastCropRect.width * scaleX,
+        height: lastCropRect.height * scaleY,
+      };
+      setCrop(newCrop);
+      cropRef.current = newCrop;
+    } else {
+      // Default: 80% centered
+      const cropW = w * 0.8;
+      const cropH = h * 0.8;
+      const newCrop = {
+        x: (w - cropW) / 2,
+        y: (h - cropH) / 2,
+        width: cropW,
+        height: cropH,
+      };
+      setCrop(newCrop);
+      cropRef.current = newCrop;
+    }
     setImgLoaded(true);
-  }, []);
+  }, [lastCropRect, naturalWidth, naturalHeight]);
 
   const getRelativePos = (clientX: number, clientY: number) => {
     if (!imgRef.current) return { x: 0, y: 0 };
@@ -208,7 +227,13 @@ export default function ImageCropModal({
     img.onload = () => {
       ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
       const dataUri = canvas.toDataURL('image/png');
-      onApply(dataUri, canvas.width, canvas.height);
+      // Pass crop rect in original image pixel coords so it can be saved & restored
+      onApply(dataUri, canvas.width, canvas.height, {
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
+      });
       onClose();
     };
     img.src = imageUri;

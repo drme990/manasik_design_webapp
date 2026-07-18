@@ -651,7 +651,7 @@ export default function EditorPage() {
     );
 
     const handleCropApply = useCallback(
-        (croppedUri: string, newWidth: number, newHeight: number) => {
+        (croppedUri: string, newWidth: number, newHeight: number, cropRect: { x: number; y: number; width: number; height: number }) => {
             if (!selectedLayerId) return;
             const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
             if (!layer || layer.type !== 'image') return;
@@ -678,6 +678,8 @@ export default function EditorPage() {
                 originalUri: imgLayer.originalUri || imgLayer.uri,
                 originalNaturalWidth: imgLayer.originalNaturalWidth || imgLayer.naturalWidth,
                 originalNaturalHeight: imgLayer.originalNaturalHeight || imgLayer.naturalHeight,
+                // Save crop rect so re-opening the crop modal restores the same area
+                cropRect,
             } as Partial<AnyLayer>);
         },
         [selectedLayerId, handleLayerChange]
@@ -1236,6 +1238,8 @@ export default function EditorPage() {
                                         onAlign={handleAlign}
                                         onVerticalAlign={handleVerticalAlign}
                                         onEditText={() => setTextEditDrawerOpen(true)}
+                                        onCropImage={() => setIsCropOpen(true)}
+                                        onEditCollage={() => setCollageEditOpen(true)}
                                         freeDrag={freeDrag}
                                     />
                                 </div>
@@ -1825,6 +1829,7 @@ export default function EditorPage() {
                         imageUri={(selectedLayer as ImageLayer).originalUri || (selectedLayer as ImageLayer).uri}
                         naturalWidth={(selectedLayer as ImageLayer).originalNaturalWidth || (selectedLayer as ImageLayer).naturalWidth}
                         naturalHeight={(selectedLayer as ImageLayer).originalNaturalHeight || (selectedLayer as ImageLayer).naturalHeight}
+                        lastCropRect={(selectedLayer as ImageLayer).cropRect}
                         onApply={handleCropApply}
                     />
                 )}

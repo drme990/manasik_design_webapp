@@ -60,6 +60,8 @@ export interface ImageLayer extends BaseLayer {
   originalUri?: string;
   originalNaturalWidth?: number;
   originalNaturalHeight?: number;
+  /** Last crop area (in original image pixel coordinates) — restored when re-opening crop */
+  cropRect?: { x: number; y: number; width: number; height: number };
   naturalWidth: number;
   naturalHeight: number;
   maskWidth: number;
