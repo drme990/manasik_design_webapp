@@ -229,6 +229,10 @@
     "redo": "إعادة",
     "renameProject": "إعادة تسمية التصميم",
     "renameProjectPlaceholder": "اسم التصميم",
+    "unsavedChangesTitle": "تغييرات غير محفوظة",
+    "unsavedChangesDescription": "لديك تغييرات غير محفوظة. هل تريد الحفظ قبل المغادرة؟",
+    "saveAndLeave": "حفظ والمغادرة",
+    "leaveWithoutSaving": "مغادرة بدون حفظ",
     "selectLayer": "اختر طبقة لتحرير خصائصها",
     "toolbars": {
       "text": {

@@ -37,7 +37,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
-import { getProject, updateProjectLocal, saveProject, syncProject } from '@/lib/store/projects';
+import { getProject, updateProjectLocal, saveProject, syncProject, recoverFromMirror } from '@/lib/store/projects';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -126,6 +126,8 @@ export default function EditorPage() {
     const [project, setProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     const [history, setHistory] = useState<{ past: AnyLayer[][]; future: AnyLayer[][] }>({
@@ -200,9 +202,12 @@ export default function EditorPage() {
 
     // Load the project
     useEffect(() => {
-        getProject(id).then((p) => {
-            setProject(p);
-            setLoading(false);
+        // Recover any data from localStorage mirror (in case IndexedDB lost data)
+        recoverFromMirror().finally(() => {
+            getProject(id).then((p) => {
+                setProject(p);
+                setLoading(false);
+            });
         });
     }, [id]);
 
@@ -247,10 +252,14 @@ export default function EditorPage() {
     const pendingPersistRef = useRef<Project | null>(null);
     const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasUnsavedRef = useRef(false);
 
+    // Save to IndexedDB + localStorage mirror (debounced, skips during transactions)
     const saveLocal = useCallback(async (projectToSave: Project) => {
         try {
             await saveProject(projectToSave);
+            // Don't clear hasUnsavedRef here — only clear after API sync
+            // The orange dot stays until the 10s sync interval pushes to the API
         } catch (error) {
             console.error('Failed to save project locally:', error);
         }
@@ -259,14 +268,16 @@ export default function EditorPage() {
     const persistProject = useCallback(
         (updated: Project) => {
             pendingPersistRef.current = updated;
+            hasUnsavedRef.current = true;
+            setHasUnsavedChanges(true);
 
-            // If inside a transaction (slider drag, color picker drag, etc.),
-            // don't save until the transaction ends.
+            // If inside a transaction (drag, slider, etc.), don't save intermediate
+            // states — only save the final state when the transaction ends.
             if (inTransactionRef.current) {
                 return;
             }
 
-            // Debounce the local save so rapid changes don't spam storage/API
+            // Debounce: rapid changes (e.g. typing) only save the last state
             if (saveDebounceRef.current) {
                 clearTimeout(saveDebounceRef.current);
             }
@@ -276,11 +287,12 @@ export default function EditorPage() {
                 if (current) {
                     saveLocal(current);
                 }
-            }, 500);
+            }, 300);
         },
         [saveLocal]
     );
 
+    // Force save + sync to API immediately (used by the Save button)
     const flushPersist = useCallback(async (updated: Project) => {
         pendingPersistRef.current = null;
         if (saveDebounceRef.current) {
@@ -292,8 +304,51 @@ export default function EditorPage() {
         if (projectRef.current) {
             await syncProject(projectRef.current.id);
         }
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
         setSaving(false);
     }, [saveLocal]);
+
+    // Save and navigate away — used by the "Save & Leave" button in the modal
+    const doSaveAndLeave = useCallback(() => {
+        const current = pendingPersistRef.current || projectRef.current;
+        if (current) {
+            if (saveDebounceRef.current) {
+                clearTimeout(saveDebounceRef.current);
+                saveDebounceRef.current = null;
+            }
+            pendingPersistRef.current = null;
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+            saveProject(current).catch(() => { });
+            syncProject(current.id).catch(() => { });
+        }
+        // Use replace so the dummy history state from the back-button guard
+        // doesn't stay in the browser history stack
+        router.replace('/projects');
+    }, [router]);
+
+    // Leave without saving — discard pending changes
+    const doLeaveWithoutSaving = useCallback(() => {
+        if (saveDebounceRef.current) {
+            clearTimeout(saveDebounceRef.current);
+            saveDebounceRef.current = null;
+        }
+        pendingPersistRef.current = null;
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        router.replace('/projects');
+    }, [router]);
+
+    // Check for unsaved changes before navigating — shows confirmation modal if dirty
+    // Used by in-app back/navigation buttons
+    const handleNavigateBack = useCallback(() => {
+        if (hasUnsavedRef.current) {
+            setShowUnsavedModal(true);
+        } else {
+            router.push('/projects');
+        }
+    }, [router]);
 
     const handleExportJpg = useCallback(async () => {
         if (!canvasRef.current || !project) return;
@@ -353,8 +408,17 @@ export default function EditorPage() {
         syncIntervalRef.current = setInterval(async () => {
             const currentId = projectRef.current?.id;
             if (!currentId) return;
+            // Only sync if there are unsaved changes — avoid unnecessary API calls
+            if (!hasUnsavedRef.current) return;
+            // Snapshot the pending project so we can check if it changed during sync
+            const snapshot = pendingPersistRef.current || projectRef.current;
             setSaving(true);
             await syncProject(currentId);
+            // Only clear unsaved flag if no new changes happened during the sync
+            if (pendingPersistRef.current === snapshot || pendingPersistRef.current === null) {
+                hasUnsavedRef.current = false;
+                setHasUnsavedChanges(false);
+            }
             setSaving(false);
         }, SYNC_INTERVAL_MS);
 
@@ -476,21 +540,36 @@ export default function EditorPage() {
         };
 
         window.addEventListener('keydown', handleKeyDown);
-        const flushBeforeLeave = () => {
-            const current = pendingPersistRef.current || projectRef.current;
-            if (!current) return;
-            saveProject(current).catch((err) =>
-                console.error('Failed to save project locally before leaving:', err)
-            );
-            syncProject(current.id).catch((err) =>
-                console.error('Failed to sync project before leaving:', err)
-            );
+        // beforeunload — desktop: trigger native browser confirmation if unsaved changes
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasUnsavedRef.current) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
         };
-        window.addEventListener('beforeunload', flushBeforeLeave);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        // Intercept browser/phone back button — push a dummy state so we can
+        // catch the popstate event and show our custom confirmation modal
+        // instead of navigating away immediately.
+        window.history.pushState({ editorGuard: true }, '');
+        const handlePopState = (e: PopStateEvent) => {
+            if (hasUnsavedRef.current) {
+                // Re-push the guard state so the next back press is also caught
+                window.history.pushState({ editorGuard: true }, '');
+                // Show the confirmation modal
+                setShowUnsavedModal(true);
+            } else {
+                // No unsaved changes — let the back navigation proceed
+                router.push('/projects');
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
 
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('beforeunload', flushBeforeLeave);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('popstate', handlePopState);
             if (syncIntervalRef.current) {
                 clearInterval(syncIntervalRef.current);
             }
@@ -498,7 +577,6 @@ export default function EditorPage() {
                 clearTimeout(saveDebounceRef.current);
                 saveDebounceRef.current = null;
             }
-            flushBeforeLeave();
         };
     }, [handleUndo, handleRedo]);
 
@@ -905,7 +983,7 @@ export default function EditorPage() {
             <div className="flex h-svh flex-col items-center justify-center gap-4 text-center">
                 <h2 className="text-xl font-semibold text-foreground">{t('notFoundTitle')}</h2>
                 <p className="text-secondary">{t('notFoundDescription')}</p>
-                <Button onClick={() => router.push('/projects')}>
+                <Button onClick={handleNavigateBack}>
                     <LuArrowLeft className="me-2 h-4 w-4 rtl:rotate-180" />
                     {t('backToProjects')}
                 </Button>
@@ -1032,7 +1110,7 @@ export default function EditorPage() {
                 {/* Top toolbar */}
                 <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <Button variant="ghost" size="sm" onClick={() => router.push('/projects')}>
+                        <Button variant="ghost" size="sm" onClick={handleNavigateBack}>
                             <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
                         </Button>
                         <h1 className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
@@ -1054,15 +1132,7 @@ export default function EditorPage() {
 
                     <div className="flex shrink-0 items-center gap-1 sm:gap-2">
                         <div className="flex items-center gap-1">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleUndo}
-                                disabled={history.past.length === 0}
-                                aria-label={t('undo')}
-                            >
-                                <LuUndo2 className="h-4 w-4 rtl:-scale-x-100" />
-                            </Button>
+
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -1071,6 +1141,15 @@ export default function EditorPage() {
                                 aria-label={t('redo')}
                             >
                                 <LuRedo2 className="h-4 w-4 rtl:-scale-x-100" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleUndo}
+                                disabled={history.past.length === 0}
+                                aria-label={t('undo')}
+                            >
+                                <LuUndo2 className="h-4 w-4 rtl:-scale-x-100" />
                             </Button>
                         </div>
 
@@ -1099,10 +1178,16 @@ export default function EditorPage() {
                             size="sm"
                             onClick={() => flushPersist(project)}
                             loading={saving}
-                            className="gap-1 px-2 sm:px-3"
+                            className="relative gap-1 px-2 sm:px-3"
                         >
                             <LuSave className="h-4 w-4" />
                             <span className="hidden sm:inline">{t('save')}</span>
+                            {hasUnsavedChanges && !saving && (
+                                <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-orange-500" />
+                                </span>
+                            )}
                         </Button>
                     </div>
                 </div>
@@ -1807,6 +1892,48 @@ export default function EditorPage() {
                         >
                             {uiT('cancel')}
                         </button>
+                    </div>
+                )}
+
+                {/* Unsaved changes confirmation modal */}
+                {showUnsavedModal && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
+                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            <h2 className="mb-2 text-lg font-bold text-foreground">
+                                {t('unsavedChangesTitle')}
+                            </h2>
+                            <p className="mb-6 text-sm text-secondary">
+                                {t('unsavedChangesDescription')}
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doSaveAndLeave();
+                                    }}
+                                    className="w-full"
+                                >
+                                    {t('saveAndLeave')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doLeaveWithoutSaving();
+                                    }}
+                                    className="w-full text-secondary"
+                                >
+                                    {t('leaveWithoutSaving')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setShowUnsavedModal(false)}
+                                    className="w-full"
+                                >
+                                    {t('cancel')}
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

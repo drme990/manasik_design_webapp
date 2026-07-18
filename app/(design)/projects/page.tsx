@@ -11,7 +11,7 @@ import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listProjects, createProject, deleteProject, renameProject, duplicateProject } from '@/lib/store/projects';
+import { listProjects, createProject, deleteProject, renameProject, duplicateProject, recoverFromMirror } from '@/lib/store/projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project } from '@/types';
 
@@ -29,10 +29,13 @@ export default function ProjectsPage() {
   const [customHeight, setCustomHeight] = useState('1080');
 
   useEffect(() => {
-    listProjects().then((data) => {
-      const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
-      setProjects(sorted);
-      setLoading(false);
+    // Recover any data from localStorage mirror before listing
+    recoverFromMirror().finally(() => {
+      listProjects().then((data) => {
+        const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
+        setProjects(sorted);
+        setLoading(false);
+      });
     });
   }, []);
 

@@ -3,9 +3,73 @@ import { kvStorage } from '@/lib/utils/kv-storage';
 import { generateId } from '@/lib/utils/id';
 
 const STORAGE_KEY = 'manasik:projects';
+const LOCAL_STORAGE_KEY = 'manasik:projects:mirror';
 const SYNC_INTERVAL_MS = 10_000;
 
 let lastSyncTime = 0;
+
+/**
+ * Mirror save to localStorage — synchronous, survives page crashes / mobile
+ * app kills where IndexedDB transactions might not flush.
+ * Called alongside every IndexedDB save.
+ */
+function mirrorToLocalStorage(projects: Project[]): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(projects));
+  } catch {
+    // localStorage might be full or unavailable — ignore
+  }
+}
+
+/**
+ * Reads the localStorage mirror. Used on startup to recover data that
+ * IndexedDB might have lost (e.g. mobile app was killed mid-transaction).
+ */
+export function readLocalStorageMirror(): Project[] | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Project[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merges the localStorage mirror into IndexedDB on startup.
+ * For each project, picks the version with the newer localModifiedAt.
+ * Clears the mirror after successful merge.
+ */
+export async function recoverFromMirror(): Promise<void> {
+  const mirrored = readLocalStorageMirror();
+  if (!mirrored || mirrored.length === 0) return;
+
+  const indexed = await kvStorage.getItem<Project[]>(STORAGE_KEY) || [];
+  let changed = false;
+
+  for (const mirroredProject of mirrored) {
+    const index = indexed.findIndex((p) => p.id === mirroredProject.id);
+    if (index >= 0) {
+      if ((mirroredProject.localModifiedAt || 0) > (indexed[index].localModifiedAt || 0)) {
+        indexed[index] = mirroredProject;
+        changed = true;
+      }
+    } else {
+      indexed.push(mirroredProject);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await kvStorage.setItem(STORAGE_KEY, indexed);
+  }
+  // Clear mirror after recovery
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
@@ -25,11 +89,46 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   return response.json();
 }
 
+// ─── In-memory cache ─────────────────────────────────────────────────────────
+// Avoids redundant API calls when navigating between pages.
+// Cache is invalidated when a project is saved or when explicitly invalidated.
+
+const projectCache = new Map<string, { project: Project; cachedAt: number }>();
+let listCache: { projects: Project[]; cachedAt: number } | null = null;
+const CACHE_TTL_MS = 30_000; // 30 seconds — stale data is fine for UI, but refresh eventually
+
+/** Invalidate the list cache (call after creating/deleting/renaming a project). */
+export function invalidateListCache(): void {
+  listCache = null;
+}
+
+/** Invalidate a single project from cache (call after saving). */
+export function invalidateProjectCache(id: string): void {
+  projectCache.delete(id);
+}
+
+/** Invalidate all caches. */
+export function invalidateAllCaches(): void {
+  projectCache.clear();
+  listCache = null;
+}
+
 export async function listProjects(): Promise<Project[]> {
+  // Return cached list if fresh
+  if (listCache && Date.now() - listCache.cachedAt < CACHE_TTL_MS) {
+    return listCache.projects;
+  }
+
   try {
     const result = await fetchWithAuth('/api/projects');
     const projects = (result.data || []) as Project[];
     await kvStorage.setItem(STORAGE_KEY, projects);
+    // Update cache
+    listCache = { projects, cachedAt: Date.now() };
+    // Also update individual project cache
+    for (const p of projects) {
+      projectCache.set(p.id, { project: p, cachedAt: Date.now() });
+    }
     return projects;
   } catch (error) {
     console.warn('Failed to fetch projects from API, falling back to local cache:', error);
@@ -48,6 +147,8 @@ export async function listBookingTemplateProjects(): Promise<Project[]> {
 }
 
 export async function loadProject(id: string): Promise<Project | null> {
+  // Always fetch from API to get the latest — but use cache as instant fallback
+  // for smooth UX while the fetch happens in the background.
   try {
     const result = await fetchWithAuth(`/api/projects/${id}`);
     const remoteProject = result.data as Project;
@@ -59,10 +160,16 @@ export async function loadProject(id: string): Promise<Project | null> {
 
     const project = shouldPreferLocal ? localProject : remoteProject;
     await mergeLocalProject(project);
+    // Update cache
+    projectCache.set(id, { project, cachedAt: Date.now() });
     return project;
   } catch (error) {
     console.warn('Failed to fetch project from API, falling back to local cache:', error);
-    const projects = await listProjects();
+    // Try in-memory cache first
+    const cached = projectCache.get(id);
+    if (cached) return cached.project;
+    // Then IndexedDB
+    const projects = await kvStorage.getItem<Project[]>(STORAGE_KEY) || [];
     return projects.find((p) => p.id === id) || null;
   }
 }
@@ -89,7 +196,14 @@ export async function saveProject(project: Project): Promise<void> {
   }
 
   await kvStorage.setItem(STORAGE_KEY, projects);
+  // Mirror to localStorage as a safety net
+  mirrorToLocalStorage(projects);
+  // Update in-memory cache so the next loadProject returns fresh data
+  projectCache.set(project.id, { project: updatedProject, cachedAt: Date.now() });
+  // Invalidate list cache so the projects page shows updated timestamps
+  listCache = null;
 }
+
 
 export async function syncProject(id: string): Promise<Project | null> {
   let project = (await kvStorage.getItem<Project[]>(STORAGE_KEY) || []).find((p) => p.id === id);
@@ -116,6 +230,9 @@ export async function syncProject(id: string): Promise<Project | null> {
       syncedAt: Date.now(),
     };
     await mergeLocalProject(syncedProject);
+    // Update cache with synced version
+    projectCache.set(id, { project: syncedProject, cachedAt: Date.now() });
+    listCache = null; // Invalidate list so projects page refreshes
     lastSyncTime = Date.now();
     return syncedProject;
   } catch (error) {
@@ -132,6 +249,7 @@ export async function createProject(input: ProjectCreateInput): Promise<Project>
     });
     const project = result.data as Project;
     await mergeLocalProject(project);
+    invalidateListCache();
     return project;
   } catch (error) {
     console.warn('Failed to create project on API, creating locally only:', error);
@@ -184,6 +302,9 @@ export async function deleteProject(id: string): Promise<void> {
   const projects = await kvStorage.getItem<Project[]>(STORAGE_KEY) || [];
   const filtered = projects.filter((p) => p.id !== id);
   await kvStorage.setItem(STORAGE_KEY, filtered);
+  mirrorToLocalStorage(filtered);
+  invalidateProjectCache(id);
+  invalidateListCache();
 }
 
 export async function duplicateProject(id: string): Promise<Project | null> {
@@ -220,6 +341,7 @@ export async function duplicateProject(id: string): Promise<Project | null> {
     });
     const created = result.data as Project;
     await mergeLocalProject(created);
+    invalidateListCache();
     return created;
   } catch (error) {
     console.warn('Failed to duplicate project on API, duplicating locally only:', error);
@@ -251,4 +373,7 @@ async function mergeLocalProject(project: Project): Promise<void> {
     projects.push(project);
   }
   await kvStorage.setItem(STORAGE_KEY, projects);
+  mirrorToLocalStorage(projects);
 }
+
+
