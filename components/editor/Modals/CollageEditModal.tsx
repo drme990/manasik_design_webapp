@@ -193,9 +193,18 @@ export default function CollageEditModal({
       isOpen={isOpen}
       onClose={onClose}
       title={t('title')}
-      onDone={collage.cells.length < 4 ? () => addFileInputRef.current?.click() : undefined}
-      doneIcon={<LuPlus className="h-5 w-5" />}
-      doneLabel={t('addImage')}
+      footer={
+        collage.cells.length < 4 ? (
+          <Button
+            variant="primary"
+            onClick={() => addFileInputRef.current?.click()}
+            className="gap-2"
+          >
+            <LuPlus className="h-5 w-5" />
+            {t('addImage')}
+          </Button>
+        ) : undefined
+      }
     >
       {/* Hidden file inputs */}
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleReplaceFile} />

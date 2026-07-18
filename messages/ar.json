@@ -35,7 +35,8 @@
     "custom": "مخصص",
     "customSize": "حجم مخصص",
     "width": "العرض",
-    "height": "الارتفاع"
+    "height": "الارتفاع",
+    "pickFromGallery": "اختيار صورة من المعرض"
   },
   "templates": {
     "title": "قوالب الحجز",

@@ -304,12 +304,12 @@ export default function ColorPickerDrawer({
   const indicatorX = `${sat * 100}%`;
   const indicatorY = `${(1 - val) * 100}%`;
 
-  // Header actions: eye dropper only
-  const headerActions = onEyeDropper ? (
+  // Eye dropper icon — rendered in the drawer header as the leading icon
+  const eyeDropperIcon = onEyeDropper ? (
     <button
       type="button"
       onClick={handleEyeDropper}
-      className="rounded-full p-2 text-foreground transition-colors hover:bg-muted"
+      className="flex h-9 w-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted"
       aria-label={t('eyeDropper')}
       title={t('eyeDropper')}
     >
@@ -323,10 +323,10 @@ export default function ColorPickerDrawer({
       onClose={handleClose}
       title={title || t('pickColor')}
       height='auto'
-      headerActions={headerActions}
+      headerIcon={eyeDropperIcon}
     >
       <div className="space-y-5">
-        {/* Custom color toggle button */}
+        {/* Custom color toggle */}
         <button
           type="button"
           onClick={() => setShowCustomPicker((v) => !v)}

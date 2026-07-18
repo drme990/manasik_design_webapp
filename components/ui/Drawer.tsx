@@ -18,10 +18,14 @@ export interface DrawerProps {
   /** Height fraction of the viewport. Only applies to bottom/top. Defaults to 'half'. */
   height?: 'auto' | 'half' | 'full' | 'twoThirds';
   hideCloseButton?: boolean;
-  /** Optional "Done" button shown in the header (top-right). */
+  /** Optional leading icon shown in the header (left side, before title). */
+  headerIcon?: ReactNode;
+  /** Optional "Done" button — rendered in the footer, not the header. */
   onDone?: () => void;
   doneLabel?: string;
-  /** Optional custom actions rendered in the header (right side, before Done). */
+  doneIcon?: ReactNode;
+  doneDisabled?: boolean;
+  /** Optional custom actions — rendered in the footer, not the header. */
   headerActions?: ReactNode;
 }
 
@@ -66,8 +70,11 @@ export default function Drawer({
   side = 'bottom',
   height = 'half',
   hideCloseButton = false,
+  headerIcon,
   onDone,
   doneLabel,
+  doneIcon,
+  doneDisabled = false,
   headerActions,
 }: DrawerProps) {
   const t = useTranslations('ui');
@@ -153,23 +160,17 @@ export default function Drawer({
           </div>
         )}
 
-        {(title || !hideCloseButton || onDone || headerActions) && (
+        {(title || !hideCloseButton) && (
           <div className="flex items-center gap-3 border-b border-stroke px-4 py-3">
-            {/* Close button — left */}
-            {!hideCloseButton && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="rounded-full p-2 hover:bg-error/10"
-                aria-label={t('close')}
-              >
-                <LuX className="h-5 w-5 text-error" />
-              </Button>
+            {/* Leading icon — left (optional) */}
+            {headerIcon && (
+              <div className="flex shrink-0 items-center justify-center text-foreground">
+                {headerIcon}
+              </div>
             )}
 
-            {/* Title — left-aligned when no actions, centered when actions present */}
-            <div className={`flex-1 ${(onDone || headerActions) ? 'text-center' : 'text-start'}`}>
+            {/* Title — centered when icon present, left-aligned when not */}
+            <div className={`flex-1 ${headerIcon ? 'text-center' : 'text-start'}`}>
               {title && (
                 <h2 className="text-base font-semibold text-foreground">
                   {title}
@@ -182,24 +183,20 @@ export default function Drawer({
               )}
             </div>
 
-            {/* Custom header actions — right side, before Done */}
-            {headerActions && (
-              <div className="flex items-center gap-1">
-                {headerActions}
-              </div>
-            )}
-
-            {/* Done button — right */}
-            {onDone && (
+            {/* Close button — right */}
+            {!hideCloseButton && (
               <Button
-                variant="primary"
+                variant="ghost"
                 size="sm"
-                onClick={onDone}
-                className="rounded-lg px-4"
+                onClick={onClose}
+                className="shrink-0 rounded-full p-2 hover:bg-error/10"
+                aria-label={t('close')}
               >
-                {doneLabel || t('done')}
+                <LuX className="h-5 w-5 text-error" />
               </Button>
             )}
+            {/* Spacer to balance layout when close button is hidden */}
+            {hideCloseButton && <div className="shrink-0" />}
           </div>
         )}
 

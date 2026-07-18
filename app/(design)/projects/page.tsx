@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -27,6 +27,42 @@ export default function ProjectsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handlePickGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Read the image to get its natural dimensions
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = reject;
+      img.src = url;
+    });
+    const naturalWidth = img.naturalWidth;
+    const naturalHeight = img.naturalHeight;
+    URL.revokeObjectURL(url);
+
+    // Convert to data URL for the background
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string;
+      // Create project with the image's aspect ratio and set it as background
+      const project = await createProject({
+        name: `${t('custom')} — ${naturalWidth}×${naturalHeight}`,
+        kind: 'design',
+        canvasWidth: naturalWidth,
+        canvasHeight: naturalHeight,
+        backgroundUri: dataUrl,
+      });
+      setDrawerOpen(false);
+      window.location.href = `/editor/${project.id}`;
+    };
+    reader.readAsDataURL(file);
+    // Reset input so the same file can be picked again
+    e.target.value = '';
+  };
 
   useEffect(() => {
     // Recover any data from localStorage mirror before listing
@@ -106,19 +142,19 @@ export default function ProjectsPage() {
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg sm:w-56"
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl  sm:w-56"
                 >
                   <div className="relative aspect-4/3 w-full overflow-hidden">
                     <div className="h-full w-full animate-pulse bg-muted" />
-                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-3">
-                      <div className="h-4 w-3/4 animate-pulse rounded bg-white/20" />
-                      <div className="mt-1 h-3 w-1/2 animate-pulse rounded bg-white/10" />
-                    </div>
                   </div>
-                  <div className="flex w-full items-center gap-1 p-2">
-                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
-                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
-                    <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
+                  <div className="px-3 pt-2.5">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                    <div className="mt-1.5 h-3 w-1/2 animate-pulse rounded bg-muted/70" />
+                  </div>
+                  <div className="flex w-full items-center gap-1 px-2.5 pb-2.5 pt-2">
+                    <div className="h-8 w-8 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-8 w-8 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-8 w-8 animate-pulse rounded-lg bg-muted" />
                   </div>
                 </div>
               ))}
@@ -133,27 +169,30 @@ export default function ProjectsPage() {
               {projects.map((project) => (
                 <div
                   key={project.id}
-                  className="group flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-stroke bg-card-bg transition-colors hover:border-brand-primary sm:w-56"
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden sm:w-56"
                 >
+                  {/* Preview */}
                   <Link href={`/editor/${project.id}`} className="block shrink-0">
-                    <div className="relative aspect-4/3 w-full overflow-hidden">
+                    <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl">
                       <ProjectCardPreview project={project} className="h-full w-full" />
-                      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-3">
-                        <p className="truncate font-medium text-white">{project.name}</p>
-                        <p className="text-xs text-white/80">
-                          {new Date(project.updatedAt).toLocaleDateString()}
-                        </p>
-                      </div>
                     </div>
                   </Link>
-                  <div className="flex w-full items-center gap-1 p-2">
+                  {/* Name + date */}
+                  <Link href={`/editor/${project.id}`} className="block px-3 pt-2.5">
+                    <p className="truncate text-sm font-semibold text-foreground">{project.name}</p>
+                    <p className="mt-0.5 text-xs text-secondary">
+                      {new Date(project.updatedAt).toLocaleDateString()}
+                    </p>
+                  </Link>
+                  {/* Actions */}
+                  <div className="flex w-full items-center gap-1 px-2.5 pb-2.5 pt-2">
                     <button
                       type="button"
                       onClick={() => {
                         setRenameProjectId(project.id);
                         setRenameValue(project.name);
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
                       aria-label={t('rename')}
                     >
                       <LuPencil className="h-4 w-4" />
@@ -161,7 +200,7 @@ export default function ProjectsPage() {
                     <button
                       type="button"
                       onClick={() => handleDuplicate(project.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
                       aria-label={t('duplicate')}
                     >
                       <LuCopy className="h-4 w-4" />
@@ -169,7 +208,7 @@ export default function ProjectsPage() {
                     <button
                       type="button"
                       onClick={() => setDeleteProjectId(project.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-error transition-colors hover:bg-error/10"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-error transition-colors hover:bg-error/10"
                       aria-label={t('delete')}
                     >
                       <LuTrash2 className="h-4 w-4" />
@@ -270,6 +309,25 @@ export default function ProjectsPage() {
           </Button>
         }
       >
+        {/* Pick from gallery — creates a project with the image's aspect ratio */}
+        <div className="mb-6">
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handlePickGalleryImage}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-stroke bg-card-bg px-4 py-4 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+          >
+            <LuImage className="h-5 w-5 text-brand-primary" />
+            {t('pickFromGallery')}
+          </button>
+        </div>
+
         {/* Preset sizes — horizontal scroll */}
         <div className="mb-6">
           <h3 className="mb-3 text-sm font-medium text-secondary">{t('newProject')}</h3>

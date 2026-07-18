@@ -13,6 +13,8 @@ export interface FullPageProps {
   children: ReactNode;
   footer?: ReactNode;
   hideCloseButton?: boolean;
+  /** Optional leading icon shown in the header (left side, before title). */
+  headerIcon?: ReactNode;
   onDone?: () => void;
   doneLabel?: string;
   doneIcon?: ReactNode;
@@ -28,6 +30,7 @@ export default function FullPageDrawer({
   children,
   footer,
   hideCloseButton = false,
+  headerIcon,
   onDone,
   doneLabel,
   doneIcon,
@@ -94,22 +97,18 @@ export default function FullPageDrawer({
         role="dialog"
         aria-modal="true"
       >
-        {/* Header */}
-        {(title || !hideCloseButton || onDone) && (
+        {/* Header — icon?  Title  X */}
+        {(title || !hideCloseButton) && (
           <div className="flex shrink-0 items-center gap-3 border-b border-stroke px-4 py-3">
-            {!hideCloseButton && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="rounded-full p-2 hover:bg-error/10"
-                aria-label={t('close')}
-              >
-                <LuX className="h-5 w-5 text-error" />
-              </Button>
+            {/* Leading icon — left (optional) */}
+            {headerIcon && (
+              <div className="flex shrink-0 items-center justify-center text-foreground">
+                {headerIcon}
+              </div>
             )}
 
-            <div className={`flex-1 ${onDone ? 'text-center' : 'text-start'}`}>
+            {/* Title — centered when icon present, left-aligned when not */}
+            <div className={`flex-1 ${headerIcon ? 'text-center' : 'text-start'}`}>
               {title && (
                 <h2 className="text-base font-semibold text-foreground">
                   {title}
@@ -117,18 +116,19 @@ export default function FullPageDrawer({
               )}
             </div>
 
-            {onDone && (
+            {/* Close button — right */}
+            {!hideCloseButton && (
               <Button
-                variant="primary"
+                variant="ghost"
                 size="sm"
-                onClick={onDone}
-                disabled={doneDisabled}
-                className="rounded-lg p-2.5"
-                aria-label={doneLabel || t('done')}
+                onClick={onClose}
+                className="shrink-0 rounded-full p-2 hover:bg-error/10"
+                aria-label={t('close')}
               >
-                {doneIcon || doneLabel || t('done')}
+                <LuX className="h-5 w-5 text-error" />
               </Button>
             )}
+            {hideCloseButton && <div className="shrink-0" />}
           </div>
         )}
 

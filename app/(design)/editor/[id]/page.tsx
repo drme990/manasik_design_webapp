@@ -1343,8 +1343,6 @@ export default function EditorPage() {
                     onClose={() => setAddDrawerOpen(false)}
                     title={t('addElement')}
                     height="half"
-                    onDone={() => setAddDrawerOpen(false)}
-                    doneLabel={uiT('done')}
                 >
                     {/* Add text, image, field options */}
                     <div className="mb-6">
@@ -1407,8 +1405,6 @@ export default function EditorPage() {
                     onClose={() => setLayersDrawerOpen(false)}
                     title={t('layers')}
                     height="half"
-                    onDone={() => setLayersDrawerOpen(false)}
-                    doneLabel={uiT('done')}
                 >
                     <DraggableLayerList
                         layers={project.layers}
@@ -1430,8 +1426,6 @@ export default function EditorPage() {
                     onClose={() => setActiveProp(null)}
                     title={selectedLayer ? t('properties') : ''}
                     height="auto"
-                    onDone={() => setActiveProp(null)}
-                    doneLabel={uiT('done')}
                 >
                     {selectedLayer && activeProp && (
                         <div className="space-y-4">
@@ -1747,8 +1741,6 @@ export default function EditorPage() {
                     onClose={() => setFontDrawerOpen(false)}
                     title={t('toolbars.text.font')}
                     height="auto"
-                    onDone={() => setFontDrawerOpen(false)}
-                    doneLabel={uiT('done')}
                 >
                     <div className="space-y-2">
                         {ARABIC_SAFE_FONTS.map((font) => (
@@ -1784,13 +1776,6 @@ export default function EditorPage() {
                     }}
                     title={t('toolbars.text.text')}
                     height="auto"
-                    onDone={() => {
-                        if (selectedLayer && selectedLayer.type === 'text' && !(selectedLayer as TextLayer).text.trim()) {
-                            handleDeleteLayer(selectedLayer.id);
-                        }
-                        setTextEditDrawerOpen(false);
-                    }}
-                    doneLabel={uiT('done')}
                 >
                     {selectedLayer && selectedLayer.type === 'text' && (
                         <textarea
