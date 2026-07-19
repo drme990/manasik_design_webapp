@@ -15,11 +15,18 @@ export interface ExportedItem extends SyncableDocument {
   userId?: string;
 }
 
+export interface PdfImage {
+  id: string;
+  uri: string;
+  naturalWidth: number;
+  naturalHeight: number;
+}
+
 export interface PdfProject extends SyncableDocument {
   id: string;
   _id?: string;
   name: string;
-  images: string[];
+  images: PdfImage[];
   pdfUri?: string;
   createdAt: number;
   updatedAt: number;
@@ -31,13 +38,13 @@ export interface PdfProject extends SyncableDocument {
 
 export interface PdfProjectCreateInput {
   name: string;
-  images: string[];
+  images: PdfImage[];
   userId?: string;
 }
 
 export interface PdfProjectUpdateInput {
   name?: string;
-  images?: string[];
+  images?: PdfImage[];
   pdfUri?: string;
   updatedAt?: number;
   localModifiedAt?: number;

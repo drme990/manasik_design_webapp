@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useDrag, useDrop, useDragLayer, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { useTranslations } from '@/lib/i18n/strings';
@@ -20,20 +21,15 @@ import {
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
-
-interface PdfImage {
-    id: string;
-    uri: string;
-    naturalWidth: number;
-    naturalHeight: number;
-}
+import { listPdfProjects, savePdfProject, createPdfProject, invalidatePdfListCache } from '@/lib/store/exports';
+import type { PdfImage as PdfImageType, PdfProject } from '@/types';
 
 const ITEM_TYPE = 'PDF_IMAGE';
 
 interface DragItem {
     index: number;
     id: string;
-    img: PdfImage;
+    img: PdfImageType;
 }
 
 /* --- Custom drag layer: floating preview --- */
@@ -72,7 +68,7 @@ function PdfImageRow({
     onReorder,
     t,
 }: {
-    img: PdfImage;
+    img: PdfImageType;
     index: number;
     onRemove: (id: string) => void;
     onReorder: (from: number, to: number) => void;
@@ -188,21 +184,88 @@ function PdfImageRow({
     );
 }
 
-export default function PdfToolPage() {
+export default function PdfToolPageWrapper() {
+    return (
+        <Suspense fallback={<div className="flex flex-1 items-center justify-center"><LuLoaderCircle className="h-8 w-8 animate-spin text-brand-primary" /></div>}>
+            <PdfToolPage />
+        </Suspense>
+    );
+}
+
+function PdfToolPage() {
     const t = useTranslations('pdfTool');
     const uiT = useTranslations('ui');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const searchParams = useSearchParams();
+    const projectId = searchParams.get('id');
 
-    const [images, setImages] = useState<PdfImage[]>([]);
+    const [images, setImages] = useState<PdfImageType[]>([]);
     const [downloading, setDownloading] = useState(false);
     const [previewOpen, setPreviewOpen] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
+    const [projectName, setProjectName] = useState('');
+    const [currentProject, setCurrentProject] = useState<PdfProject | null>(null);
+    const [loading, setLoading] = useState(!!projectId);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Load existing project when ?id= is present
+    useEffect(() => {
+        if (!projectId) return;
+        setLoading(true);
+        listPdfProjects().then((projects) => {
+            const found = projects.find((p) => p.id === projectId);
+            if (found) {
+                setCurrentProject(found);
+                setProjectName(found.name);
+                setImages(found.images);
+            }
+            setLoading(false);
+        });
+    }, [projectId]);
+
+    // Auto-save: debounced whenever images change
+    useEffect(() => {
+        if (loading) return; // Don't save during initial load
+        if (images.length === 0 && !currentProject) return; // Nothing to save
+
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+        }
+        saveTimerRef.current = setTimeout(async () => {
+            saveTimerRef.current = null;
+            if (images.length === 0) return;
+
+            const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
+            if (currentProject) {
+                // Update existing project
+                const updated: PdfProject = {
+                    ...currentProject,
+                    name,
+                    images,
+                };
+                await savePdfProject(updated);
+                setCurrentProject(updated);
+            } else {
+                // Create new project
+                const created = await createPdfProject(name, images);
+                setCurrentProject(created);
+                setProjectName(created.name);
+            }
+            invalidatePdfListCache();
+        }, 800);
+
+        return () => {
+            if (saveTimerRef.current) {
+                clearTimeout(saveTimerRef.current);
+            }
+        };
+    }, [images, projectName, currentProject, loading]);
 
     const handleAddImages = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
-        const newImages: PdfImage[] = [];
+        const newImages: PdfImageType[] = [];
         let loaded = 0;
 
         files.forEach((file, idx) => {
@@ -246,6 +309,8 @@ export default function PdfToolPage() {
     const handleClear = () => {
         setImages([]);
         setConfirmClear(false);
+        setCurrentProject(null);
+        setProjectName('');
     };
 
     const handleDownload = useCallback(async () => {
@@ -310,89 +375,107 @@ export default function PdfToolPage() {
                     <div className="mb-8">
                         <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
                         <p className="mt-1 text-secondary">{t('subtitle')}</p>
-                    </div>
-
-                    {/* Actions bar */}
-                    <div className="mb-6 flex flex-wrap items-center gap-3">
-                        <Button
-                            variant="primary"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="gap-2"
-                        >
-                            <LuPlus className="h-5 w-5" />
-                            {t('addImages')}
-                        </Button>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={handleAddImages}
-                        />
-
-                        {images.length > 0 && (
-                            <>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setPreviewOpen(true)}
-                                    className="gap-2"
-                                >
-                                    <LuEye className="h-5 w-5" />
-                                    {t('preview')}
-                                </Button>
-
-                                <Button
-                                    variant="primary"
-                                    onClick={handleDownload}
-                                    disabled={downloading}
-                                    className="gap-2"
-                                >
-                                    {downloading ? (
-                                        <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                                    ) : (
-                                        <LuDownload className="h-5 w-5" />
-                                    )}
-                                    {downloading ? t('generating') : t('download')}
-                                </Button>
-
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => setConfirmClear(true)}
-                                    className="gap-2 text-error hover:bg-error/10"
-                                >
-                                    <LuTrash2 className="h-5 w-5" />
-                                    {t('clear')}
-                                </Button>
-
-                                <span className="text-sm text-secondary">
-                                    {t('imageCount', { count: images.length })}
-                                </span>
-                            </>
+                        {currentProject && (
+                            <input
+                                type="text"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                placeholder={t('title')}
+                                className="mt-3 w-full max-w-sm rounded-lg border border-stroke bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                            />
                         )}
                     </div>
 
-                    {/* Images list */}
-                    {images.length === 0 ? (
-                        <EmptyState
-                            title={t('empty')}
-                            description={t('emptyHint')}
-                        />
+                    {loading ? (
+                        <div className="flex items-center justify-center py-20">
+                            <LuLoaderCircle className="h-8 w-8 animate-spin text-brand-primary" />
+                        </div>
                     ) : (
                         <>
-                            <PdfDragLayer />
-                            <div className="space-y-3">
-                                {images.map((img, index) => (
-                                    <PdfImageRow
-                                        key={img.id}
-                                        img={img}
-                                        index={index}
-                                        onRemove={handleRemove}
-                                        onReorder={handleReorder}
-                                        t={t}
-                                    />
-                                ))}
+
+                            {/* Actions bar */}
+                            <div className="mb-6 flex flex-wrap items-center gap-3">
+                                <Button
+                                    variant="primary"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="gap-2"
+                                >
+                                    <LuPlus className="h-5 w-5" />
+                                    {t('addImages')}
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={handleAddImages}
+                                />
+
+                                {images.length > 0 && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setPreviewOpen(true)}
+                                            className="gap-2"
+                                        >
+                                            <LuEye className="h-5 w-5" />
+                                            {t('preview')}
+                                        </Button>
+
+                                        <Button
+                                            variant="primary"
+                                            onClick={handleDownload}
+                                            disabled={downloading}
+                                            className="gap-2"
+                                        >
+                                            {downloading ? (
+                                                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                                            ) : (
+                                                <LuDownload className="h-5 w-5" />
+                                            )}
+                                            {downloading ? t('generating') : t('download')}
+                                        </Button>
+
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => setConfirmClear(true)}
+                                            className="gap-2 text-error hover:bg-error/10"
+                                        >
+                                            <LuTrash2 className="h-5 w-5" />
+                                            {t('clear')}
+                                        </Button>
+
+                                        <span className="text-sm text-secondary">
+                                            {t('imageCount', { count: images.length })}
+                                        </span>
+                                    </>
+                                )}
                             </div>
+
+                            {/* Images list */}
+                            {images.length === 0 ? (
+                                <EmptyState
+                                    title={t('empty')}
+                                    description={t('emptyHint')}
+                                />
+                            ) : (
+                                <>
+                                    <PdfDragLayer />
+                                    <div className="space-y-3">
+                                        {images.map((img, index) => (
+                                            <PdfImageRow
+                                                key={img.id}
+                                                img={img}
+                                                index={index}
+                                                onRemove={handleRemove}
+                                                onReorder={handleReorder}
+                                                t={t}
+                                            />
+                                        ))}
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -466,6 +549,6 @@ export default function PdfToolPage() {
                     onConfirm={handleClear}
                 />
             </main>
-        </DndProvider>
+        </DndProvider >
     );
 }

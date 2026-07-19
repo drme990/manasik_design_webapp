@@ -633,9 +633,17 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const mouseY = (e.clientY - rect.top) / rotate.startScale;
       const currentAngle = Math.atan2(mouseY - rotate.centerY, mouseX - rotate.centerX);
       const delta = (currentAngle - rotate.startAngle) * (180 / Math.PI);
+      let newRotation = rotate.startRotation + delta;
+
+      // Magnetic snapping to 45° increments (same as pinch-to-rotate)
+      const SNAP_THRESHOLD = 8; // degrees — how close before snapping
+      const snapped = Math.round(newRotation / 45) * 45;
+      if (Math.abs(newRotation - snapped) < SNAP_THRESHOLD) {
+        newRotation = snapped;
+      }
 
       onLayerChangeRef.current(rotate.layerId, {
-        rotation: rotate.startRotation + delta,
+        rotation: newRotation,
       }, false);
     }
   }, [updateLayerPosition]);

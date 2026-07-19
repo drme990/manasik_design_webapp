@@ -35,7 +35,7 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
       }}
     >
       <div
-        className="absolute left-1/2 top-1/2"
+        className="pointer-events-none absolute left-1/2 top-1/2"
         style={{
           width: project.canvasWidth,
           height: project.canvasHeight,

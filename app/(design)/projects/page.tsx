@@ -12,8 +12,9 @@ import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { listProjects, createProject, deleteProject, renameProject, duplicateProject, recoverFromMirror } from '@/lib/store/projects';
+import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { Project } from '@/types';
+import type { Project, PdfProject } from '@/types';
 
 export default function ProjectsPage() {
   const t = useTranslations('projects');
@@ -27,6 +28,9 @@ export default function ProjectsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
+  const [pdfProjects, setPdfProjects] = useState<PdfProject[]>([]);
+  const [deletePdfProjectId, setDeletePdfProjectId] = useState<string | null>(null);
+  const [deletePdfLoading, setDeletePdfLoading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
   const handlePickGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,6 +75,11 @@ export default function ProjectsPage() {
         const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
         setProjects(sorted);
         setLoading(false);
+      });
+      // Load PDF projects in parallel
+      listPdfProjects().then((data) => {
+        const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
+        setPdfProjects(sorted);
       });
     });
   }, []);
@@ -123,6 +132,16 @@ export default function ProjectsPage() {
     if (duplicated) {
       setProjects((prev) => [duplicated, ...prev]);
     }
+  };
+
+  const handleDeletePdfProject = async () => {
+    if (!deletePdfProjectId) return;
+    setDeletePdfLoading(true);
+    await deletePdfProject(deletePdfProjectId);
+    setPdfProjects((prev) => prev.filter((p) => p.id !== deletePdfProjectId));
+    invalidatePdfListCache();
+    setDeletePdfLoading(false);
+    setDeletePdfProjectId(null);
   };
 
   return (
@@ -220,6 +239,75 @@ export default function ProjectsPage() {
           )}
         </section>
 
+        {/* Recent PDF projects — always visible, shows empty state when none */}
+        <section className="mb-10">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentPdfProjects')}</h2>
+          {pdfProjects.length === 0 ? (
+            <EmptyState
+              title={t('emptyPdfTitle')}
+              description={t('emptyPdfDescription')}
+            />
+          ) : (
+            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
+              {pdfProjects.map((pdf) => (
+                <div
+                  key={pdf.id}
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden sm:w-56"
+                >
+                  {/* Preview — first image thumbnail */}
+                  <Link href={`/pdf-tool?id=${pdf.id}`} className="block shrink-0">
+                    <div className="relative aspect-4/3 w-full overflow-hidden bg-muted rounded-xl">
+                      {pdf.images[0]?.uri ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={pdf.images[0].uri}
+                          alt={pdf.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <LuFileText className="h-10 w-10 text-secondary" />
+                        </div>
+                      )}
+                      {/* Page count badge */}
+                      {pdf.images.length > 1 && (
+                        <div className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-xs font-medium text-white">
+                          {pdf.images.length} {t('pages')}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                  {/* Name + date */}
+                  <Link href={`/pdf-tool?id=${pdf.id}`} className="block px-3 pt-2.5">
+                    <p className="truncate text-sm font-semibold text-foreground">{pdf.name}</p>
+                    <p className="mt-0.5 text-xs text-secondary">
+                      {new Date(pdf.updatedAt).toLocaleDateString()}
+                    </p>
+                  </Link>
+                  {/* Actions */}
+                  <div className="flex w-full items-center gap-1 px-2.5 pb-2.5 pt-2">
+                    <Link
+                      href={`/pdf-tool?id=${pdf.id}`}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+                      aria-label={t('edit')}
+                    >
+                      <LuPencil className="h-4 w-4" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setDeletePdfProjectId(pdf.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-error transition-colors hover:bg-error/10"
+                      aria-label={t('delete')}
+                    >
+                      <LuTrash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section>
           <h2 className="mb-4 text-lg font-semibold text-foreground">{navT('templates')}</h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -283,6 +371,18 @@ export default function ProjectsPage() {
         confirmLabel={t('deleteConfirm')}
         cancelLabel={t('cancel')}
         loading={deleteLoading}
+        variant="danger"
+      />
+
+      <AlertDialog
+        isOpen={!!deletePdfProjectId}
+        onClose={() => setDeletePdfProjectId(null)}
+        onConfirm={handleDeletePdfProject}
+        title={t('deleteTitle')}
+        description={t('deleteDescription')}
+        confirmLabel={t('deleteConfirm')}
+        cancelLabel={t('cancel')}
+        loading={deletePdfLoading}
         variant="danger"
       />
 
