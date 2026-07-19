@@ -1,4 +1,4 @@
-import type { ExportedItem, PdfProject, SyncableDocument, ExportType } from '@/types';
+import type { ExportedItem, PdfProject, PdfImage, SyncableDocument, ExportType } from '@/types';
 import { indexedDB } from '../indexeddb';
 import { getMongoClient } from '../mongodb';
 import type { Collection, Filter, UpdateFilter, WithId, OptionalUnlessRequiredId } from 'mongodb';
@@ -63,7 +63,7 @@ export class ExportsRepository {
     return exportItem;
   }
 
-  async createPdfProject(name: string, images: string[]): Promise<PdfProject> {
+  async createPdfProject(name: string, images: PdfImage[]): Promise<PdfProject> {
     const now = Date.now();
     const pdfProject: PdfProject = {
       id: this.generateId(),
