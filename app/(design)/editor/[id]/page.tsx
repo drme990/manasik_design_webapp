@@ -1998,7 +1998,7 @@ export default function EditorPage() {
                                     }}
                                     className="w-full"
                                 >
-                                    {t('cancel')}
+                                    {t('leaveNoDelete')}
                                 </Button>
                             </div>
                         </div>

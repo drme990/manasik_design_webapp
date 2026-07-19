@@ -501,7 +501,7 @@ function PdfToolPage() {
                                     className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-card-bg text-foreground transition-colors hover:bg-muted"
                                     aria-label={uiT('back')}
                                 >
-                                    <LuArrowLeft className="h-5 w-5" />
+                                    <LuArrowLeft className="h-5 w-5 rtl:rotate-180" />
                                 </button>
                             )}
                             <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
@@ -756,10 +756,13 @@ function PdfToolPage() {
                                 </Button>
                                 <Button
                                     variant="ghost"
-                                    onClick={() => setShowNoChangesModal(false)}
+                                    onClick={() => {
+                                        setShowNoChangesModal(false);
+                                        router.push('/projects');
+                                    }}
                                     className="w-full"
                                 >
-                                    {editorT('cancel')}
+                                    {editorT('leaveNoDelete')}
                                 </Button>
                             </div>
                         </div>

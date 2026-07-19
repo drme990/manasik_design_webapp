@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage, LuDownload, LuLoaderCircle } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -142,6 +142,49 @@ export default function ProjectsPage() {
     invalidatePdfListCache();
     setDeletePdfLoading(false);
     setDeletePdfProjectId(null);
+  };
+
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
+
+  const handleDownloadPdf = async (pdfId: string) => {
+    const pdf = pdfProjects.find((p) => p.id === pdfId);
+    if (!pdf || pdf.images.length === 0) return;
+    setDownloadingPdfId(pdfId);
+    try {
+      const { PDFDocument } = await import('pdf-lib');
+      const pdfDoc = await PDFDocument.create();
+      for (const img of pdf.images) {
+        const isPng = img.uri.startsWith('data:image/png');
+        const base64 = img.uri.split(',')[1];
+        const byteChars = atob(base64);
+        const bytes = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          bytes[i] = byteChars.charCodeAt(i);
+        }
+        let embedded;
+        if (isPng) {
+          embedded = await pdfDoc.embedPng(bytes);
+        } else {
+          embedded = await pdfDoc.embedJpg(bytes);
+        }
+        const page = pdfDoc.addPage([img.naturalWidth, img.naturalHeight]);
+        page.drawImage(embedded, { x: 0, y: 0, width: img.naturalWidth, height: img.naturalHeight });
+      }
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${pdf.name || 'manasik-pdf'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download failed:', err);
+    } finally {
+      setDownloadingPdfId(null);
+    }
   };
 
   return (
@@ -293,6 +336,19 @@ export default function ProjectsPage() {
                     >
                       <LuPencil className="h-4 w-4" />
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPdf(pdf.id)}
+                      disabled={downloadingPdfId === pdf.id}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                      aria-label={t('download')}
+                    >
+                      {downloadingPdfId === pdf.id ? (
+                        <LuLoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <LuDownload className="h-4 w-4" />
+                      )}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setDeletePdfProjectId(pdf.id)}
