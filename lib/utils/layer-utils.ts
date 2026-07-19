@@ -32,8 +32,8 @@ const DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE = 200;
 
 // Collage built defaults
 const COLLAGE_BUILT_GAP = 4;
-const COLLAGE_BUILT_BG_COLOR = '#000000';
-const COLLAGE_BUILT_CONTAINER_RADIUS = 0;
+const COLLAGE_BUILT_BG_COLOR = '#FFFFFF';
+const COLLAGE_BUILT_CONTAINER_RADIUS = 50;
 
 // Color palette
 const COLOR_PALETTE = [
@@ -71,7 +71,6 @@ export function buildTextLayer(options: {
     fontFamily = ARABIC_SAFE_FONTS[0].family,
     color = DEFAULT_COLOR,
     canvasWidth = DEFAULT_CANVAS_WIDTH,
-    canvasHeight = DEFAULT_CANVAS_HEIGHT
   } = options;
 
   return {
@@ -117,7 +116,6 @@ export function buildImageLayer(options: {
     x = 50,
     y = 50,
     canvasWidth = DEFAULT_CANVAS_WIDTH,
-    canvasHeight = DEFAULT_CANVAS_HEIGHT
   } = options;
 
   // Default to 60% of canvas
@@ -214,7 +212,7 @@ export function buildCollageLayer(options: {
     offsetX: 0,
     offsetY: 0,
     imageScale: 1,
-    borderRadius: 50,
+    borderRadius: 8,
     borderColor: DEFAULT_BORDER_COLOR,
     borderWidth: 0,
     flipX: false,
