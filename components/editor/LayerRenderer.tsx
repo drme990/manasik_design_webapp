@@ -10,6 +10,7 @@ import ShapeRenderer from './ShapeRenderer';
 export interface LayerRendererProps {
   layer: AnyLayer;
   isSelected?: boolean;
+  dangerZone?: boolean;
   onPointerDown?: (e: React.PointerEvent) => void;
   onLayerChange?: (id: string, updates: Partial<AnyLayer>, recordHistory?: boolean) => void;
   onDoubleClick?: () => void;
@@ -20,12 +21,13 @@ interface LayerComponentProps extends LayerRendererProps {
   style: React.CSSProperties;
 }
 
-export default function LayerRenderer({ layer, isSelected, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
+export default function LayerRenderer({ layer, isSelected, dangerZone, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
     layer.locked && 'cursor-not-allowed',
-    isSelected && 'ring-2 ring-layer-selected'
+    isSelected && 'ring-2 ring-layer-selected',
+    dangerZone && 'ring-2 ring-error shadow-[0_0_12px_2px_rgba(239,68,68,0.5)] animate-pulse'
   );
 
   const commonProps = {

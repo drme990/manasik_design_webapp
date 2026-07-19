@@ -19,8 +19,7 @@ import {
     LuDownload,
     LuPlus,
     LuPalette,
-    LuLock,
-    LuLockOpen,
+    LuScanLine,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -51,7 +50,7 @@ import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
-import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
+import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer, SafeArea } from '@/types';
 import Input from '@/components/ui/Input';
 
 const SYNC_INTERVAL_MS = 10_000;
@@ -174,7 +173,7 @@ export default function EditorPage() {
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
-    const [freeDrag, setFreeDrag] = useState(false);
+    const [safeAreaEditMode, setSafeAreaEditMode] = useState(false);
     const eyeDropperReopenRef = useRef<string | null>(null);
     // Mobile eye dropper fallback — shows a canvas snapshot overlay for tapping a color
     const [mobileEyeDropper, setMobileEyeDropper] = useState<{
@@ -512,6 +511,13 @@ export default function EditorPage() {
             });
         },
         [persistProject]
+    );
+
+    const handleSafeAreaChange = useCallback(
+        (area: SafeArea) => {
+            updateProjectState((prev) => ({ ...prev, safeArea: area }), false);
+        },
+        [updateProjectState]
     );
 
     const handleUndo = useCallback(() => {
@@ -1256,6 +1262,11 @@ export default function EditorPage() {
                                         height={project.canvasHeight}
                                         backgroundColor={project.backgroundColor ?? '#ffffff'}
                                         backgroundUri={project.backgroundUri}
+                                        safeArea={project.safeArea}
+                                        onSafeAreaChange={handleSafeAreaChange}
+                                        safeAreaEditMode={safeAreaEditMode}
+                                        safeAreaResetLabel={t('safeAreaReset')}
+                                        safeAreaWarningLabel={t('safeAreaWarning')}
                                         layers={project.layers}
                                         selectedLayerId={selectedLayerId || undefined}
                                         onSelectLayer={(id) => {
@@ -1272,7 +1283,6 @@ export default function EditorPage() {
                                         onEditText={() => setTextEditDrawerOpen(true)}
                                         onCropImage={() => setIsCropOpen(true)}
                                         onEditCollage={() => setCollageEditOpen(true)}
-                                        freeDrag={freeDrag}
                                     />
                                 </div>
                             </div>
@@ -1305,10 +1315,10 @@ export default function EditorPage() {
                                     />
                                 )}
                                 <PropToggle
-                                    label={freeDrag ? t('freeDragOn') : t('freeDragOff')}
-                                    icon={freeDrag ? <LuLockOpen className="h-5 w-5" /> : <LuLock className="h-5 w-5" />}
-                                    active={freeDrag}
-                                    onClick={() => setFreeDrag(!freeDrag)}
+                                    label={safeAreaEditMode ? t('safeAreaEditOn') : t('safeAreaEditOff')}
+                                    icon={<LuScanLine className="h-5 w-5" />}
+                                    active={safeAreaEditMode}
+                                    onClick={() => setSafeAreaEditMode(!safeAreaEditMode)}
                                 />
                             </div>
                         </div>

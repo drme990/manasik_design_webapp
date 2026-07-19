@@ -1,8 +1,11 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
-import type { AnyLayer } from '@/types';
+import type { AnyLayer, SafeArea } from '@/types';
+import { DEFAULT_SAFE_AREA } from '@/types';
 import { useRef, useCallback, useState, forwardRef } from 'react';
+import { LuRotateCcw } from 'react-icons/lu';
+import { Button } from '@/components/ui/Button';
 import LayerRenderer from './LayerRenderer';
 import SelectionBox from './SelectionBox';
 
@@ -11,6 +14,11 @@ export interface CanvasProps {
   height: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  safeArea?: SafeArea;
+  onSafeAreaChange?: (area: SafeArea) => void;
+  safeAreaEditMode?: boolean;
+  safeAreaResetLabel?: string;
+  safeAreaWarningLabel?: string;
   layers: AnyLayer[];
   selectedLayerId?: string;
   onSelectLayer: (id: string | null) => void;
@@ -26,7 +34,6 @@ export interface CanvasProps {
   onEditText?: (id: string) => void;
   onCropImage?: (id: string) => void;
   onEditCollage?: (id: string) => void;
-  freeDrag?: boolean;
 }
 
 function capturePointer(e: React.PointerEvent) {
@@ -53,6 +60,11 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     height,
     backgroundColor = '#ffffff',
     backgroundUri,
+    safeArea,
+    onSafeAreaChange,
+    safeAreaEditMode = false,
+    safeAreaResetLabel = 'Reset',
+    safeAreaWarningLabel = 'Elements are outside the safe area',
     layers,
     selectedLayerId,
     onSelectLayer,
@@ -68,7 +80,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     onEditText,
     onCropImage,
     onEditCollage,
-    freeDrag = false,
   }: CanvasProps,
   forwardedRef
 ) {
@@ -86,12 +97,50 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   heightRef.current = height;
   const onLayerChangeRef = useRef(onLayerChange);
   onLayerChangeRef.current = onLayerChange;
-  const freeDragRef = useRef(freeDrag);
-  freeDragRef.current = freeDrag;
   const onCropImageRef = useRef(onCropImage);
   onCropImageRef.current = onCropImage;
   const onEditCollageRef = useRef(onEditCollage);
   onEditCollageRef.current = onEditCollage;
+  const safeAreaRef = useRef(safeArea);
+  safeAreaRef.current = safeArea ?? DEFAULT_SAFE_AREA;
+  const onSafeAreaChangeRef = useRef(onSafeAreaChange);
+  onSafeAreaChangeRef.current = onSafeAreaChange;
+
+  // Safe area drag state
+  const [safeAreaDrag, setSafeAreaDrag] = useState<{
+    edge: 'move' | 'top' | 'right' | 'bottom' | 'left' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+    startX: number;
+    startY: number;
+    startArea: SafeArea;
+  } | null>(null);
+  const safeAreaDragRef = useRef(safeAreaDrag);
+  safeAreaDragRef.current = safeAreaDrag;
+
+  // Check if a layer exceeds the safe area by more than 20% of its size
+  const isLayerOutsideSafeArea = useCallback((layer: AnyLayer): boolean => {
+    const area = safeAreaRef.current;
+    if (!area) return false;
+    const w = widthRef.current;
+    const h = heightRef.current;
+    const safeLeft = (area.left / 100) * w;
+    const safeTop = (area.top / 100) * h;
+    const safeRight = w - (area.right / 100) * w;
+    const safeBottom = h - (area.bottom / 100) * h;
+    const threshold = 0.2; // 20% of element dimension
+    const overflowLeft = safeLeft - layer.x;
+    const overflowTop = safeTop - layer.y;
+    const overflowRight = (layer.x + layer.width) - safeRight;
+    const overflowBottom = (layer.y + layer.height) - safeBottom;
+    return overflowLeft > layer.width * threshold ||
+      overflowTop > layer.height * threshold ||
+      overflowRight > layer.width * threshold ||
+      overflowBottom > layer.height * threshold;
+  }, []);
+
+  // Check if ANY visible layer is outside the safe area
+  const hasLayerOutsideSafeArea = useCallback((): boolean => {
+    return layers.some((l) => l.visible && isLayerOutsideSafeArea(l));
+  }, [layers, isLayerOutsideSafeArea]);
 
   // Double-tap detection for mobile — tracks last tap time + layer id
   const lastTapRef = useRef<{ id: string; time: number } | null>(null);
@@ -397,22 +446,15 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const layer = layersRef.current.find((l) => l.id === layerId);
     const w = widthRef.current;
     const h = heightRef.current;
-    // Clamp: when freeDrag is off, keep the element fully inside the canvas.
-    // When freeDrag is on, allow dragging outside (10% visible minimum).
+    // Allow elements to be dragged up to 80% outside the canvas (20% visible minimum)
     if (layer) {
-      if (freeDragRef.current) {
-        const minVisible = 0.1;
-        const minX = -layer.width * (1 - minVisible);
-        const maxX = w - layer.width * minVisible;
-        const minY = -layer.height * (1 - minVisible);
-        const maxY = h - layer.height * minVisible;
-        newX = Math.max(minX, Math.min(maxX, newX));
-        newY = Math.max(minY, Math.min(maxY, newY));
-      } else {
-        // Keep element fully inside the canvas
-        newX = Math.max(0, Math.min(w - layer.width, newX));
-        newY = Math.max(0, Math.min(h - layer.height, newY));
-      }
+      const minVisible = 0.2;
+      const minX = -layer.width * (1 - minVisible);
+      const maxX = w - layer.width * minVisible;
+      const minY = -layer.height * (1 - minVisible);
+      const maxY = h - layer.height * minVisible;
+      newX = Math.max(minX, Math.min(maxX, newX));
+      newY = Math.max(minY, Math.min(maxY, newY));
     }
 
     // Snap to center: if the layer center is within the snap threshold,
@@ -445,6 +487,58 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     // Update tracked pointer position for multi-touch
     if (pointersRef.current.has(e.pointerId)) {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // --- Safe area dragging (takes priority over other interactions) ---
+    const safeDrag = safeAreaDragRef.current;
+    if (safeDrag && canvasRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = canvasRef.current.getBoundingClientRect();
+      const deltaPctX = ((e.clientX - safeDrag.startX) / rect.width) * 100;
+      const deltaPctY = ((e.clientY - safeDrag.startY) / rect.height) * 100;
+      const start = safeDrag.startArea;
+      let { top, right, bottom, left } = start;
+      const MIN = 0;
+
+      switch (safeDrag.edge) {
+        case 'move':
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          right = start.right + (start.left - left);
+          bottom = start.bottom + (start.top - top);
+          break;
+        case 'top':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          break;
+        case 'bottom':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          break;
+        case 'left':
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'right':
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+        case 'top-left':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'top-right':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+        case 'bottom-left':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'bottom-right':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+      }
+      onSafeAreaChangeRef.current?.({ top, right, bottom, left });
+      return; // Don't process other interactions while dragging safe area
     }
 
     // --- Two-finger pinch + rotate ---
@@ -672,7 +766,43 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     setRotateState(null);
     setShowCenterX(false);
     setShowCenterY(false);
+    // End safe area drag
+    if (safeAreaDragRef.current) {
+      e.stopPropagation();
+      if (canvasRef.current) {
+        try {
+          canvasRef.current.releasePointerCapture?.(e.pointerId);
+        } catch {
+          // ignore
+        }
+      }
+      setSafeAreaDrag(null);
+    }
   }, []);
+
+  // ─── Safe area drag handlers ──────────────────────────────────────────────
+  const handleSafeAreaPointerDown = useCallback((e: React.PointerEvent, edge: 'move' | 'top' | 'right' | 'bottom' | 'left' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
+    if (!safeAreaEditMode) return;
+    const area = safeAreaRef.current;
+    if (!area) return;
+    e.stopPropagation();
+    e.preventDefault();
+    // Capture pointer on the canvas container so move events keep firing
+    // even when the pointer moves outside the safe area div
+    if (canvasRef.current) {
+      try {
+        canvasRef.current.setPointerCapture?.(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    setSafeAreaDrag({
+      edge,
+      startX: e.clientX,
+      startY: e.clientY,
+      startArea: { ...area },
+    });
+  }, [safeAreaEditMode]);
 
   // Canvas-level pointer down — tracks pointers that land on the canvas background
   // (not on a layer). This enables two-finger pinch/rotate when the second finger
@@ -719,6 +849,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       ref={setCanvasRef}
       className={cn(
         'relative select-none overflow-hidden shadow-2xl',
+        showGrid && hasLayerOutsideSafeArea() && 'ring-4 ring-error shadow-2xl shadow-error',
         className
       )}
       style={{
@@ -736,13 +867,54 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       onPointerCancel={handlePointerEnd}
       onClick={() => onSelectLayer(null)}
     >
-      {/* Safe area hint — dashed border 5% inset from canvas edges (hidden during export) */}
-      {showGrid && (
-        <div
-          className="pointer-events-none absolute z-10 border-6 border-dashed border-layer-selected/30"
-          style={{ top: '5%', left: '5%', right: '5%', bottom: '5%' }}
-        />
-      )}
+      {/* Safe area — dashed border using custom or default insets (hidden during export) */}
+      {showGrid && (() => {
+        const area = safeArea || DEFAULT_SAFE_AREA;
+        const editMode = safeAreaEditMode;
+        const resetLabel = safeAreaResetLabel;
+        return (
+          <div
+            className={cn(
+              'absolute z-30 border-6 border-dashed',
+              editMode ? 'pointer-events-auto cursor-move border-brand-primary' : 'pointer-events-none border-layer-selected/30'
+            )}
+            style={{
+              top: `${area.top}%`,
+              left: `${area.left}%`,
+              right: `${area.right}%`,
+              bottom: `${area.bottom}%`,
+              touchAction: 'none',
+            }}
+            onPointerDown={editMode ? (e) => handleSafeAreaPointerDown(e, 'move') : undefined}
+            onPointerUp={editMode ? handlePointerEnd : undefined}
+          >
+            {editMode && (
+              <>
+                {/* Reset button — positioned above the safe area top-right corner */}
+                <Button
+                  size="sm"
+                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                  onClick={(e) => { e.stopPropagation(); onSafeAreaChangeRef.current?.({ ...DEFAULT_SAFE_AREA }); }}
+                  className="absolute -top-10 right-0 gap-1.5 shadow-lg"
+                >
+                  <LuRotateCcw className="h-4 w-4" />
+                  {resetLabel}
+                </Button>
+                {/* Edge handles */}
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')} className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize touch-none" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')} className="absolute -bottom-1 left-0 right-0 h-2 cursor-ns-resize touch-none" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')} className="absolute top-0 bottom-0 -left-1 w-2 cursor-ew-resize touch-none" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')} className="absolute top-0 bottom-0 -right-1 w-2 cursor-ew-resize touch-none" />
+                {/* Corner handles */}
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-1.5 -left-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-full bg-brand-primary" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-right')} className="absolute -top-1.5 -right-1.5 h-3 w-3 cursor-nesw-resize touch-none rounded-full bg-brand-primary" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-left')} className="absolute -bottom-1.5 -left-1.5 h-3 w-3 cursor-nesw-resize touch-none rounded-full bg-brand-primary" />
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-right')} className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-full bg-brand-primary" />
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {sortedLayers.map((layer) => (
         <LayerRenderer
@@ -794,6 +966,13 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           className="pointer-events-none absolute left-0 right-0 top-1/2 z-50 -translate-y-1/2 border-t-8 border border-brand-primary"
           style={{ height: 0 }}
         />
+      )}
+
+      {/* Warning text — shown when elements are outside the safe area */}
+      {showGrid && hasLayerOutsideSafeArea() && (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-40 flex items-center justify-center bg-error/90 py-1.5 text-center text-sm font-medium text-white">
+          {safeAreaWarningLabel}
+        </div>
       )}
     </div>
   );

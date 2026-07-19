@@ -18,6 +18,16 @@ export interface CanvasSize {
   backgroundUri?: string;
 }
 
+/** Safe area — stored as percentage insets from each edge (0–50) */
+export interface SafeArea {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export const DEFAULT_SAFE_AREA: SafeArea = { top: 5, right: 5, bottom: 5, left: 5 };
+
 export interface Project extends SyncableDocument {
   id: string;
   _id?: string; // MongoDB ObjectId
@@ -27,6 +37,7 @@ export interface Project extends SyncableDocument {
   canvasHeight: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  safeArea?: SafeArea;
   layers: AnyLayer[];
   thumbnail?: string;
   createdAt: number;
@@ -45,6 +56,7 @@ export interface ProjectCreateInput {
   canvasHeight: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  safeArea?: SafeArea;
   layers?: AnyLayer[];
   bookingMeta?: BookingMeta;
   userId?: string;
@@ -56,6 +68,7 @@ export interface ProjectUpdateInput {
   canvasHeight?: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  safeArea?: SafeArea;
   layers?: AnyLayer[];
   thumbnail?: string;
   updatedAt?: number;
