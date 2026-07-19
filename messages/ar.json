@@ -191,6 +191,7 @@
   },
   "ui": {
     "close": "إغلاق",
+    "back": "رجوع",
     "cancel": "إلغاء",
     "confirm": "تأكيد",
     "save": "حفظ",
@@ -239,6 +240,12 @@
     "unsavedChangesDescription": "لديك تغييرات غير محفوظة. هل تريد الحفظ قبل المغادرة؟",
     "saveAndLeave": "حفظ والمغادرة",
     "leaveWithoutSaving": "مغادرة بدون حفظ",
+    "saveLeaveDelete": " المغادرة وحذف المشروع",
+    "leaveDelete": "حذف المشروع والمغادرة",
+    "deleteProjectConfirmTitle": "حذف المشروع",
+    "deleteProjectConfirmDescription": "هل تريد حذف هذا المشروع نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
+    "noChangesTitle": "لا توجد تغييرات",
+    "noChangesDescription": "لم تقم بأي تغييرات على هذا المشروع. هل تريد حذفه والمغادرة؟",
     "selectLayer": "اختر طبقة لتحرير خصائصها",
     "toolbars": {
       "text": {

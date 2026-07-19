@@ -1,4 +1,5 @@
 import { ButtonHTMLAttributes, forwardRef } from 'react';
+import { cn } from '@/lib/utils/cn';
 import { LuLoaderCircle } from 'react-icons/lu';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -30,7 +31,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             <button
                 ref={ref}
                 disabled={disabled || loading}
-                className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
+                className={cn(baseStyles, variantStyles[variant], sizeStyles[size], className)}
                 {...props}
             >
                 {loading && (

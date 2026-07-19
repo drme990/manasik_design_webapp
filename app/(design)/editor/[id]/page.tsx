@@ -37,7 +37,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
-import { getProject, updateProjectLocal, saveProject, syncProject, recoverFromMirror } from '@/lib/store/projects';
+import { getProject, updateProjectLocal, saveProject, syncProject, recoverFromMirror, deleteProject } from '@/lib/store/projects';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -128,6 +128,7 @@ export default function EditorPage() {
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+    const [showNoChangesModal, setShowNoChangesModal] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     const [history, setHistory] = useState<{ past: AnyLayer[][]; future: AnyLayer[][] }>({
@@ -340,13 +341,43 @@ export default function EditorPage() {
         router.replace('/projects');
     }, [router]);
 
+    // Save, then delete the project and leave
+    const doSaveLeaveAndDelete = useCallback(() => {
+        const current = pendingPersistRef.current || projectRef.current;
+        if (current) {
+            if (saveDebounceRef.current) {
+                clearTimeout(saveDebounceRef.current);
+                saveDebounceRef.current = null;
+            }
+            pendingPersistRef.current = null;
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+            // Save first so the latest state is synced, then delete
+            saveProject(current).catch(() => { });
+            syncProject(current.id).catch(() => { });
+            deleteProject(current.id).catch(() => { });
+        }
+        router.replace('/projects');
+    }, [router]);
+
+    // Delete the project and leave (no changes to save)
+    const doDeleteAndLeave = useCallback(() => {
+        const current = projectRef.current;
+        if (current) {
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+            deleteProject(current.id).catch(() => { });
+        }
+        router.replace('/projects');
+    }, [router]);
+
     // Check for unsaved changes before navigating — shows confirmation modal if dirty
     // Used by in-app back/navigation buttons
     const handleNavigateBack = useCallback(() => {
         if (hasUnsavedRef.current) {
             setShowUnsavedModal(true);
         } else {
-            router.push('/projects');
+            setShowNoChangesModal(true);
         }
     }, [router]);
 
@@ -560,8 +591,9 @@ export default function EditorPage() {
                 // Show the confirmation modal
                 setShowUnsavedModal(true);
             } else {
-                // No unsaved changes — let the back navigation proceed
-                router.push('/projects');
+                // No unsaved changes — re-push guard and show no-changes modal
+                window.history.pushState({ editorGuard: true }, '');
+                setShowNoChangesModal(true);
             }
         };
         window.addEventListener('popstate', handlePopState);
@@ -1917,7 +1949,53 @@ export default function EditorPage() {
                                 </Button>
                                 <Button
                                     variant="ghost"
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doSaveLeaveAndDelete();
+                                    }}
+                                    className="w-full text-error hover:bg-error/10"
+                                >
+                                    {t('saveLeaveDelete')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
                                     onClick={() => setShowUnsavedModal(false)}
+                                    className="w-full"
+                                >
+                                    {t('cancel')}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* No changes modal — asks if user wants to delete the project */}
+                {showNoChangesModal && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
+                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            <h2 className="mb-2 text-lg font-bold text-foreground">
+                                {t('noChangesTitle')}
+                            </h2>
+                            <p className="mb-6 text-sm text-secondary">
+                                {t('noChangesDescription')}
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowNoChangesModal(false);
+                                        doDeleteAndLeave();
+                                    }}
+                                    className="w-full text-error hover:bg-error/10"
+                                >
+                                    {t('leaveDelete')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowNoChangesModal(false);
+                                        router.push('/projects');
+                                    }}
                                     className="w-full"
                                 >
                                     {t('cancel')}

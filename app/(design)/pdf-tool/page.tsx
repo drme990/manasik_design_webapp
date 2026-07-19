@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useDrag, useDrop, useDragLayer, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { useTranslations } from '@/lib/i18n/strings';
@@ -18,10 +18,11 @@ import {
     LuGripVertical,
     LuLoaderCircle,
     LuEye,
+    LuArrowLeft,
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
-import { listPdfProjects, savePdfProject, createPdfProject, invalidatePdfListCache } from '@/lib/store/exports';
+import { listPdfProjects, savePdfProject, createPdfProject, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
 import type { PdfImage as PdfImageType, PdfProject } from '@/types';
 
 const ITEM_TYPE = 'PDF_IMAGE';
@@ -195,8 +196,10 @@ export default function PdfToolPageWrapper() {
 function PdfToolPage() {
     const t = useTranslations('pdfTool');
     const uiT = useTranslations('ui');
+    const editorT = useTranslations('editor');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const searchParams = useSearchParams();
+    const router = useRouter();
     const projectId = searchParams.get('id');
 
     const [images, setImages] = useState<PdfImageType[]>([]);
@@ -206,7 +209,14 @@ function PdfToolPage() {
     const [projectName, setProjectName] = useState('');
     const [currentProject, setCurrentProject] = useState<PdfProject | null>(null);
     const [loading, setLoading] = useState(!!projectId);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+    const [showNoChangesModal, setShowNoChangesModal] = useState(false);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasUnsavedRef = useRef(false);
+    const currentProjectRef = useRef<PdfProject | null>(null);
+    currentProjectRef.current = currentProject;
+    const skipNextSaveRef = useRef(false);
 
     // Load existing project when ?id= is present
     useEffect(() => {
@@ -215,18 +225,37 @@ function PdfToolPage() {
         listPdfProjects().then((projects) => {
             const found = projects.find((p) => p.id === projectId);
             if (found) {
+                currentProjectRef.current = found;
                 setCurrentProject(found);
                 setProjectName(found.name);
                 setImages(found.images);
+                // Skip the auto-save that would fire from images being set —
+                // the data was just loaded from the DB, no need to re-save it.
+                skipNextSaveRef.current = true;
             }
             setLoading(false);
         });
     }, [projectId]);
 
-    // Auto-save: debounced whenever images change
+    // Auto-save: debounced whenever images or name change
+    // NOTE: currentProject is intentionally excluded from deps — updating it
+    // after a save would re-trigger this effect and cause an infinite save loop.
+    // We read it via ref instead.
     useEffect(() => {
         if (loading) return; // Don't save during initial load
-        if (images.length === 0 && !currentProject) return; // Nothing to save
+        if (images.length === 0 && !currentProjectRef.current) return; // Nothing to save
+
+        // Skip save after initial load — data came from DB, no changes yet
+        if (skipNextSaveRef.current) {
+            skipNextSaveRef.current = false;
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+            return;
+        }
+
+        // Mark as having unsaved changes whenever images/name change
+        hasUnsavedRef.current = true;
+        setHasUnsavedChanges(true);
 
         if (saveTimerRef.current) {
             clearTimeout(saveTimerRef.current);
@@ -236,22 +265,27 @@ function PdfToolPage() {
             if (images.length === 0) return;
 
             const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
-            if (currentProject) {
+            const existing = currentProjectRef.current;
+            if (existing) {
                 // Update existing project
                 const updated: PdfProject = {
-                    ...currentProject,
+                    ...existing,
                     name,
                     images,
                 };
                 await savePdfProject(updated);
+                currentProjectRef.current = updated;
                 setCurrentProject(updated);
             } else {
                 // Create new project
                 const created = await createPdfProject(name, images);
+                currentProjectRef.current = created;
                 setCurrentProject(created);
                 setProjectName(created.name);
             }
             invalidatePdfListCache();
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
         }, 800);
 
         return () => {
@@ -259,7 +293,7 @@ function PdfToolPage() {
                 clearTimeout(saveTimerRef.current);
             }
         };
-    }, [images, projectName, currentProject, loading]);
+    }, [images, projectName, loading]);
 
     const handleAddImages = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
@@ -310,8 +344,95 @@ function PdfToolPage() {
         setImages([]);
         setConfirmClear(false);
         setCurrentProject(null);
+        currentProjectRef.current = null;
         setProjectName('');
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
     };
+
+    // ─── Leave navigation with confirmation modals ──────────────────────────
+    const doSaveAndLeave = useCallback(() => {
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        // Force immediate save
+        const proj = currentProjectRef.current;
+        if (proj && images.length > 0) {
+            const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
+            savePdfProject({ ...proj, name, images }).catch(() => { });
+            invalidatePdfListCache();
+        }
+        router.replace('/projects');
+    }, [router, images, projectName]);
+
+    const doLeaveWithoutSaving = useCallback(() => {
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        router.replace('/projects');
+    }, [router]);
+
+    const doSaveLeaveAndDelete = useCallback(() => {
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        const proj = currentProjectRef.current;
+        if (proj) {
+            // Save first so latest state is synced, then delete
+            const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
+            savePdfProject({ ...proj, name, images }).catch(() => { });
+            deletePdfProject(proj.id).catch(() => { });
+            invalidatePdfListCache();
+        }
+        router.replace('/projects');
+    }, [router, images, projectName]);
+
+    const doDeleteAndLeave = useCallback(() => {
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        const proj = currentProjectRef.current;
+        if (proj) {
+            deletePdfProject(proj.id).catch(() => { });
+            invalidatePdfListCache();
+        }
+        router.replace('/projects');
+    }, [router]);
+
+    const handleNavigateBack = useCallback(() => {
+        if (hasUnsavedRef.current) {
+            setShowUnsavedModal(true);
+        } else {
+            setShowNoChangesModal(true);
+        }
+    }, []);
+
+    // Browser back-button guard
+    useEffect(() => {
+        if (!projectId) return; // Only guard when editing an existing project
+        window.history.pushState({ pdfGuard: true }, '');
+        const handlePopState = () => {
+            if (hasUnsavedRef.current) {
+                window.history.pushState({ pdfGuard: true }, '');
+                setShowUnsavedModal(true);
+            } else {
+                window.history.pushState({ pdfGuard: true }, '');
+                setShowNoChangesModal(true);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [projectId]);
 
     const handleDownload = useCallback(async () => {
         if (images.length === 0) return;
@@ -373,7 +494,18 @@ function PdfToolPage() {
                 <div className="mx-auto max-w-4xl">
                     {/* Header */}
                     <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+                        <div className="mb-3 flex items-center gap-3">
+                            {projectId && (
+                                <button
+                                    onClick={handleNavigateBack}
+                                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-card-bg text-foreground transition-colors hover:bg-muted"
+                                    aria-label={uiT('back')}
+                                >
+                                    <LuArrowLeft className="h-5 w-5" />
+                                </button>
+                            )}
+                            <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+                        </div>
                         <p className="mt-1 text-secondary">{t('subtitle')}</p>
                         {currentProject && (
                             <input
@@ -548,6 +680,91 @@ function PdfToolPage() {
                     cancelLabel={uiT('cancel')}
                     onConfirm={handleClear}
                 />
+
+                {/* Unsaved changes modal — with delete option */}
+                {showUnsavedModal && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
+                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            <h2 className="mb-2 text-lg font-bold text-foreground">
+                                {editorT('unsavedChangesTitle')}
+                            </h2>
+                            <p className="mb-6 text-sm text-secondary">
+                                {editorT('unsavedChangesDescription')}
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doSaveAndLeave();
+                                    }}
+                                    className="w-full"
+                                >
+                                    {editorT('saveAndLeave')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doLeaveWithoutSaving();
+                                    }}
+                                    className="w-full text-secondary"
+                                >
+                                    {editorT('leaveWithoutSaving')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowUnsavedModal(false);
+                                        doSaveLeaveAndDelete();
+                                    }}
+                                    className="w-full text-error hover:bg-error/10"
+                                >
+                                    {editorT('saveLeaveDelete')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setShowUnsavedModal(false)}
+                                    className="w-full"
+                                >
+                                    {editorT('cancel')}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* No changes modal — asks if user wants to delete the project */}
+                {showNoChangesModal && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
+                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            <h2 className="mb-2 text-lg font-bold text-foreground">
+                                {editorT('noChangesTitle')}
+                            </h2>
+                            <p className="mb-6 text-sm text-secondary">
+                                {editorT('noChangesDescription')}
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowNoChangesModal(false);
+                                        doDeleteAndLeave();
+                                    }}
+                                    className="w-full text-error hover:bg-error/10"
+                                >
+                                    {editorT('leaveDelete')}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setShowNoChangesModal(false)}
+                                    className="w-full"
+                                >
+                                    {editorT('cancel')}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
         </DndProvider >
     );
