@@ -61,22 +61,32 @@ export default function ImageCropModal({
     cropRef.current = crop;
   }, [crop]);
 
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setImgLoaded(false);
-      setCrop({ x: 0, y: 0, width: 0, height: 0 });
-      cropRef.current = { x: 0, y: 0, width: 0, height: 0 };
-      dragModeRef.current = null;
-      moveOffsetRef.current = null;
-    }
-  }, [isOpen]);
-
-  const handleImageLoad = useCallback(() => {
-    if (!imgRef.current) return;
+  // Measure the displayed image and initialize the crop rect.
+  // Called from onLoad AND from a layout effect (handles cached images
+  // where onLoad may have already fired before React attached the handler).
+  const measureAndInitCrop = useCallback(() => {
     const img = imgRef.current;
-    const w = img.offsetWidth;
-    const h = img.offsetHeight;
+    if (!img) return;
+    // Use the laid-out dimensions (offsetWidth/Height) — these reflect the
+    // actual rendered size after CSS max-h/max-w constraints are applied.
+    let w = img.offsetWidth;
+    let h = img.offsetHeight;
+    // Fallback: if offset dims are 0 (image not yet laid out), compute from
+    // natural dims + the container constraints.
+    if (w === 0 || h === 0) {
+      const natW = img.naturalWidth || naturalWidth;
+      const natH = img.naturalHeight || naturalHeight;
+      if (natW > 0 && natH > 0) {
+        const maxH = window.innerHeight * 0.6; // max-h-[60vh]
+        const maxW = img.parentElement?.clientWidth ?? window.innerWidth;
+        const ratio = natW / natH;
+        if (natH > maxH) { h = maxH; w = h * ratio; }
+        else { h = natH; w = natW; }
+        if (w > maxW) { w = maxW; h = w / ratio; }
+      }
+    }
+    if (w === 0 || h === 0) return; // still can't measure — bail
+
     setDisplaySize({ width: w, height: h });
 
     // Restore last crop area if available (convert from original pixel coords to display coords)
@@ -106,6 +116,41 @@ export default function ImageCropModal({
     }
     setImgLoaded(true);
   }, [lastCropRect, naturalWidth, naturalHeight]);
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setImgLoaded(false);
+      setDisplaySize({ width: 0, height: 0 });
+      setCrop({ x: 0, y: 0, width: 0, height: 0 });
+      cropRef.current = { x: 0, y: 0, width: 0, height: 0 };
+      dragModeRef.current = null;
+      moveOffsetRef.current = null;
+    }
+  }, [isOpen]);
+
+  // After the modal opens and the image element is rendered, check if the
+  // image is already complete (cached) — if so, measure immediately. Also
+  // retry a few times in case layout hasn't settled yet.
+  useEffect(() => {
+    if (!isOpen) return;
+    let attempts = 0;
+    const tryMeasure = () => {
+      const img = imgRef.current;
+      if (!img) { if (attempts++ < 10) raf = requestAnimationFrame(tryMeasure); return; }
+      if (img.complete && img.naturalWidth > 0) {
+        measureAndInitCrop();
+      } else if (attempts++ < 10) {
+        raf = requestAnimationFrame(tryMeasure);
+      }
+    };
+    let raf = requestAnimationFrame(tryMeasure);
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen, measureAndInitCrop]);
+
+  const handleImageLoad = useCallback(() => {
+    measureAndInitCrop();
+  }, [measureAndInitCrop]);
 
   const getRelativePos = (clientX: number, clientY: number) => {
     if (!imgRef.current) return { x: 0, y: 0 };
@@ -289,7 +334,12 @@ export default function ImageCropModal({
               alt="Crop preview"
               draggable={false}
               onLoad={handleImageLoad}
+              onError={() => setImgLoaded(false)}
               className="max-h-[60vh] max-w-full select-none"
+              // Force the image to have a min size while loading so the
+              // container doesn't collapse to 0×0 (which would prevent
+              // onLoad from ever firing in some browsers).
+              style={{ minHeight: imgLoaded ? 0 : 200 }}
             />
 
             {imgLoaded && crop.width > 0 && crop.height > 0 && (
@@ -325,7 +375,7 @@ export default function ImageCropModal({
             )}
 
             {!imgLoaded && (
-              <div className="flex h-75 items-center justify-center">
+              <div className="flex h-48 items-center justify-center">
                 <div className="text-sm text-white/60">...</div>
               </div>
             )}
