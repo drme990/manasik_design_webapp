@@ -265,6 +265,12 @@ export default function PropertiesBar({
                                         onClick={() => setCollageEditOpen(true)}
                                     />
                                     <PropButton
+                                        label={t('toolbars.image.aspectRatio')}
+                                        icon={<LuCrop className="h-5 w-5" />}
+                                        active={activeProp === 'image.aspectRatio'}
+                                        onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
+                                    />
+                                    <PropButton
                                         label={t('toolbars.image.collageLayout')}
                                         icon={<LuLayoutGrid className="h-5 w-5" />}
                                         active={activeProp === 'image.collageLayout'}

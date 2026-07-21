@@ -3,9 +3,19 @@
 import { useRef, useState, useEffect } from 'react';
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { cn } from '@/lib/utils/cn';
-import type { AnyLayer } from '@/types';
+import type { AnyLayer, TextLayer } from '@/types';
 import { getLayerTypeLabel } from '@/lib/utils/layer-utils';
 import { LuGripVertical, LuEye, LuEyeOff, LuLock, LuLockOpen, LuTrash2 } from 'react-icons/lu';
+
+// For text layers, show the actual text content (truncated) instead of the
+// generic "نص" name. Falls back to the layer name for non-text layers.
+function getLayerDisplayName(layer: AnyLayer): string {
+  if (layer.type === 'text') {
+    const text = (layer as TextLayer).text?.trim();
+    if (text) return text;
+  }
+  return layer.name;
+}
 
 export interface DraggableLayerListProps {
   layers: AnyLayer[];
@@ -51,7 +61,7 @@ function DragLayerView() {
         )}
       >
         <LuGripVertical className={cn('h-4 w-4 shrink-0', item.selected ? 'text-white/70' : 'text-secondary')} />
-        <span className="flex-1 truncate">{item.layer.name}</span>
+        <span className="flex-1 truncate">{getLayerDisplayName(item.layer)}</span>
         <span className={cn('shrink-0 text-xs', item.selected ? 'text-white/70' : 'text-secondary')}>
           {getLayerTypeLabel(item.layer.type)}
         </span>
@@ -155,7 +165,7 @@ function LayerRow({
         )}
       >
         <LuGripVertical className={cn('h-4 w-4 shrink-0 cursor-grab', selected ? 'text-white/70' : 'text-secondary')} />
-        <span className="flex-1 truncate">{layer.name}</span>
+        <span className="flex-1 truncate">{getLayerDisplayName(layer)}</span>
         <span className={cn('shrink-0 text-xs', selected ? 'text-white/70' : 'text-secondary')}>
           {getLayerTypeLabel(layer.type)}
         </span>

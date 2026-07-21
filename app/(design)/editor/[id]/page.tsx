@@ -131,12 +131,27 @@ export default function EditorPage() {
     const [showLeaveModal, setShowLeaveModal] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
-    const [history, setHistory] = useState<{ past: AnyLayer[][]; future: AnyLayer[][] }>({
+    // History snapshots include layers + background properties so undo/redo
+    // can restore background color and background image changes too.
+    type ProjectSnapshot = {
+        layers: AnyLayer[];
+        backgroundColor?: string;
+        backgroundUri?: string;
+        backgroundThumbnailUri?: string;
+    };
+    const [history, setHistory] = useState<{ past: ProjectSnapshot[]; future: ProjectSnapshot[] }>({
         past: [],
         future: [],
     });
     const projectRef = useRef<Project | null>(null);
     const inTransactionRef = useRef(false);
+    // Helper — create a history snapshot from a project
+    const snapshot = useCallback((p: Project): ProjectSnapshot => ({
+        layers: p.layers,
+        backgroundColor: p.backgroundColor,
+        backgroundUri: p.backgroundUri,
+        backgroundThumbnailUri: p.backgroundThumbnailUri,
+    }), []);
     const selectedLayerIdRef = useRef<string | null>(null);
     const deleteLayerRef = useRef<(id: string) => void>(() => { });
     const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -478,34 +493,6 @@ export default function EditorPage() {
         setRenameOpen(false);
     }, [project, renameValue]);
 
-    const handleBackgroundColorChange = useCallback((color: string) => {
-        setProject((prev) => {
-            if (!prev) return prev;
-            const updated = { ...prev, backgroundColor: color };
-            persistProject(updated);
-            return updated;
-        });
-    }, [persistProject]);
-
-    const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file || !project) return;
-        try {
-            const { uri, thumbnailUri } = await uploadImageWithProgress(file, toast, 'جاري رفع صورة الخلفية...');
-            await updateProjectLocal(project.id, { backgroundUri: uri, backgroundThumbnailUri: thumbnailUri });
-            setProject((prev) => (prev ? { ...prev, backgroundUri: uri, backgroundThumbnailUri: thumbnailUri } : prev));
-        } catch {
-            // toast already shown by uploader
-        }
-        e.target.value = '';
-    }, [project, toast]);
-
-    const handleRemoveBackgroundImage = useCallback(async () => {
-        if (!project) return;
-        await updateProjectLocal(project.id, { backgroundUri: undefined });
-        setProject((prev) => (prev ? { ...prev, backgroundUri: undefined } : prev));
-    }, [project]);
-
     const updateProjectState = useCallback(
         (updater: (prev: Project) => Project, recordHistory = true) => {
             setProject((prev) => {
@@ -513,7 +500,7 @@ export default function EditorPage() {
                 const updated = updater(prev);
                 if (recordHistory && !inTransactionRef.current) {
                     setHistory((h) => ({
-                        past: [...h.past, prev.layers],
+                        past: [...h.past, snapshot(prev)],
                         future: [],
                     }));
                 }
@@ -521,8 +508,28 @@ export default function EditorPage() {
                 return updated;
             });
         },
-        [persistProject]
+        [persistProject, snapshot]
     );
+
+    const handleBackgroundColorChange = useCallback((color: string) => {
+        updateProjectState((prev) => ({ ...prev, backgroundColor: color }));
+    }, [updateProjectState]);
+
+    const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !project) return;
+        try {
+            const { uri, thumbnailUri } = await uploadImageWithProgress(file, toast, 'جاري رفع صورة الخلفية...');
+            updateProjectState((prev) => ({ ...prev, backgroundUri: uri, backgroundThumbnailUri: thumbnailUri }));
+        } catch {
+            // toast already shown by uploader
+        }
+        e.target.value = '';
+    }, [project, toast, updateProjectState]);
+
+    const handleRemoveBackgroundImage = useCallback(() => {
+        updateProjectState((prev) => ({ ...prev, backgroundUri: undefined, backgroundThumbnailUri: undefined }));
+    }, [updateProjectState]);
 
     const handleSafeAreaChange = useCallback(
         (area: SafeArea) => {
@@ -538,13 +545,19 @@ export default function EditorPage() {
             const newPast = h.past.slice(0, -1);
             const current = projectRef.current;
             if (current) {
-                const updated = { ...current, layers: previous };
+                const updated = {
+                    ...current,
+                    layers: previous.layers,
+                    backgroundColor: previous.backgroundColor,
+                    backgroundUri: previous.backgroundUri,
+                    backgroundThumbnailUri: previous.backgroundThumbnailUri,
+                };
                 persistProject(updated);
                 setProject(updated);
             }
-            return { past: newPast, future: [current?.layers ?? previous, ...h.future] };
+            return { past: newPast, future: [current ? snapshot(current) : previous, ...h.future] };
         });
-    }, [persistProject]);
+    }, [persistProject, snapshot]);
 
     const handleRedo = useCallback(() => {
         setHistory((h) => {
@@ -553,13 +566,19 @@ export default function EditorPage() {
             const newFuture = h.future.slice(1);
             const current = projectRef.current;
             if (current) {
-                const updated = { ...current, layers: next };
+                const updated = {
+                    ...current,
+                    layers: next.layers,
+                    backgroundColor: next.backgroundColor,
+                    backgroundUri: next.backgroundUri,
+                    backgroundThumbnailUri: next.backgroundThumbnailUri,
+                };
                 persistProject(updated);
                 setProject(updated);
             }
-            return { past: [...h.past, current?.layers ?? next], future: newFuture };
+            return { past: [...h.past, current ? snapshot(current) : next], future: newFuture };
         });
-    }, [persistProject]);
+    }, [persistProject, snapshot]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -634,10 +653,10 @@ export default function EditorPage() {
         const current = projectRef.current;
         if (!current) return;
         setHistory((h) => ({
-            past: [...h.past, current.layers],
+            past: [...h.past, snapshot(current)],
             future: [],
         }));
-    }, []);
+    }, [snapshot]);
 
     const handleLayerChange = useCallback(
         (layerId: string, updates: Partial<AnyLayer>, recordHistory = true) => {
@@ -767,11 +786,11 @@ export default function EditorPage() {
             if (!current) return;
             inTransactionRef.current = true;
             setHistory((h) => ({
-                past: [...h.past, current.layers],
+                past: [...h.past, snapshot(current)],
                 future: [],
             }));
         },
-        []
+        [snapshot]
     );
 
     const handleReorder = useCallback(
@@ -1573,18 +1592,27 @@ export default function EditorPage() {
                                                         }
                                                         const newX = layer.x + (currentW - newW) / 2;
                                                         const newY = layer.y + (currentH - newH) / 2;
-                                                        // Recalculate imageScale so image always covers the new box
-                                                        const newImageScale = Math.max(
-                                                            newW / layer.naturalWidth,
-                                                            newH / layer.naturalHeight
-                                                        );
-                                                        handleLayerChange(layer.id, {
-                                                            width: newW, height: newH,
-                                                            maskWidth: newW, maskHeight: newH,
-                                                            imageScale: newImageScale,
-                                                            offsetX: 0, offsetY: 0,
-                                                            x: newX, y: newY,
-                                                        } as Partial<AnyLayer>);
+                                                        if (layer.collage) {
+                                                            // Collage layer — just resize the container;
+                                                            // cells are relative proportions so they adjust automatically.
+                                                            handleLayerChange(layer.id, {
+                                                                width: newW, height: newH,
+                                                                x: newX, y: newY,
+                                                            } as Partial<AnyLayer>);
+                                                        } else {
+                                                            // Regular image — recalculate imageScale so image covers the new box
+                                                            const newImageScale = Math.max(
+                                                                newW / layer.naturalWidth,
+                                                                newH / layer.naturalHeight
+                                                            );
+                                                            handleLayerChange(layer.id, {
+                                                                width: newW, height: newH,
+                                                                maskWidth: newW, maskHeight: newH,
+                                                                imageScale: newImageScale,
+                                                                offsetX: 0, offsetY: 0,
+                                                                x: newX, y: newY,
+                                                            } as Partial<AnyLayer>);
+                                                        }
                                                     }}
                                                     className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 text-center transition-colors ${isSelected
                                                         ? 'border-brand-primary bg-brand-primary text-white'

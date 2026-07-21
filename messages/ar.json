@@ -366,8 +366,10 @@
       },
       "collageEdit": {
         "title": "تحرير الكولاج",
+        "layout": "التخطيط",
         "cell": "صورة {index}",
         "replace": "استبدال",
+        "remove": "حذف",
         "reset": "إعادة تعيين",
         "addImage": "إضافة صورة",
         "maxImages": "الحد الأقصى 4 صور",

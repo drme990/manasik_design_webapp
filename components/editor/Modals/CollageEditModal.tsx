@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import { useTranslations } from '@/lib/i18n/strings';
 import { cn } from '@/lib/utils/cn';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
-import { LuReplace, LuRotateCcw, LuPlus } from 'react-icons/lu';
+import { LuReplace, LuRotateCcw, LuPlus, LuTrash2 } from 'react-icons/lu';
 import type { ImageLayer, ImageLayerCollageCell } from '@/types';
 
 export interface CollageEditModalProps {
@@ -34,6 +34,12 @@ export default function CollageEditModal({
     startOffsetX: number;
     startOffsetY: number;
   } | null>(null);
+
+  // Natural dimensions of each cell's image — needed to calculate the cover
+  // scale and clamp the drag offset so the image always covers the cell frame.
+  const [imageDimensions, setImageDimensions] = useState<Map<number, { w: number; h: number }>>(new Map());
+  const imageDimensionsRef = useRef(imageDimensions);
+  imageDimensionsRef.current = imageDimensions;
 
   // Pinch-to-zoom + rotate state
   const pinchRef = useRef<{
@@ -108,6 +114,35 @@ export default function CollageEditModal({
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  // Remove a cell's image — keeps at least 2 cells so the collage is never
+  // reduced to a single image. Also picks a layout matching the new count.
+  const handleRemoveCell = (index: number) => {
+    if (!collage) return;
+    if (collage.cells.length <= 2) return; // minimum 2 images
+    const newCells = collage.cells.filter((_, i) => i !== index);
+    const newUris = newCells.map(c => c.uri);
+    const newLayout = COLLAGE_LAYOUTS.find(l => l.count === newCells.length);
+    // Clear cached dimensions for shifted indices
+    setImageDimensions(prev => {
+      const next = new Map<number, { w: number; h: number }>();
+      newCells.forEach((_, i) => {
+        const srcIdx = i < index ? i : i + 1;
+        const d = prev.get(srcIdx);
+        if (d) next.set(i, d);
+      });
+      return next;
+    });
+    setSelectedCell(null);
+    onUpdate({
+      collage: {
+        ...collage,
+        cells: newCells,
+        uris: newUris,
+        layout: newLayout?.id ?? collage.layout,
+      },
+    });
   };
 
   const handleImagePointerDown = (e: React.PointerEvent, index: number) => {
@@ -245,6 +280,15 @@ export default function CollageEditModal({
   const previewW = Math.min(layer.width, 280);
   const previewH = previewW * (layer.height / layer.width);
   const previewScale = previewW / layer.width;
+  // Layouts available for the current image count
+  const availableLayouts = COLLAGE_LAYOUTS.filter(l => l.count === collage.cells.length);
+  // Mini-preview dimensions for layout thumbnails
+  const thumbW = 48;
+  const thumbH = thumbW * (layer.height / layer.width);
+
+  const handleLayoutChange = (layoutId: string) => {
+    onUpdate({ collage: { ...collage, layout: layoutId } });
+  };
 
   return (
     <FullPageDrawer
@@ -332,6 +376,60 @@ export default function CollageEditModal({
           </div>
         </div>
 
+        {/* Layout picker — shows all layouts matching the current image count */}
+        {availableLayouts.length > 1 && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">{t('layout')}</h3>
+            <div className="flex flex-wrap gap-2">
+              {availableLayouts.map((l) => {
+                const isActive = collage.layout === l.id;
+                return (
+                  <button
+                    key={l.id}
+                    onClick={() => handleLayoutChange(l.id)}
+                    className={cn(
+                      'flex flex-col items-center gap-1 rounded-lg border p-2 transition-all',
+                      isActive
+                        ? 'border-brand-primary ring-2 ring-brand-primary/30 bg-brand-primary/5'
+                        : 'border-stroke hover:border-brand-primary/50'
+                    )}
+                  >
+                    {/* Mini layout preview */}
+                    <div
+                      className="relative overflow-hidden bg-muted"
+                      style={{ width: thumbW, height: thumbH, borderRadius: 4 }}
+                    >
+                      {l.cells.map((c, ci) => {
+                        const gap = collage.gap ?? 4;
+                        const cw = c.w * thumbW - gap;
+                        const ch = c.h * thumbH - gap;
+                        const cx = c.x * thumbW + gap / 2;
+                        const cy = c.y * thumbH + gap / 2;
+                        return (
+                          <div
+                            key={ci}
+                            className={cn(
+                              'absolute rounded-sm',
+                              isActive ? 'bg-brand-primary/60' : 'bg-foreground/20'
+                            )}
+                            style={{ left: cx, top: cy, width: cw, height: ch }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <span className={cn(
+                      'text-[10px] leading-tight',
+                      isActive ? 'font-semibold text-foreground' : 'text-secondary'
+                    )}>
+                      {l.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Selected cell controls */}
         {selectedCell !== null && selectedCellData ? (
           <div className="space-y-4 rounded-xl border border-stroke bg-card-bg p-5">
@@ -368,6 +466,18 @@ export default function CollageEditModal({
                 <LuRotateCcw className="h-4 w-4" />
                 {t('reset')}
               </Button>
+              {/* Remove image — hidden when only 2 cells remain (minimum) */}
+              {collage.cells.length > 2 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleRemoveCell(selectedCell)}
+                  className="gap-1.5 text-red-500 hover:text-red-600"
+                >
+                  <LuTrash2 className="h-4 w-4" />
+                  {t('remove')}
+                </Button>
+              )}
             </div>
 
             {/* Zoom slider */}
