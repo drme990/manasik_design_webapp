@@ -499,7 +499,6 @@ export default function ColorPickerDrawer({
                       value.toLowerCase() === color.toLowerCase()
                         ? 'border-foreground'
                         : 'border-stroke',
-                      editSavedColors && 'opacity-60',
                     )}
                     style={{ backgroundColor: color }}
                     aria-label={color}
