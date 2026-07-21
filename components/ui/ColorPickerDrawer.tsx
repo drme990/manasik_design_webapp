@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { LuPipette, LuPlus, LuX } from 'react-icons/lu';
+import { LuPipette, LuPlus, LuX, LuPencil } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 import { rgbToHex, hsvToRgb, rgbToHsv, hexToRgb } from '@/lib/utils/color';
 import { useTranslations } from '@/lib/i18n/strings';
@@ -61,6 +61,7 @@ export default function ColorPickerDrawer({
   const t = useTranslations('editor.colorPicker');
   const [recent, setRecent] = useState<string[]>([]);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [editSavedColors, setEditSavedColors] = useState(false);
   const [hue, setHue] = useState(0);
   const [sat, setSat] = useState(1);
   const [val, setVal] = useState(1);
@@ -455,38 +456,58 @@ export default function ColorPickerDrawer({
         <div>
           <div className="mb-2 flex items-center justify-between">
             <label className="block text-xs font-medium text-secondary">{t('savedColors')}</label>
-            {onSaveColor && (
-              <button
-                type="button"
-                onClick={() => onSaveColor(value.toUpperCase())}
-                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-primary transition-colors hover:bg-brand-primary/10"
-                aria-label={t('saveCurrentColor')}
-                title={t('saveCurrentColor')}
-              >
-                <LuPlus className="h-3.5 w-3.5" />
-                {t('saveCurrentColor')}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {onRemoveSavedColor && savedColors.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEditSavedColors((v) => !v)}
+                  className={cn(
+                    'flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors',
+                    editSavedColors
+                      ? 'bg-brand-primary/15 text-brand-primary'
+                      : 'text-secondary hover:bg-stroke hover:text-foreground'
+                  )}
+                  aria-label={t('editColors')}
+                  title={t('editColors')}
+                >
+                  <LuPencil className="h-3.5 w-3.5" />
+                  {t('editColors')}
+                </button>
+              )}
+              {onSaveColor && (
+                <button
+                  type="button"
+                  onClick={() => onSaveColor(value.toUpperCase())}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-primary transition-colors hover:bg-brand-primary/10"
+                  aria-label={t('saveCurrentColor')}
+                  title={t('saveCurrentColor')}
+                >
+                  <LuPlus className="h-3.5 w-3.5" />
+                  {t('saveCurrentColor')}
+                </button>
+              )}
+            </div>
           </div>
           {savedColors.length > 0 ? (
             <div className="flex flex-wrap gap-2.5">
               {savedColors.map((color, index) => (
-                <div key={`${color}-${index}`} className="group relative">
+                <div key={`${color}-${index}`} className="relative">
                   <button
-                    onClick={() => handleRecentSelect(color)}
+                    onClick={() => !editSavedColors && handleRecentSelect(color)}
                     className={cn(
                       'h-9 w-9 rounded-full border-2 transition-transform active:scale-90',
                       value.toLowerCase() === color.toLowerCase()
                         ? 'border-foreground'
                         : 'border-stroke',
+                      editSavedColors && 'opacity-60',
                     )}
                     style={{ backgroundColor: color }}
                     aria-label={color}
                   />
-                  {onRemoveSavedColor && (
+                  {editSavedColors && onRemoveSavedColor && (
                     <button
                       onClick={() => onRemoveSavedColor(color)}
-                      className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
                       aria-label={t('removeColor')}
                     >
                       <LuX className="h-3 w-3" />

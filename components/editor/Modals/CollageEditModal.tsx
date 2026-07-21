@@ -35,12 +35,18 @@ export default function CollageEditModal({
     startOffsetY: number;
   } | null>(null);
 
-  // Pinch-to-zoom state
+  // Pinch-to-zoom + rotate state
   const pinchRef = useRef<{
     pointers: Map<number, { x: number; y: number }>;
     startDistance: number;
     startScale: number;
-  }>({ pointers: new Map(), startDistance: 0, startScale: 1 });
+    startAngle: number;
+    startRotation: number;
+    // Smoothing fields
+    lastScaleFactor?: number;
+    lastAngleDelta?: number;
+    lastDelta?: { dist: number; angle: number };
+  }>({ pointers: new Map(), startDistance: 0, startScale: 1, startAngle: 0, startRotation: 0 });
 
   useEffect(() => {
     if (isOpen) {
@@ -48,6 +54,11 @@ export default function CollageEditModal({
       setDragState(null);
       pinchRef.current.pointers.clear();
       pinchRef.current.startDistance = 0;
+      pinchRef.current.startAngle = 0;
+      pinchRef.current.startRotation = 0;
+      pinchRef.current.lastScaleFactor = undefined;
+      pinchRef.current.lastAngleDelta = undefined;
+      pinchRef.current.lastDelta = undefined;
     }
   }, [isOpen]);
 
@@ -110,12 +121,20 @@ export default function CollageEditModal({
     // Track pointer for pinch detection
     pinch.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // If two pointers are down, start pinch mode
+    // If two pointers are down, start pinch + rotate mode
     if (pinch.pointers.size === 2) {
       const pts = [...pinch.pointers.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      // Ignore if fingers are too close — causes extreme sensitivity
+      if (dist < 20) return;
+      const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
       pinch.startDistance = dist;
       pinch.startScale = cell?.scale ?? 1;
+      pinch.startAngle = angle;
+      pinch.startRotation = cell?.rotation ?? 0;
+      pinch.lastScaleFactor = undefined;
+      pinch.lastAngleDelta = undefined;
+      pinch.lastDelta = undefined;
       // Cancel drag when pinching
       setDragState(null);
       return;
@@ -138,14 +157,48 @@ export default function CollageEditModal({
     if (pinch.pointers.has(e.pointerId)) {
       pinch.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-      // Two-finger pinch zoom
+      // Two-finger pinch zoom + rotate
       if (pinch.pointers.size >= 2 && pinch.startDistance > 0) {
         e.preventDefault();
         const pts = [...pinch.pointers.values()];
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        const ratio = dist / pinch.startDistance;
-        const newScale = Math.max(0.1, Math.min(10, pinch.startScale * ratio));
-        handleCellUpdate(selectedCell, { scale: newScale });
+        const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+
+        // Dead zone — ignore micro-movements to reduce jitter
+        const lastDelta = pinch.lastDelta ?? { dist: pinch.startDistance, angle: pinch.startAngle };
+        const distMoved = Math.abs(dist - lastDelta.dist);
+        const angleMoved = Math.abs((angle - lastDelta.angle) * (180 / Math.PI));
+        if (distMoved < 1.5 && angleMoved < 1.5) {
+          return;
+        }
+
+        // Smoothed scale factor
+        const rawScaleFactor = dist / pinch.startDistance;
+        const prevScaleFactor = pinch.lastScaleFactor ?? rawScaleFactor;
+        const SMOOTH_ALPHA = 0.4;
+        const scaleFactor = prevScaleFactor * (1 - SMOOTH_ALPHA) + rawScaleFactor * SMOOTH_ALPHA;
+        const clampedScale = Math.max(0.1, Math.min(10, scaleFactor));
+        const newScale = Math.max(0.1, Math.min(10, pinch.startScale * clampedScale));
+
+        // Smoothed rotation delta (degrees)
+        const rawAngleDelta = (angle - pinch.startAngle) * (180 / Math.PI);
+        const prevAngleDelta = pinch.lastAngleDelta ?? rawAngleDelta;
+        const angleDelta = prevAngleDelta * (1 - SMOOTH_ALPHA) + rawAngleDelta * SMOOTH_ALPHA;
+        let newRotation = pinch.startRotation + angleDelta;
+
+        // Magnetic snapping to 45° increments
+        const SNAP_THRESHOLD = 4;
+        const snapped = Math.round(newRotation / 45) * 45;
+        if (Math.abs(newRotation - snapped) < SNAP_THRESHOLD) {
+          newRotation = snapped;
+        }
+
+        handleCellUpdate(selectedCell, { scale: newScale, rotation: newRotation });
+
+        // Persist smoothed values for next move
+        pinch.lastScaleFactor = scaleFactor;
+        pinch.lastAngleDelta = angleDelta;
+        pinch.lastDelta = { dist, angle };
         return;
       }
     }
@@ -176,6 +229,11 @@ export default function CollageEditModal({
       });
     } else if (pinch.pointers.size === 0) {
       pinch.startDistance = 0;
+      pinch.startAngle = 0;
+      pinch.startRotation = 0;
+      pinch.lastScaleFactor = undefined;
+      pinch.lastAngleDelta = undefined;
+      pinch.lastDelta = undefined;
     }
     setDragState(null);
   };
@@ -260,7 +318,7 @@ export default function CollageEditModal({
                         isSelected && 'cursor-move'
                       )}
                       style={{
-                        transform: `scale(${cell.scale}) translate(${cell.offsetX}px, ${cell.offsetY}px)`,
+                        transform: `scale(${cell.scale}) translate(${cell.offsetX}px, ${cell.offsetY}px) rotate(${cell.rotation ?? 0}deg)`,
                       }}
                     />
                   ) : (
@@ -304,7 +362,7 @@ export default function CollageEditModal({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => handleCellUpdate(selectedCell, { scale: 1, offsetX: 0, offsetY: 0 })}
+                onClick={() => handleCellUpdate(selectedCell, { scale: 1, offsetX: 0, offsetY: 0, rotation: 0 })}
                 className="gap-1.5"
               >
                 <LuRotateCcw className="h-4 w-4" />

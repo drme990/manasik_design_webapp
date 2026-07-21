@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations, useLocale } from '@/lib/i18n/strings';
-import { LuLayoutGrid, LuPalette, LuFileText, LuSettings } from 'react-icons/lu';
+import { LuLayoutGrid, LuPalette, LuFileText } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 
 export interface SidebarProps {
@@ -16,14 +16,12 @@ export default function Sidebar({ isOpen = false, onClose, className }: SidebarP
   const pathname = usePathname();
   const locale = useLocale();
   const t = useTranslations('navigation');
-  const sidebarT = useTranslations('sidebar');
   const isRtl = locale === 'ar';
 
   const navItems = [
     { href: '/projects', label: t('projects'), icon: LuLayoutGrid },
     { href: '/templates', label: t('templates'), icon: LuPalette },
     { href: '/pdf-tool', label: t('pdfTool'), icon: LuFileText },
-    { href: '/settings', label: sidebarT('settings'), icon: LuSettings },
   ];
 
   return (

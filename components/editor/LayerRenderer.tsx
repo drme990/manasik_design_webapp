@@ -15,7 +15,7 @@ export interface LayerRendererProps {
   useThumbnail?: boolean;
   onPointerDown?: (e: React.PointerEvent) => void;
   onLayerChange?: (id: string, updates: Partial<AnyLayer>, recordHistory?: boolean) => void;
-  onDoubleClick?: () => void;
+  onDoubleClick?: (e: React.MouseEvent) => void;
 }
 
 interface LayerComponentProps extends LayerRendererProps {
@@ -226,7 +226,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
           return (
             <div
               key={i}
-              className="absolute overflow-hidden bg-muted"
+              className="pointer-events-none absolute overflow-hidden bg-muted"
               style={{
                 left: cellX,
                 top: cellY,
@@ -242,7 +242,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
                   draggable={false}
                   className="pointer-events-none h-full w-full select-none object-cover"
                   style={{
-                    transform: `scale(${cell?.scale ?? 1}) translate(${cell?.offsetX ?? 0}px, ${cell?.offsetY ?? 0}px)`,
+                    transform: `scale(${cell?.scale ?? 1}) translate(${cell?.offsetX ?? 0}px, ${cell?.offsetY ?? 0}px) rotate(${cell?.rotation ?? 0}deg)`,
                   }}
                 />
               ) : (

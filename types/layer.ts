@@ -42,6 +42,7 @@ export interface ImageLayerCollageCell {
   offsetX: number;
   offsetY: number;
   scale: number;
+  rotation?: number;
 }
 
 export interface ImageLayerCollage {

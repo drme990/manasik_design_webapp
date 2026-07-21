@@ -207,9 +207,13 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     return layers.some((l) => l.visible && isLayerOutsideSafeArea(l));
   }, [layers, isLayerOutsideSafeArea]);
 
-  // Double-tap detection for mobile — tracks last tap time + layer id
-  const lastTapRef = useRef<{ id: string; time: number } | null>(null);
-  const DOUBLE_TAP_MS = 300;
+  // Double-tap detection for mobile — tracks last tap time, layer id, and position
+  const lastTapRef = useRef<{ id: string; time: number; x: number; y: number } | null>(null);
+  const DOUBLE_TAP_MS = 350;
+  const DOUBLE_TAP_MAX_DISTANCE = 30; // px — ignore second tap if too far from first
+  // Suppress the click event that fires after a double-tap pointerdown,
+  // so it doesn't land on the modal backdrop and close the just-opened modal.
+  const suppressClickRef = useRef(false);
 
   const setCanvasRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -309,6 +313,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     startScale: number;       // canvas zoom
     centerX: number;          // layer center in canvas coords
     centerY: number;
+    // Smoothing fields — updated each move event to dampen jitter
+    lastScaleFactor?: number;
+    lastAngleDelta?: number;
+    lastDelta?: { dist: number; angle: number };
   } | null>(null);
   const pinchStateRef = useRef(pinchState);
   pinchStateRef.current = pinchState;
@@ -337,21 +345,35 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     // Double-tap detection (mobile-friendly — fires faster than onDoubleClick)
     const now = Date.now();
     const lastTap = lastTapRef.current;
-    if (lastTap && lastTap.id === layerId && now - lastTap.time < DOUBLE_TAP_MS) {
-      // Double tap detected — open crop or collage editor
+    if (
+      lastTap &&
+      lastTap.id === layerId &&
+      now - lastTap.time < DOUBLE_TAP_MS &&
+      Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < DOUBLE_TAP_MAX_DISTANCE
+    ) {
+      // Double tap detected — open crop or collage editor.
+      // Delay opening the modal slightly so the ghost click/dblclick events
+      // (which the browser fires after pointerup) land on the canvas — where
+      // suppressClickRef can absorb them — instead of on the modal backdrop
+      // (which would immediately close the just-opened modal).
       lastTapRef.current = null;
+      suppressClickRef.current = true;
+      setTimeout(() => { suppressClickRef.current = false; }, 300);
       const layer = layers.find((l) => l.id === layerId);
       if (layer?.type === 'image') {
         const imgLayer = layer as import('@/types').ImageLayer;
-        if (imgLayer.collage) {
-          onEditCollageRef.current?.(layerId);
-        } else {
-          onCropImageRef.current?.(layerId);
-        }
+        // Defer modal opening until after the ghost click event has fired
+        setTimeout(() => {
+          if (imgLayer.collage) {
+            onEditCollageRef.current?.(layerId);
+          } else {
+            onCropImageRef.current?.(layerId);
+          }
+        }, 0);
       }
       return;
     }
-    lastTapRef.current = { id: layerId, time: now };
+    lastTapRef.current = { id: layerId, time: now, x: e.clientX, y: e.clientY };
 
     // If this is the second pointer on the same layer, start a pinch/rotate gesture
     if (pointersRef.current.size === 2 && selectedLayerId === layerId) {
@@ -362,6 +384,9 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const dy = pts[1].y - pts[0].y;
       const startDistance = Math.hypot(dx, dy);
       const startAngle = Math.atan2(dy, dx);
+
+      // Ignore pinch start if fingers are too close — causes extreme sensitivity
+      if (startDistance < 20) return;
 
       // Cancel any ongoing single-pointer drag
       setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
@@ -606,7 +631,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       return; // Don't process other interactions while dragging safe area
     }
 
-    // --- Two-finger pinch + rotate ---
+    // --- Two-finger pinch + rotate (smoothed) ---
     const pinch = pinchStateRef.current;
     if (pinch && pointersRef.current.size >= 2) {
       e.preventDefault();
@@ -616,21 +641,40 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const currentDistance = Math.hypot(dx, dy);
       const currentAngle = Math.atan2(dy, dx);
 
-      // Scale factor from pinch distance
-      const scaleFactor = currentDistance / pinch.startDistance;
-      const newWidth = Math.max(10, pinch.startWidth * scaleFactor);
-      const newHeight = Math.max(10, pinch.startHeight * scaleFactor);
+      // Dead zone: ignore tiny movements to reduce jitter when fingers are
+      // barely moving. This makes the gesture feel "stable" until the user
+      // clearly intends to scale/rotate.
+      const lastDelta = pinch.lastDelta ?? { dist: pinch.startDistance, angle: pinch.startAngle };
+      const distMoved = Math.abs(currentDistance - lastDelta.dist);
+      const angleMoved = Math.abs((currentAngle - lastDelta.angle) * (180 / Math.PI));
+      if (distMoved < 1.5 && angleMoved < 1.5) {
+        return; // ignore micro-movements
+      }
+
+      // Smoothed scale factor — blend raw factor with previous to reduce jitter.
+      // A small alpha keeps the gesture responsive while damping noise.
+      const rawScaleFactor = currentDistance / pinch.startDistance;
+      const prevScaleFactor = pinch.lastScaleFactor ?? rawScaleFactor;
+      const SMOOTH_ALPHA = 0.4;
+      const scaleFactor = prevScaleFactor * (1 - SMOOTH_ALPHA) + rawScaleFactor * SMOOTH_ALPHA;
+
+      // Clamp scale factor to avoid extreme jumps from noisy input
+      const clampedScale = Math.max(0.1, Math.min(10, scaleFactor));
+      const newWidth = Math.max(10, pinch.startWidth * clampedScale);
+      const newHeight = Math.max(10, pinch.startHeight * clampedScale);
 
       // Keep center fixed
       const newX = pinch.centerX - newWidth / 2;
       const newY = pinch.centerY - newHeight / 2;
 
-      // Rotation delta (degrees)
-      const angleDelta = (currentAngle - pinch.startAngle) * (180 / Math.PI);
+      // Rotation delta (degrees) — smoothed
+      const rawAngleDelta = (currentAngle - pinch.startAngle) * (180 / Math.PI);
+      const prevAngleDelta = pinch.lastAngleDelta ?? rawAngleDelta;
+      const angleDelta = prevAngleDelta * (1 - SMOOTH_ALPHA) + rawAngleDelta * SMOOTH_ALPHA;
       let newRotation = pinch.startRotation + angleDelta;
 
-      // Magnetic snapping to 45° increments
-      const SNAP_THRESHOLD = 8; // degrees — how close before snapping
+      // Magnetic snapping to 45° increments (less aggressive threshold for smoothness)
+      const SNAP_THRESHOLD = 4; // degrees — how close before snapping
       const snapped = Math.round(newRotation / 45) * 45;
       if (Math.abs(newRotation - snapped) < SNAP_THRESHOLD) {
         newRotation = snapped;
@@ -646,23 +690,31 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
       // Scale content proportionally (font size, stroke width, image scale, boxWidth)
       if (pinch.startFontSize !== undefined) {
-        const newFontSize = Math.max(1, Math.round(pinch.startFontSize * scaleFactor));
+        const newFontSize = Math.max(1, Math.round(pinch.startFontSize * clampedScale));
         (updates as Record<string, unknown>).fontSize = newFontSize;
         if (pinch.startBoxWidth !== undefined) {
-          (updates as Record<string, unknown>).boxWidth = Math.max(20, pinch.startBoxWidth * scaleFactor);
+          (updates as Record<string, unknown>).boxWidth = Math.max(20, pinch.startBoxWidth * clampedScale);
         } else {
           delete (updates as Record<string, unknown>).width;
           delete (updates as Record<string, unknown>).height;
         }
       }
       if (pinch.startStrokeWidth !== undefined) {
-        (updates as Record<string, unknown>).strokeWidth = Math.max(0, pinch.startStrokeWidth * scaleFactor);
+        (updates as Record<string, unknown>).strokeWidth = Math.max(0, pinch.startStrokeWidth * clampedScale);
       }
       if (pinch.startImageScale !== undefined) {
-        (updates as Record<string, unknown>).imageScale = Math.max(0.1, pinch.startImageScale * scaleFactor);
+        (updates as Record<string, unknown>).imageScale = Math.max(0.1, pinch.startImageScale * clampedScale);
       }
 
       onLayerChangeRef.current(pinch.layerId, updates, false);
+
+      // Persist smoothed values for the next move event
+      setPinchState((prev) => prev ? {
+        ...prev,
+        lastScaleFactor: scaleFactor,
+        lastAngleDelta: angleDelta,
+        lastDelta: { dist: currentDistance, angle: currentAngle },
+      } : prev);
       return;
     }
 
@@ -885,6 +937,9 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const startDistance = Math.hypot(dx, dy);
       const startAngle = Math.atan2(dy, dx);
 
+      // Ignore pinch start if fingers are too close — causes extreme sensitivity
+      if (startDistance < 20) return;
+
       setDragState((prev) => ({ ...prev, isDragging: false, layerId: null }));
       capturePointer(e);
       onLayerDragStart?.(selectedLayerId);
@@ -930,7 +985,20 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
-      onClick={() => onSelectLayer(null)}
+      onClick={(e) => {
+        // Suppress click that follows a double-tap (would close the just-opened modal)
+        if (suppressClickRef.current) {
+          e.stopPropagation();
+          return;
+        }
+        onSelectLayer(null);
+      }}
+      onDoubleClick={(e) => {
+        // Suppress dblclick that follows a double-tap pointerdown on mobile
+        if (suppressClickRef.current) {
+          e.stopPropagation();
+        }
+      }}
     >
       {/* Safe area — dashed border using custom or default insets (hidden during export) */}
       {showGrid && (() => {
@@ -1006,7 +1074,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           isSelected={layer.id === selectedLayerId}
           onPointerDown={(e) => handlePointerDown(e, layer.id)}
           onLayerChange={onLayerChange}
-          onDoubleClick={() => {
+          onDoubleClick={(e) => {
+            // Suppress dblclick that follows a mobile double-tap pointerdown
+            if (suppressClickRef.current) {
+              e.stopPropagation();
+              return;
+            }
             if (layer.type === 'text' && onEditText) {
               onEditText(layer.id);
             } else if (layer.type === 'image') {
