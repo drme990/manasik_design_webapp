@@ -250,6 +250,13 @@
     "deleteProjectConfirmDescription": "هل تريد حذف هذا المشروع نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
     "noChangesTitle": "لا توجد تغييرات",
     "noChangesDescription": "لم تقم بأي تغييرات على هذا المشروع. هل تريد حذفه والمغادرة؟",
+    "saveProjectTitle": "حفظ المشروع؟",
+    "saveProjectDescription": "هل تريد حفظ هذا المشروع قبل المغادرة؟ اختيار \"لا\" سيحذف المشروع نهائيًا.",
+    "saveChangesTitle": "حفظ التغييرات؟",
+    "saveChangesDescription": "هل تريد حفظ التغييرات قبل المغادرة؟ اختيار \"لا\" سيتجاهل كل التغييرات في هذه الجلسة.",
+    "yes": "نعم",
+    "no": "لا",
+    "keepEditing": "متابعة التحرير",
     "selectLayer": "اختر طبقة لتحرير خصائصها",
     "toolbars": {
       "text": {

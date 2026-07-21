@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils/cn';
 import type { AnyLayer, SafeArea } from '@/types';
 import { DEFAULT_SAFE_AREA } from '@/types';
-import { useRef, useCallback, useState, forwardRef } from 'react';
+import { useRef, useCallback, useState, forwardRef, useEffect } from 'react';
 import { LuRotateCcw } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import LayerRenderer from './LayerRenderer';
@@ -116,7 +116,72 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   const safeAreaDragRef = useRef(safeAreaDrag);
   safeAreaDragRef.current = safeAreaDrag;
 
-  // Check if a layer exceeds the safe area by more than 20% of its size
+  // Global pointer event listeners for safe area dragging — mobile fallback.
+  // On mobile, setPointerCapture can be unreliable, so we also listen on window
+  // to ensure pointermove/pointerup fire even if the canvas loses the pointer.
+  useEffect(() => {
+    if (!safeAreaDrag) return;
+    const handleMove = (e: PointerEvent) => {
+      if (!safeAreaDragRef.current || !canvasRef.current) return;
+      e.preventDefault();
+      const rect = canvasRef.current.getBoundingClientRect();
+      const deltaPctX = ((e.clientX - safeAreaDragRef.current.startX) / rect.width) * 100;
+      const deltaPctY = ((e.clientY - safeAreaDragRef.current.startY) / rect.height) * 100;
+      const start = safeAreaDragRef.current.startArea;
+      let { top, right, bottom, left } = start;
+      const MIN = 0;
+      switch (safeAreaDragRef.current.edge) {
+        case 'move':
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          right = start.right + (start.left - left);
+          bottom = start.bottom + (start.top - top);
+          break;
+        case 'top':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          break;
+        case 'bottom':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          break;
+        case 'left':
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'right':
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+        case 'top-left':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'top-right':
+          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+        case 'bottom-left':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          break;
+        case 'bottom-right':
+          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          break;
+      }
+      onSafeAreaChangeRef.current?.({ top, right, bottom, left });
+    };
+    const handleUp = () => {
+      setSafeAreaDrag(null);
+    };
+    window.addEventListener('pointermove', handleMove, { passive: false });
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+    };
+  }, [safeAreaDrag]);
+
+  // Check if a layer exceeds the safe area by even 1px
   const isLayerOutsideSafeArea = useCallback((layer: AnyLayer): boolean => {
     const area = safeAreaRef.current;
     if (!area) return false;
@@ -126,15 +191,15 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const safeTop = (area.top / 100) * h;
     const safeRight = w - (area.right / 100) * w;
     const safeBottom = h - (area.bottom / 100) * h;
-    const threshold = 0.2; // 20% of element dimension
+    // Any overflow beyond 1px triggers the warning
     const overflowLeft = safeLeft - layer.x;
     const overflowTop = safeTop - layer.y;
     const overflowRight = (layer.x + layer.width) - safeRight;
     const overflowBottom = (layer.y + layer.height) - safeBottom;
-    return overflowLeft > layer.width * threshold ||
-      overflowTop > layer.height * threshold ||
-      overflowRight > layer.width * threshold ||
-      overflowBottom > layer.height * threshold;
+    return overflowLeft > 1 ||
+      overflowTop > 1 ||
+      overflowRight > 1 ||
+      overflowBottom > 1;
   }, []);
 
   // Check if ANY visible layer is outside the safe area
@@ -788,12 +853,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     e.stopPropagation();
     e.preventDefault();
     // Capture pointer on the canvas container so move events keep firing
-    // even when the pointer moves outside the safe area div
+    // even when the pointer moves outside the handle div (especially on mobile)
     if (canvasRef.current) {
       try {
         canvasRef.current.setPointerCapture?.(e.pointerId);
       } catch {
-        // ignore
+        // ignore — some browsers throw if the pointer is already captured
       }
     }
     setSafeAreaDrag({
@@ -886,7 +951,9 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               touchAction: 'none',
             }}
             onPointerDown={editMode ? (e) => handleSafeAreaPointerDown(e, 'move') : undefined}
+            onPointerMove={editMode ? handlePointerMove : undefined}
             onPointerUp={editMode ? handlePointerEnd : undefined}
+            onPointerCancel={editMode ? handlePointerEnd : undefined}
           >
             {editMode && (
               <>
@@ -900,16 +967,32 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
                   <LuRotateCcw className="h-4 w-4" />
                   {resetLabel}
                 </Button>
-                {/* Edge handles */}
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')} className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize touch-none" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')} className="absolute -bottom-1 left-0 right-0 h-2 cursor-ns-resize touch-none" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')} className="absolute top-0 bottom-0 -left-1 w-2 cursor-ew-resize touch-none" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')} className="absolute top-0 bottom-0 -right-1 w-2 cursor-ew-resize touch-none" />
-                {/* Corner handles */}
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-1.5 -left-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-full bg-brand-primary" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-right')} className="absolute -top-1.5 -right-1.5 h-3 w-3 cursor-nesw-resize touch-none rounded-full bg-brand-primary" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-left')} className="absolute -bottom-1.5 -left-1.5 h-3 w-3 cursor-nesw-resize touch-none rounded-full bg-brand-primary" />
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-right')} className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-full bg-brand-primary" />
+                {/* Edge handles — large transparent touch area with visible line */}
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')} className="absolute -top-4 left-0 right-0 h-8 cursor-ns-resize touch-none">
+                  <div className="absolute top-3 left-0 right-0 h-0.5 bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')} className="absolute -bottom-4 left-0 right-0 h-8 cursor-ns-resize touch-none">
+                  <div className="absolute bottom-3 left-0 right-0 h-0.5 bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')} className="absolute top-0 bottom-0 -left-4 w-8 cursor-ew-resize touch-none">
+                  <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')} className="absolute top-0 bottom-0 -right-4 w-8 cursor-ew-resize touch-none">
+                  <div className="absolute right-3 top-0 bottom-0 w-0.5 bg-brand-primary" />
+                </div>
+                {/* Corner handles — large transparent touch area with visible dot */}
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-4 -left-4 h-8 w-8 cursor-nwse-resize touch-none">
+                  <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-right')} className="absolute -top-4 -right-4 h-8 w-8 cursor-nesw-resize touch-none">
+                  <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-left')} className="absolute -bottom-4 -left-4 h-8 w-8 cursor-nesw-resize touch-none">
+                  <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />
+                </div>
+                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom-right')} className="absolute -bottom-4 -right-4 h-8 w-8 cursor-nwse-resize touch-none">
+                  <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />
+                </div>
               </>
             )}
           </div>

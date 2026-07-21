@@ -252,7 +252,7 @@ export function buildShapeLayer(options: {
     height = SHAPE_DEFAULT_SIZE,
     fillColor = DEFAULT_FILL_COLOR,
     strokeColor = DEFAULT_STROKE_COLOR,
-    strokeWidth = 2,
+    strokeWidth = shape === 'line' ? 6 : 2,
     filled = true
   } = options;
 

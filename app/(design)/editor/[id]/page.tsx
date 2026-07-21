@@ -128,8 +128,7 @@ export default function EditorPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
-    const [showNoChangesModal, setShowNoChangesModal] = useState(false);
+    const [showLeaveModal, setShowLeaveModal] = useState(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     const [history, setHistory] = useState<{ past: AnyLayer[][]; future: AnyLayer[][] }>({
@@ -209,6 +208,9 @@ export default function EditorPage() {
         recoverFromMirror().finally(() => {
             getProject(id).then((p) => {
                 setProject(p);
+                // Track if this project was ever synced to the server.
+                // If not, it's a brand-new project and "No" on leave = delete it.
+                wasSyncedBeforeRef.current = !!(p && p.syncedAt);
                 setLoading(false);
             });
         });
@@ -256,6 +258,9 @@ export default function EditorPage() {
     const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedRef = useRef(false);
+    // Tracks whether the project had been synced to the server before this session.
+    // If false, the project is "new" and leaving without saving means deleting it.
+    const wasSyncedBeforeRef = useRef(false);
 
     // Save to IndexedDB + localStorage mirror (debounced, skips during transactions)
     const saveLocal = useCallback(async (projectToSave: Project) => {
@@ -312,7 +317,8 @@ export default function EditorPage() {
         setSaving(false);
     }, [saveLocal]);
 
-    // Save and navigate away — used by the "Save & Leave" button in the modal
+    // Save and navigate away — used by the "Yes" button in the leave modal.
+    // Saves the project (locally + syncs to server) then navigates to /projects.
     const doSaveAndLeave = useCallback(() => {
         const current = pendingPersistRef.current || projectRef.current;
         if (current) {
@@ -331,8 +337,11 @@ export default function EditorPage() {
         router.replace('/projects');
     }, [router]);
 
-    // Leave without saving — discard pending changes
-    const doLeaveWithoutSaving = useCallback(() => {
+    // "No" button in the leave modal — behavior depends on project state:
+    //   - Blank project (no layers, no background): delete it and leave
+    //   - New project (never synced): delete it and leave
+    //   - Existing project with content: leave without saving (discard session changes)
+    const doNoAndLeave = useCallback(() => {
         if (saveDebounceRef.current) {
             clearTimeout(saveDebounceRef.current);
             saveDebounceRef.current = null;
@@ -340,48 +349,45 @@ export default function EditorPage() {
         pendingPersistRef.current = null;
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
-        router.replace('/projects');
-    }, [router]);
 
-    // Save, then delete the project and leave
-    const doSaveLeaveAndDelete = useCallback(() => {
-        const current = pendingPersistRef.current || projectRef.current;
-        if (current) {
-            if (saveDebounceRef.current) {
-                clearTimeout(saveDebounceRef.current);
-                saveDebounceRef.current = null;
-            }
-            pendingPersistRef.current = null;
-            hasUnsavedRef.current = false;
-            setHasUnsavedChanges(false);
-            // Save first so the latest state is synced, then delete
-            saveProject(current).catch(() => { });
-            syncProject(current.id).catch(() => { });
-            deleteProject(current.id).catch(() => { });
-        }
-        router.replace('/projects');
-    }, [router]);
-
-    // Delete the project and leave (no changes to save)
-    const doDeleteAndLeave = useCallback(() => {
         const current = projectRef.current;
         if (current) {
-            hasUnsavedRef.current = false;
-            setHasUnsavedChanges(false);
-            deleteProject(current.id).catch(() => { });
+            const isBlank = current.layers.length === 0 && !current.backgroundUri;
+            if (isBlank || !wasSyncedBeforeRef.current) {
+                // Blank project or new project that was never synced — delete it
+                deleteProject(current.id).catch(() => { });
+            }
+        }
+        // For existing projects with content, just leave (local IndexedDB still
+        // has the last-synced version; unsaved session changes are discarded).
+        router.replace('/projects');
+    }, [router]);
+
+    // Silently leave without asking — used when there are no changes at all.
+    // Deletes the project if it's blank (no layers, no background) — whether
+    // it's a brand-new project or an existing one that happens to be empty.
+    const doSilentLeave = useCallback(() => {
+        const current = projectRef.current;
+        if (current) {
+            const isBlank = current.layers.length === 0 && !current.backgroundUri;
+            if (isBlank) {
+                // Blank project with no changes — delete it silently
+                deleteProject(current.id).catch(() => { });
+            }
         }
         router.replace('/projects');
     }, [router]);
 
-    // Check for unsaved changes before navigating — shows confirmation modal if dirty
-    // Used by in-app back/navigation buttons
+    // Check for unsaved changes before navigating.
+    // If there are changes, show the yes/no confirmation modal.
+    // If no changes at all, just leave silently (no point asking).
     const handleNavigateBack = useCallback(() => {
         if (hasUnsavedRef.current) {
-            setShowUnsavedModal(true);
+            setShowLeaveModal(true);
         } else {
-            setShowNoChangesModal(true);
+            doSilentLeave();
         }
-    }, [router]);
+    }, [doSilentLeave]);
 
     const handleExportJpg = useCallback(async () => {
         if (!canvasRef.current || !project) return;
@@ -596,15 +602,14 @@ export default function EditorPage() {
         // instead of navigating away immediately.
         window.history.pushState({ editorGuard: true }, '');
         const handlePopState = (e: PopStateEvent) => {
+            // Re-push the guard state so the next back press is also caught
+            window.history.pushState({ editorGuard: true }, '');
             if (hasUnsavedRef.current) {
-                // Re-push the guard state so the next back press is also caught
-                window.history.pushState({ editorGuard: true }, '');
-                // Show the confirmation modal
-                setShowUnsavedModal(true);
+                // There are changes — show the yes/no leave modal
+                setShowLeaveModal(true);
             } else {
-                // No unsaved changes — re-push guard and show no-changes modal
-                window.history.pushState({ editorGuard: true }, '');
-                setShowNoChangesModal(true);
+                // No changes — leave silently (delete if new empty project)
+                doSilentLeave();
             }
         };
         window.addEventListener('popstate', handlePopState);
@@ -621,7 +626,7 @@ export default function EditorPage() {
                 saveDebounceRef.current = null;
             }
         };
-    }, [handleUndo, handleRedo]);
+    }, [handleUndo, handleRedo, doSilentLeave]);
 
     const startChangeTransaction = useCallback(() => {
         if (inTransactionRef.current) return;
@@ -1957,88 +1962,47 @@ export default function EditorPage() {
                     </div>
                 )}
 
-                {/* Unsaved changes confirmation modal */}
-                {showUnsavedModal && (
+                {/* Unified leave confirmation modal — simple yes/no question.
+                    Behavior depends on whether the project is new (never synced) or existing:
+                      - New project:     "Save this project?"   Yes=save&leave   No=delete&leave
+                      - Existing project: "Save changes?"        Yes=save&leave   No=leave without saving */}
+                {showLeaveModal && (
                     <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
                         <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
                             <h2 className="mb-2 text-lg font-bold text-foreground">
-                                {t('unsavedChangesTitle')}
+                                {wasSyncedBeforeRef.current ? t('saveChangesTitle') : t('saveProjectTitle')}
                             </h2>
                             <p className="mb-6 text-sm text-secondary">
-                                {t('unsavedChangesDescription')}
+                                {wasSyncedBeforeRef.current ? t('saveChangesDescription') : t('saveProjectDescription')}
                             </p>
                             <div className="flex flex-col gap-2">
+                                <div className="flex gap-3">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => {
+                                            setShowLeaveModal(false);
+                                            doNoAndLeave();
+                                        }}
+                                        className="flex-1 text-secondary"
+                                    >
+                                        {t('no')}
+                                    </Button>
+                                    <Button
+                                        onClick={() => {
+                                            setShowLeaveModal(false);
+                                            doSaveAndLeave();
+                                        }}
+                                        className="flex-1"
+                                    >
+                                        {t('yes')}
+                                    </Button>
+                                </div>
                                 <Button
-                                    onClick={() => {
-                                        setShowUnsavedModal(false);
-                                        doSaveAndLeave();
-                                    }}
+                                    variant="ghost"
+                                    onClick={() => setShowLeaveModal(false)}
                                     className="w-full"
                                 >
-                                    {t('saveAndLeave')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowUnsavedModal(false);
-                                        doLeaveWithoutSaving();
-                                    }}
-                                    className="w-full text-secondary"
-                                >
-                                    {t('leaveWithoutSaving')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowUnsavedModal(false);
-                                        doSaveLeaveAndDelete();
-                                    }}
-                                    className="w-full text-error hover:bg-error/10"
-                                >
-                                    {t('saveLeaveDelete')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => setShowUnsavedModal(false)}
-                                    className="w-full"
-                                >
-                                    {t('cancel')}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* No changes modal — asks if user wants to delete the project */}
-                {showNoChangesModal && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
-                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
-                            <h2 className="mb-2 text-lg font-bold text-foreground">
-                                {t('noChangesTitle')}
-                            </h2>
-                            <p className="mb-6 text-sm text-secondary">
-                                {t('noChangesDescription')}
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowNoChangesModal(false);
-                                        doDeleteAndLeave();
-                                    }}
-                                    className="w-full text-error hover:bg-error/10"
-                                >
-                                    {t('leaveDelete')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowNoChangesModal(false);
-                                        router.push('/projects');
-                                    }}
-                                    className="w-full"
-                                >
-                                    {t('leaveNoDelete')}
+                                    {t('keepEditing')}
                                 </Button>
                             </div>
                         </div>
