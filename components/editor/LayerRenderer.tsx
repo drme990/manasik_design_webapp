@@ -11,6 +11,8 @@ export interface LayerRendererProps {
   layer: AnyLayer;
   isSelected?: boolean;
   dangerZone?: boolean;
+  /** When true, use thumbnailUri instead of uri for image layers (for galleries/lists) */
+  useThumbnail?: boolean;
   onPointerDown?: (e: React.PointerEvent) => void;
   onLayerChange?: (id: string, updates: Partial<AnyLayer>, recordHistory?: boolean) => void;
   onDoubleClick?: () => void;
@@ -21,7 +23,7 @@ interface LayerComponentProps extends LayerRendererProps {
   style: React.CSSProperties;
 }
 
-export default function LayerRenderer({ layer, isSelected, dangerZone, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
+export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
@@ -52,7 +54,7 @@ export default function LayerRenderer({ layer, isSelected, dangerZone, onPointer
     case 'text':
       return <TextLayerComponent layer={layer as TextLayer} {...commonProps} />;
     case 'image':
-      return <ImageLayerComponent layer={layer as ImageLayer} {...commonProps} />;
+      return <ImageLayerComponent layer={layer as ImageLayer} useThumbnail={useThumbnail} {...commonProps} />;
     case 'shape':
       return <ShapeLayerComponent layer={layer as ShapeLayer} {...commonProps} />;
     case 'dynamic_field':
@@ -190,7 +192,9 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   );
 }
 
-function ImageLayerComponent({ layer, className, style, onPointerDown, onDoubleClick }: LayerComponentProps & { layer: ImageLayer }) {
+function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean }) {
+  // Use thumbnail for galleries/lists when available (smaller payload)
+  const displayUri = (useThumbnail && layer.thumbnailUri) ? layer.thumbnailUri : layer.uri;
   // Collage rendering
   if (layer.collage) {
     const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
@@ -251,7 +255,55 @@ function ImageLayerComponent({ layer, className, style, onPointerDown, onDoubleC
     );
   }
 
-  // Single image rendering
+  // Single image rendering — non-destructive crop via CSS
+  // When cropRect is set, we show only the cropped region of the original image
+  // by using background-image with precise positioning. The original image is never modified.
+  const hasCrop = !!layer.cropRect;
+  const crop = layer.cropRect;
+  // The "effective" natural dimensions = cropped size if crop exists, else original
+  const effNaturalW = hasCrop ? crop!.width : layer.naturalWidth;
+  const effNaturalH = hasCrop ? crop!.height : layer.naturalHeight;
+
+  if (hasCrop) {
+    // Non-destructive crop: use background-image to show only the crop region.
+    // The background is the ORIGINAL full image (layer.uri), so backgroundSize
+    // must use the ORIGINAL dimensions (originalNaturalWidth/Height), not the
+    // cropped ones (naturalWidth/Height which were updated to cropRect size).
+    const origW = layer.originalNaturalWidth || layer.naturalWidth;
+    const origH = layer.originalNaturalHeight || layer.naturalHeight;
+    const scaledW = origW * layer.imageScale;
+    const scaledH = origH * layer.imageScale;
+    const bgX = -(crop!.x * layer.imageScale) + layer.offsetX;
+    const bgY = -(crop!.y * layer.imageScale) + layer.offsetY;
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          borderRadius: layer.borderRadius,
+          border: `${layer.borderWidth}px solid ${layer.borderColor}`,
+          overflow: 'hidden',
+          transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
+        }}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="pointer-events-none h-full w-full"
+          style={{
+            backgroundImage: `url(${displayUri})`,
+            backgroundSize: `${scaledW}px ${scaledH}px`,
+            backgroundPosition: `${bgX}px ${bgY}px`,
+            backgroundRepeat: 'no-repeat',
+            userSelect: 'none',
+          }}
+        />
+      </div>
+    );
+  }
+
+  // No crop — standard image rendering
   return (
     <div
       className={className}
@@ -267,7 +319,7 @@ function ImageLayerComponent({ layer, className, style, onPointerDown, onDoubleC
       onClick={(e) => e.stopPropagation()}
     >
       <img
-        src={layer.uri}
+        src={displayUri}
         alt="Layer"
         draggable={false}
         className="pointer-events-none select-none"

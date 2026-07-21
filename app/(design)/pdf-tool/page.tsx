@@ -23,6 +23,8 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
 import { listPdfProjects, savePdfProject, createPdfProject, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
+import { useToast } from '@/components/providers/ToastProvider';
+import { uploadImagesWithProgress } from '@/lib/storage/upload';
 import type { PdfImage as PdfImageType, PdfProject } from '@/types';
 
 const ITEM_TYPE = 'PDF_IMAGE';
@@ -207,6 +209,7 @@ function PdfToolPage() {
     const [previewOpen, setPreviewOpen] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
     const [projectName, setProjectName] = useState('');
+    const toast = useToast();
     const [currentProject, setCurrentProject] = useState<PdfProject | null>(null);
     const [loading, setLoading] = useState(!!projectId);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -295,36 +298,29 @@ function PdfToolPage() {
         };
     }, [images, projectName, loading]);
 
-    const handleAddImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleAddImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
-
-        const newImages: PdfImageType[] = [];
-        let loaded = 0;
-
-        files.forEach((file, idx) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const uri = event.target?.result as string;
-                const img = new Image();
-                img.onload = () => {
-                    newImages.push({
-                        id: `pdf-img-${Date.now()}-${idx}`,
-                        uri,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                    });
-                    loaded++;
-                    if (loaded === files.length) {
-                        setImages((prev) => [...prev, ...newImages]);
-                    }
-                };
-                img.src = uri;
-            };
-            reader.readAsDataURL(file);
-        });
-
         e.target.value = '';
+
+        try {
+            const uploaded = await uploadImagesWithProgress(
+                files,
+                toast,
+                'جاري رفع الصور...',
+                'تم رفع الصور بنجاح'
+            );
+            const newImages: PdfImageType[] = uploaded.map((img, idx) => ({
+                id: `pdf-img-${Date.now()}-${idx}`,
+                uri: img.uri,
+                thumbnailUri: img.thumbnailUri,
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+            }));
+            setImages((prev) => [...prev, ...newImages]);
+        } catch {
+            // toast already shown by uploader
+        }
     };
 
     const handleRemove = (id: string) => {
@@ -442,21 +438,29 @@ function PdfToolPage() {
             const pdfDoc = await PDFDocument.create();
 
             for (const img of images) {
-                const isPng = img.uri.startsWith('data:image/png');
-                const isJpeg = img.uri.startsWith('data:image/jpeg') || img.uri.startsWith('data:image/jpg');
+                let bytes: Uint8Array;
+                let isPng: boolean;
 
-                const base64 = img.uri.split(',')[1];
-                const byteChars = atob(base64);
-                const bytes = new Uint8Array(byteChars.length);
-                for (let i = 0; i < byteChars.length; i++) {
-                    bytes[i] = byteChars.charCodeAt(i);
+                if (img.uri.startsWith('data:')) {
+                    // Legacy data URI
+                    isPng = img.uri.startsWith('data:image/png');
+                    const base64 = img.uri.split(',')[1];
+                    const byteChars = atob(base64);
+                    bytes = new Uint8Array(byteChars.length);
+                    for (let i = 0; i < byteChars.length; i++) {
+                        bytes[i] = byteChars.charCodeAt(i);
+                    }
+                } else {
+                    // Remote URL — fetch the bytes
+                    const resp = await fetch(img.uri);
+                    const buf = new Uint8Array(await resp.arrayBuffer());
+                    bytes = buf;
+                    isPng = img.uri.toLowerCase().endsWith('.png') || img.uri.toLowerCase().includes('.png');
                 }
 
                 let embedded;
                 if (isPng) {
                     embedded = await pdfDoc.embedPng(bytes);
-                } else if (isJpeg) {
-                    embedded = await pdfDoc.embedJpg(bytes);
                 } else {
                     embedded = await pdfDoc.embedJpg(bytes);
                 }

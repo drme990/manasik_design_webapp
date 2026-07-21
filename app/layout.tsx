@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from 'next/font/local';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import { ToastProvider } from '@/components/providers/ToastProvider';
 import { editorFontVariables } from '@/lib/constants/fonts';
 import "./globals.css";
 
@@ -62,7 +63,9 @@ export default function RootLayout({
         style={{ fontFamily: 'var(--font-expo-arabic), sans-serif' }}
       >
         <ThemeProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -14,7 +14,12 @@ export interface ImageCropModalProps {
   naturalHeight: number;
   /** Last crop area in original image pixel coords — restored on open */
   lastCropRect?: { x: number; y: number; width: number; height: number } | null;
-  onApply: (croppedUri: string, newWidth: number, newHeight: number, cropRect: { x: number; y: number; width: number; height: number }) => void;
+  /** Whether the image has been cropped before (shows "undo crop" button) */
+  hasCrop?: boolean;
+  /** Called when user wants to reset to the original uncropped image */
+  onUndoCrop?: () => void;
+  /** Non-destructive: only passes back the crop rect, no image generation */
+  onApply: (cropRect: { x: number; y: number; width: number; height: number }) => void;
 }
 
 interface CropRect {
@@ -35,6 +40,8 @@ export default function ImageCropModal({
   naturalWidth,
   naturalHeight,
   lastCropRect,
+  hasCrop,
+  onUndoCrop,
   onApply,
 }: ImageCropModalProps) {
   const t = useTranslations('editor.modals.imageCrop');
@@ -207,36 +214,20 @@ export default function ImageCropModal({
   const applyCrop = () => {
     if (crop.width < 5 || crop.height < 5 || !imgRef.current) return;
 
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
+    // Non-destructive: only save the crop rect in original image pixel coords.
+    // The original image is never modified — the editor renders only this region at runtime.
     const scaleX = naturalWidth / displaySize.width;
     const scaleY = naturalHeight / displaySize.height;
 
-    const cropX = crop.x * scaleX;
-    const cropY = crop.y * scaleY;
-    const cropW = crop.width * scaleX;
-    const cropH = crop.height * scaleY;
-
-    canvas.width = Math.round(cropW);
-    canvas.height = Math.round(cropH);
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-      const dataUri = canvas.toDataURL('image/png');
-      // Pass crop rect in original image pixel coords so it can be saved & restored
-      onApply(dataUri, canvas.width, canvas.height, {
-        x: cropX,
-        y: cropY,
-        width: cropW,
-        height: cropH,
-      });
-      onClose();
+    const cropRect = {
+      x: crop.x * scaleX,
+      y: crop.y * scaleY,
+      width: crop.width * scaleX,
+      height: crop.height * scaleY,
     };
-    img.src = imageUri;
+
+    onApply(cropRect);
+    onClose();
   };
 
   const handleReset = () => {
@@ -267,6 +258,11 @@ export default function ImageCropModal({
         <>
           <Button variant="ghost" onClick={onClose}>{uiT('cancel')}</Button>
           <Button variant="ghost" onClick={handleReset}>{t('reset')}</Button>
+          {hasCrop && onUndoCrop && (
+            <Button variant="ghost" onClick={onUndoCrop} className="text-error hover:bg-error/10">
+              {t('undoCrop')}
+            </Button>
+          )}
           <Button
             variant="primary"
             onClick={applyCrop}

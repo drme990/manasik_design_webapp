@@ -104,6 +104,7 @@ export function buildImageLayer(options: {
   uri: string;
   naturalWidth: number;
   naturalHeight: number;
+  thumbnailUri?: string;
   x?: number;
   y?: number;
   canvasWidth?: number;
@@ -113,6 +114,7 @@ export function buildImageLayer(options: {
     uri,
     naturalWidth,
     naturalHeight,
+    thumbnailUri,
     x = 50,
     y = 50,
     canvasWidth = DEFAULT_CANVAS_WIDTH,
@@ -142,11 +144,14 @@ export function buildImageLayer(options: {
     locked: false,
     name: 'صورة',
     uri,
-    originalUri: uri,
+    // Non-destructive: uri is always the immutable original.
+    // originalNaturalWidth/Height store the true original dimensions
+    // so the crop modal can always reference them even after cropping.
     originalNaturalWidth: naturalWidth,
     originalNaturalHeight: naturalHeight,
     naturalWidth,
     naturalHeight,
+    thumbnailUri,
     maskWidth: defaultMaskWidth,
     maskHeight: defaultMaskHeight,
     offsetX: 0,

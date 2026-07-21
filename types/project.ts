@@ -37,6 +37,8 @@ export interface Project extends SyncableDocument {
   canvasHeight: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  /** Smaller version of backgroundUri for galleries/lists */
+  backgroundThumbnailUri?: string;
   safeArea?: SafeArea;
   layers: AnyLayer[];
   thumbnail?: string;
@@ -56,6 +58,7 @@ export interface ProjectCreateInput {
   canvasHeight: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  backgroundThumbnailUri?: string;
   safeArea?: SafeArea;
   layers?: AnyLayer[];
   bookingMeta?: BookingMeta;
@@ -68,6 +71,7 @@ export interface ProjectUpdateInput {
   canvasHeight?: number;
   backgroundColor?: string;
   backgroundUri?: string;
+  backgroundThumbnailUri?: string;
   safeArea?: SafeArea;
   layers?: AnyLayer[];
   thumbnail?: string;

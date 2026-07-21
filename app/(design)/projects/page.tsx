@@ -154,12 +154,20 @@ export default function ProjectsPage() {
       const { PDFDocument } = await import('pdf-lib');
       const pdfDoc = await PDFDocument.create();
       for (const img of pdf.images) {
-        const isPng = img.uri.startsWith('data:image/png');
-        const base64 = img.uri.split(',')[1];
-        const byteChars = atob(base64);
-        const bytes = new Uint8Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) {
-          bytes[i] = byteChars.charCodeAt(i);
+        let bytes: Uint8Array;
+        let isPng: boolean;
+        if (img.uri.startsWith('data:')) {
+          isPng = img.uri.startsWith('data:image/png');
+          const base64 = img.uri.split(',')[1];
+          const byteChars = atob(base64);
+          bytes = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) {
+            bytes[i] = byteChars.charCodeAt(i);
+          }
+        } else {
+          const resp = await fetch(img.uri);
+          bytes = new Uint8Array(await resp.arrayBuffer());
+          isPng = img.uri.toLowerCase().endsWith('.png');
         }
         let embedded;
         if (isPng) {
@@ -303,7 +311,7 @@ export default function ProjectsPage() {
                       {pdf.images[0]?.uri ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={pdf.images[0].uri}
+                          src={pdf.images[0].thumbnailUri || pdf.images[0].uri}
                           alt={pdf.name}
                           className="h-full w-full object-cover"
                         />

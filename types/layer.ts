@@ -55,13 +55,19 @@ export interface ImageLayerCollage {
 
 export interface ImageLayer extends BaseLayer {
   type: 'image';
+  /** Immutable original image URL (R2). Never changes after upload. */
   uri: string;
-  /** Original uncropped image — preserved so user can re-crop from original */
+  /** @deprecated Use cropRect instead. Kept for backward compatibility with old projects. */
   originalUri?: string;
   originalNaturalWidth?: number;
   originalNaturalHeight?: number;
-  /** Last crop area (in original image pixel coordinates) — restored when re-opening crop */
+  /**
+   * Non-destructive crop area in original image pixel coordinates.
+   * The editor renders only this region at runtime; the original image is never modified.
+   * Undefined = no crop (show full image).
+   */
   cropRect?: { x: number; y: number; width: number; height: number };
+  /** Natural dimensions of the original (uncropped) image */
   naturalWidth: number;
   naturalHeight: number;
   maskWidth: number;
@@ -74,6 +80,8 @@ export interface ImageLayer extends BaseLayer {
   borderWidth: number;
   flipX: boolean;
   flipY: boolean;
+  /** Thumbnail URL (smaller version for galleries/lists) */
+  thumbnailUri?: string;
   collage?: ImageLayerCollage;
 }
 

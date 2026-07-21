@@ -18,6 +18,8 @@ export interface ExportedItem extends SyncableDocument {
 export interface PdfImage {
   id: string;
   uri: string;
+  /** Smaller version for galleries/lists — falls back to uri if not generated */
+  thumbnailUri?: string;
   naturalWidth: number;
   naturalHeight: number;
 }

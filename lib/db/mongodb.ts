@@ -4,23 +4,35 @@ export class MongoDBClient {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   private uri: string;
+  private connectingPromise: Promise<void> | null = null;
 
   constructor(uri: string) {
     this.uri = uri;
   }
 
   async connect(): Promise<void> {
-    if (this.client) return;
+    // Already connected
+    if (this.client && this.db) return;
+    // Connection in progress — wait for it
+    if (this.connectingPromise) return this.connectingPromise;
 
-    try {
-      this.client = new MongoClient(this.uri);
-      await this.client.connect();
-      this.db = this.client.db();
-      console.log('Connected to MongoDB');
-    } catch (error) {
-      console.error('Failed to connect to MongoDB:', error);
-      throw error;
-    }
+    this.connectingPromise = (async () => {
+      try {
+        this.client = new MongoClient(this.uri);
+        await this.client.connect();
+        this.db = this.client.db();
+        console.log('Connected to MongoDB');
+      } catch (error) {
+        // Reset so a retry can happen
+        this.client = null;
+        this.db = null;
+        console.error('Failed to connect to MongoDB:', error);
+        throw error;
+      } finally {
+        this.connectingPromise = null;
+      }
+    })();
+    return this.connectingPromise;
   }
 
   async disconnect(): Promise<void> {
@@ -28,6 +40,7 @@ export class MongoDBClient {
       await this.client.close();
       this.client = null;
       this.db = null;
+      this.connectingPromise = null;
       console.log('Disconnected from MongoDB');
     }
   }

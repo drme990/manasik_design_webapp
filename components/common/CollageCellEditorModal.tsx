@@ -5,6 +5,8 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import FileUpload from '@/components/ui/FileUpload';
 import { useTranslations } from '@/lib/i18n/strings';
+import { useToast } from '@/components/providers/ToastProvider';
+import { uploadImageWithProgress } from '@/lib/storage/upload';
 import { LuX } from 'react-icons/lu';
 import type { CollageCell } from '@/types/collage';
 
@@ -25,20 +27,25 @@ export default function CollageCellEditorModal({
 }: CollageCellEditorModalProps) {
   const t = useTranslations('common.collageCellEditor');
   const uiT = useTranslations('ui');
+  const toast = useToast();
   const [uri, setUri] = useState(cell?.uri || '');
 
   useEffect(() => {
     setUri(cell?.uri || '');
   }, [cell, isOpen]);
 
-  const handleFilesSelected = (files: File[]) => {
+  const handleFilesSelected = async (files: File[]) => {
     const file = files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setUri(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    try {
+      const { uri: uploadedUri } = await uploadImageWithProgress(
+        file,
+        toast,
+        'جاري رفع الصورة...'
+      );
+      setUri(uploadedUri);
+    } catch {
+      // toast already shown by uploader
     }
   };
 

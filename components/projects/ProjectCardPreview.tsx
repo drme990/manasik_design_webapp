@@ -29,7 +29,7 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
       className={`relative h-full w-full overflow-hidden ${className}`}
       style={{
         backgroundColor: project.backgroundColor ?? '#ffffff',
-        backgroundImage: project.backgroundUri ? `url(${project.backgroundUri})` : undefined,
+        backgroundImage: (project.backgroundThumbnailUri || project.backgroundUri) ? `url(${project.backgroundThumbnailUri || project.backgroundUri})` : undefined,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
@@ -43,7 +43,7 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
         }}
       >
         {layers.map((layer) => (
-          <LayerRenderer key={layer.id} layer={layer} />
+          <LayerRenderer key={layer.id} layer={layer} useThumbnail />
         ))}
       </div>
     </div>

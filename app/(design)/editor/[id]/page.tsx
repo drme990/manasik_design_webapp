@@ -37,6 +37,8 @@ import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
 import { getProject, updateProjectLocal, saveProject, syncProject, recoverFromMirror, deleteProject } from '@/lib/store/projects';
+import { useToast } from '@/components/providers/ToastProvider';
+import { uploadImageWithProgress, uploadImagesWithProgress } from '@/lib/storage/upload';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -165,6 +167,7 @@ export default function EditorPage() {
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameValue, setRenameValue] = useState('');
     const [isExporting, setIsExporting] = useState(false);
+    const toast = useToast();
     const [isCropOpen, setIsCropOpen] = useState(false);
     const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
@@ -394,6 +397,8 @@ export default function EditorPage() {
                 quality: 0.95,
                 backgroundColor: project.backgroundColor || '#ffffff',
                 pixelRatio: 2,
+                cacheBust: true,
+                fetchRequestInit: { mode: 'cors' } as RequestInit,
             });
 
             const link = document.createElement('a');
@@ -479,15 +484,15 @@ export default function EditorPage() {
     const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !project) return;
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const uri = event.target?.result as string;
-            await updateProjectLocal(project.id, { backgroundUri: uri });
-            setProject((prev) => (prev ? { ...prev, backgroundUri: uri } : prev));
-        };
-        reader.readAsDataURL(file);
+        try {
+            const { uri, thumbnailUri } = await uploadImageWithProgress(file, toast, 'جاري رفع صورة الخلفية...');
+            await updateProjectLocal(project.id, { backgroundUri: uri, backgroundThumbnailUri: thumbnailUri });
+            setProject((prev) => (prev ? { ...prev, backgroundUri: uri, backgroundThumbnailUri: thumbnailUri } : prev));
+        } catch {
+            // toast already shown by uploader
+        }
         e.target.value = '';
-    }, [project]);
+    }, [project, toast]);
 
     const handleRemoveBackgroundImage = useCallback(async () => {
         if (!project) return;
@@ -689,39 +694,67 @@ export default function EditorPage() {
     );
 
     const handleCropApply = useCallback(
-        (croppedUri: string, newWidth: number, newHeight: number, cropRect: { x: number; y: number; width: number; height: number }) => {
+        (cropRect: { x: number; y: number; width: number; height: number }) => {
             if (!selectedLayerId) return;
             const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
             if (!layer || layer.type !== 'image') return;
             const imgLayer = layer as ImageLayer;
-            const ratio = newWidth / newHeight;
+
+            // Non-destructive crop: only save the crop rect.
+            // The original image (uri) stays unchanged.
+            // naturalWidth/Height become the cropped dimensions for layout purposes.
+            // imageScale is recalculated so the cropped region fills the layer box.
+            const newW = cropRect.width;
+            const newH = cropRect.height;
+            const ratio = newW / newH;
             const newBoxW = imgLayer.width;
             const newBoxH = imgLayer.width / ratio;
-            // Recalculate imageScale so cropped image covers the new box
-            const newImageScale = Math.max(
-                newBoxW / newWidth,
-                newBoxH / newHeight
-            );
+            const newImageScale = Math.max(newBoxW / newW, newBoxH / newH);
+
             handleLayerChange(selectedLayerId, {
-                uri: croppedUri,
-                naturalWidth: newWidth,
-                naturalHeight: newHeight,
+                cropRect,
+                naturalWidth: newW,
+                naturalHeight: newH,
                 maskWidth: newBoxW,
                 maskHeight: newBoxH,
                 height: newBoxH,
                 offsetX: 0,
                 offsetY: 0,
                 imageScale: newImageScale,
-                // Preserve original image for re-cropping
-                originalUri: imgLayer.originalUri || imgLayer.uri,
-                originalNaturalWidth: imgLayer.originalNaturalWidth || imgLayer.naturalWidth,
-                originalNaturalHeight: imgLayer.originalNaturalHeight || imgLayer.naturalHeight,
-                // Save crop rect so re-opening the crop modal restores the same area
-                cropRect,
             } as Partial<AnyLayer>);
         },
         [selectedLayerId, handleLayerChange]
     );
+
+    const handleUndoCrop = useCallback(() => {
+        if (!selectedLayerId) return;
+        const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
+        if (!layer || layer.type !== 'image') return;
+        const imgLayer = layer as ImageLayer;
+        if (!imgLayer.cropRect) return; // Nothing to undo
+
+        // Restore to full original image — just clear the crop rect
+        // and restore naturalWidth/Height to the original dimensions
+        const origW = imgLayer.originalNaturalWidth || imgLayer.naturalWidth;
+        const origH = imgLayer.originalNaturalHeight || imgLayer.naturalHeight;
+        const ratio = origW / origH;
+        const newBoxW = imgLayer.width;
+        const newBoxH = imgLayer.width / ratio;
+        const newImageScale = Math.max(newBoxW / origW, newBoxH / origH);
+
+        handleLayerChange(selectedLayerId, {
+            cropRect: undefined,
+            naturalWidth: origW,
+            naturalHeight: origH,
+            maskWidth: newBoxW,
+            maskHeight: newBoxH,
+            height: newBoxH,
+            offsetX: 0,
+            offsetY: 0,
+            imageScale: newImageScale,
+        } as Partial<AnyLayer>);
+        setIsCropOpen(false);
+    }, [selectedLayerId, handleLayerChange]);
 
     const handleLayerDragStart = useCallback(
         (layerId: string) => {
@@ -867,9 +900,10 @@ export default function EditorPage() {
     }, [updateProjectState, project, t]);
 
     const handleFileSelect = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
             const files = Array.from(e.target.files || []);
             if (files.length === 0 || !project) return;
+            e.target.value = '';
 
             // Project box dimensions (matching project aspect)
             const projectRatio = project.canvasWidth / project.canvasHeight;
@@ -883,29 +917,23 @@ export default function EditorPage() {
                 boxW = boxSize * projectRatio;
             }
 
-            // Load all files to get URIs + natural sizes
             const maxImages = Math.min(files.length, 4);
-            const promises = files.slice(0, maxImages).map((file) => {
-                return new Promise<{ uri: string; width: number; height: number }>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const uri = event.target?.result as string;
-                        const img = new Image();
-                        img.onload = () => resolve({ uri, width: img.naturalWidth, height: img.naturalHeight });
-                        img.src = uri;
-                    };
-                    reader.readAsDataURL(file);
-                });
-            });
+            try {
+                const results = await uploadImagesWithProgress(
+                    files.slice(0, maxImages),
+                    toast,
+                    'جاري رفع الصور...',
+                    'تم رفع الصور بنجاح'
+                );
 
-            Promise.all(promises).then((results) => {
                 if (results.length === 1) {
                     // Single image — normal image layer
-                    const { uri, width: nw, height: nh } = results[0];
+                    const { uri, naturalWidth: nw, naturalHeight: nh, thumbnailUri } = results[0];
                     const newLayer = buildImageLayer({
                         uri,
                         naturalWidth: nw,
                         naturalHeight: nh,
+                        thumbnailUri,
                         x: (project.canvasWidth - boxW) / 2,
                         y: (project.canvasHeight - boxH) / 2,
                         canvasWidth: project.canvasWidth,
@@ -926,7 +954,7 @@ export default function EditorPage() {
                 } else {
                     // Multiple images — collage layer
                     const uris = results.map(r => r.uri);
-                    const naturalSizes = results.map(r => ({ width: r.width, height: r.height }));
+                    const naturalSizes = results.map(r => ({ width: r.naturalWidth, height: r.naturalHeight }));
                     const layout = COLLAGE_LAYOUTS.find(l => l.count === uris.length) || COLLAGE_LAYOUTS[0];
                     const newLayer = buildCollageLayer({
                         uris,
@@ -950,50 +978,48 @@ export default function EditorPage() {
                     setSelectedLayerId(newLayer.id);
                     setAddDrawerOpen(false);
                 }
-            });
-            e.target.value = '';
+            } catch {
+                // toast already shown by uploader
+            }
         },
-        [project, updateProjectState]
+        [project, updateProjectState, toast]
     );
 
     const handleReplaceImage = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (!file || !selectedLayerId) return;
-            const currentLayer = projectRef.current?.layers.find(l => l.id === selectedLayerId);
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const uri = event.target?.result as string;
-                const img = new Image();
-                img.onload = () => {
-                    // Compute imageScale so the new image covers the existing layer box
-                    // (like object-fit: cover) — use max so the image fills the box.
-                    const boxW = currentLayer?.width ?? img.naturalWidth;
-                    const boxH = currentLayer?.height ?? img.naturalHeight;
-                    const scale = Math.max(
-                        boxW / img.naturalWidth,
-                        boxH / img.naturalHeight
-                    );
-                    handleLayerChange(selectedLayerId, {
-                        uri,
-                        originalUri: uri,
-                        originalNaturalWidth: img.naturalWidth,
-                        originalNaturalHeight: img.naturalHeight,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                        maskWidth: boxW,
-                        maskHeight: boxH,
-                        offsetX: 0,
-                        offsetY: 0,
-                        imageScale: scale,
-                    } as Partial<AnyLayer>);
-                };
-                img.src = uri;
-            };
-            reader.readAsDataURL(file);
             e.target.value = '';
+            const currentLayer = projectRef.current?.layers.find(l => l.id === selectedLayerId);
+            try {
+                const { uri, naturalWidth, naturalHeight, thumbnailUri } = await uploadImageWithProgress(
+                    file,
+                    toast,
+                    'جاري رفع الصورة...'
+                );
+                const boxW = currentLayer?.width ?? naturalWidth;
+                const boxH = currentLayer?.height ?? naturalHeight;
+                const scale = Math.max(boxW / naturalWidth, boxH / naturalHeight);
+                handleLayerChange(selectedLayerId, {
+                    uri,
+                    // Non-destructive: new image replaces the original, clear any crop
+                    originalNaturalWidth: naturalWidth,
+                    originalNaturalHeight: naturalHeight,
+                    naturalWidth,
+                    naturalHeight,
+                    thumbnailUri,
+                    maskWidth: boxW,
+                    maskHeight: boxH,
+                    offsetX: 0,
+                    offsetY: 0,
+                    imageScale: scale,
+                    cropRect: undefined,
+                } as Partial<AnyLayer>);
+            } catch {
+                // toast already shown by uploader
+            }
         },
-        [selectedLayerId, handleLayerChange]
+        [selectedLayerId, handleLayerChange, toast]
     );
 
     // Change collage layout (only between layouts with the same image count)
@@ -1046,6 +1072,8 @@ export default function EditorPage() {
                 quality: 0.95,
                 backgroundColor: project.backgroundColor || '#ffffff',
                 pixelRatio: 1,
+                cacheBust: true,
+                fetchRequestInit: { mode: 'cors' } as RequestInit,
             });
             setIsExporting(false);
             setSelectedLayerId(prevSelection);
@@ -1868,10 +1896,12 @@ export default function EditorPage() {
                     <ImageCropModal
                         isOpen={isCropOpen}
                         onClose={() => setIsCropOpen(false)}
-                        imageUri={(selectedLayer as ImageLayer).originalUri || (selectedLayer as ImageLayer).uri}
+                        imageUri={(selectedLayer as ImageLayer).uri}
                         naturalWidth={(selectedLayer as ImageLayer).originalNaturalWidth || (selectedLayer as ImageLayer).naturalWidth}
                         naturalHeight={(selectedLayer as ImageLayer).originalNaturalHeight || (selectedLayer as ImageLayer).naturalHeight}
                         lastCropRect={(selectedLayer as ImageLayer).cropRect}
+                        hasCrop={!!(selectedLayer as ImageLayer).cropRect}
+                        onUndoCrop={handleUndoCrop}
                         onApply={handleCropApply}
                     />
                 )}
