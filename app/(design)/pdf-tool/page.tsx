@@ -19,6 +19,7 @@ import {
     LuLoaderCircle,
     LuEye,
     LuArrowLeft,
+    LuSave,
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
@@ -206,6 +207,7 @@ function PdfToolPage() {
 
     const [images, setImages] = useState<PdfImageType[]>([]);
     const [downloading, setDownloading] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [previewOpen, setPreviewOpen] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
     const [projectName, setProjectName] = useState('');
@@ -213,13 +215,14 @@ function PdfToolPage() {
     const [currentProject, setCurrentProject] = useState<PdfProject | null>(null);
     const [loading, setLoading] = useState(!!projectId);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
-    const [showNoChangesModal, setShowNoChangesModal] = useState(false);
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [showLeaveModal, setShowLeaveModal] = useState(false);
     const hasUnsavedRef = useRef(false);
     const currentProjectRef = useRef<PdfProject | null>(null);
     currentProjectRef.current = currentProject;
-    const skipNextSaveRef = useRef(false);
+    const skipNextMarkRef = useRef(false);
+    // Tracks whether the project had been saved to the server before this session.
+    // If false, the project is "new" and leaving without saving means deleting it.
+    const wasSyncedBeforeRef = useRef(false);
 
     // Load existing project when ?id= is present
     useEffect(() => {
@@ -232,70 +235,31 @@ function PdfToolPage() {
                 setCurrentProject(found);
                 setProjectName(found.name);
                 setImages(found.images);
-                // Skip the auto-save that would fire from images being set —
-                // the data was just loaded from the DB, no need to re-save it.
-                skipNextSaveRef.current = true;
+                // Skip the unsaved-mark that would fire from images being set —
+                // the data was just loaded from the DB, no changes yet.
+                skipNextMarkRef.current = true;
+                // This project was already saved to the server before
+                wasSyncedBeforeRef.current = true;
             }
             setLoading(false);
         });
     }, [projectId]);
 
-    // Auto-save: debounced whenever images or name change
-    // NOTE: currentProject is intentionally excluded from deps — updating it
-    // after a save would re-trigger this effect and cause an infinite save loop.
-    // We read it via ref instead.
+    // Mark unsaved changes whenever images or name change.
+    // No auto-save — the DB is only written on explicit Save button click
+    // or when the user confirms "Yes" on the leave modal.
     useEffect(() => {
-        if (loading) return; // Don't save during initial load
-        if (images.length === 0 && !currentProjectRef.current) return; // Nothing to save
+        if (loading) return; // Don't mark during initial load
+        if (images.length === 0 && !currentProjectRef.current) return; // Nothing to track
 
-        // Skip save after initial load — data came from DB, no changes yet
-        if (skipNextSaveRef.current) {
-            skipNextSaveRef.current = false;
-            hasUnsavedRef.current = false;
-            setHasUnsavedChanges(false);
+        // Skip after initial load — data came from DB, no changes yet
+        if (skipNextMarkRef.current) {
+            skipNextMarkRef.current = false;
             return;
         }
 
-        // Mark as having unsaved changes whenever images/name change
         hasUnsavedRef.current = true;
         setHasUnsavedChanges(true);
-
-        if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current);
-        }
-        saveTimerRef.current = setTimeout(async () => {
-            saveTimerRef.current = null;
-            if (images.length === 0) return;
-
-            const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
-            const existing = currentProjectRef.current;
-            if (existing) {
-                // Update existing project
-                const updated: PdfProject = {
-                    ...existing,
-                    name,
-                    images,
-                };
-                await savePdfProject(updated);
-                currentProjectRef.current = updated;
-                setCurrentProject(updated);
-            } else {
-                // Create new project
-                const created = await createPdfProject(name, images);
-                currentProjectRef.current = created;
-                setCurrentProject(created);
-                setProjectName(created.name);
-            }
-            invalidatePdfListCache();
-            hasUnsavedRef.current = false;
-            setHasUnsavedChanges(false);
-        }, 800);
-
-        return () => {
-            if (saveTimerRef.current) {
-                clearTimeout(saveTimerRef.current);
-            }
-        };
     }, [images, projectName, loading]);
 
     const handleAddImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -346,89 +310,118 @@ function PdfToolPage() {
         setHasUnsavedChanges(false);
     };
 
-    // ─── Leave navigation with confirmation modals ──────────────────────────
-    const doSaveAndLeave = useCallback(() => {
-        if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = null;
-        }
-        hasUnsavedRef.current = false;
-        setHasUnsavedChanges(false);
-        // Force immediate save
-        const proj = currentProjectRef.current;
-        if (proj && images.length > 0) {
+    // ─── Save to DB (explicit) ──────────────────────────────────────────────
+    // The ONLY path that writes to the server. Called by the Save button and
+    // by doSaveAndLeave (leave modal "Yes").
+    const flushSave = useCallback(async () => {
+        if (images.length === 0) return;
+        setSaving(true);
+        try {
             const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
-            savePdfProject({ ...proj, name, images }).catch(() => { });
+            const existing = currentProjectRef.current;
+            if (existing) {
+                const updated: PdfProject = { ...existing, name, images };
+                await savePdfProject(updated);
+                currentProjectRef.current = updated;
+                setCurrentProject(updated);
+            } else {
+                const created = await createPdfProject(name, images);
+                currentProjectRef.current = created;
+                setCurrentProject(created);
+                setProjectName(created.name);
+                wasSyncedBeforeRef.current = true;
+            }
             invalidatePdfListCache();
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+        } catch (err) {
+            console.error('Failed to save PDF project:', err);
+        } finally {
+            setSaving(false);
         }
-        router.replace('/projects');
-    }, [router, images, projectName]);
+    }, [images, projectName]);
 
-    const doLeaveWithoutSaving = useCallback(() => {
-        if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = null;
-        }
+    // ─── Leave navigation ───────────────────────────────────────────────────
+    // Save and navigate away — used by the "Yes" button in the leave modal.
+    // Awaits the save so the request completes before navigating.
+    const doSaveAndLeave = useCallback(async () => {
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
+        await flushSave();
         router.replace('/projects');
-    }, [router]);
+    }, [flushSave, router]);
 
-    const doSaveLeaveAndDelete = useCallback(() => {
-        if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = null;
-        }
+    // "No" button in the leave modal — discards unsaved changes.
+    // Deletes the project if it's blank or was never saved to the server.
+    const doNoAndLeave = useCallback(() => {
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
         const proj = currentProjectRef.current;
         if (proj) {
-            // Save first so latest state is synced, then delete
-            const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
-            savePdfProject({ ...proj, name, images }).catch(() => { });
-            deletePdfProject(proj.id).catch(() => { });
-            invalidatePdfListCache();
+            const isBlank = images.length === 0;
+            if (isBlank || !wasSyncedBeforeRef.current) {
+                // Blank project or new project that was never synced — delete it
+                deletePdfProject(proj.id).catch(() => { });
+                invalidatePdfListCache();
+            }
         }
+        // For existing projects with content, just leave — the DB still has
+        // the last-saved version; unsaved session changes are discarded.
         router.replace('/projects');
-    }, [router, images, projectName]);
+    }, [router, images.length]);
 
-    const doDeleteAndLeave = useCallback(() => {
-        hasUnsavedRef.current = false;
-        setHasUnsavedChanges(false);
+    // Silently leave without asking — used when there are no changes at all.
+    // Deletes the project if it's blank (no images).
+    const doSilentLeave = useCallback(() => {
         const proj = currentProjectRef.current;
         if (proj) {
-            deletePdfProject(proj.id).catch(() => { });
-            invalidatePdfListCache();
+            const isBlank = images.length === 0;
+            if (isBlank) {
+                deletePdfProject(proj.id).catch(() => { });
+                invalidatePdfListCache();
+            }
         }
         router.replace('/projects');
-    }, [router]);
+    }, [router, images.length]);
 
     const handleNavigateBack = useCallback(() => {
         if (hasUnsavedRef.current) {
-            setShowUnsavedModal(true);
+            setShowLeaveModal(true);
         } else {
-            setShowNoChangesModal(true);
+            doSilentLeave();
         }
-    }, []);
+    }, [doSilentLeave]);
 
-    // Browser back-button guard
+    // Browser back-button guard — same pattern as the editor
     useEffect(() => {
         if (!projectId) return; // Only guard when editing an existing project
         window.history.pushState({ pdfGuard: true }, '');
         const handlePopState = () => {
+            // Re-push the guard state so the next back press is also caught
+            window.history.pushState({ pdfGuard: true }, '');
             if (hasUnsavedRef.current) {
-                window.history.pushState({ pdfGuard: true }, '');
-                setShowUnsavedModal(true);
+                setShowLeaveModal(true);
             } else {
-                window.history.pushState({ pdfGuard: true }, '');
-                setShowNoChangesModal(true);
+                doSilentLeave();
             }
         };
         window.addEventListener('popstate', handlePopState);
         return () => {
             window.removeEventListener('popstate', handlePopState);
         };
-    }, [projectId]);
+    }, [projectId, doSilentLeave]);
+
+    // beforeunload — desktop: trigger native browser confirmation if unsaved
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasUnsavedRef.current) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
 
     const handleDownload = useCallback(async () => {
         if (images.length === 0) return;
@@ -563,6 +556,20 @@ function PdfToolPage() {
                                         </Button>
 
                                         <Button
+                                            variant="outline"
+                                            onClick={flushSave}
+                                            disabled={saving || !hasUnsavedChanges}
+                                            className="gap-2"
+                                        >
+                                            {saving ? (
+                                                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                                            ) : (
+                                                <LuSave className="h-5 w-5" />
+                                            )}
+                                            {uiT('save')}
+                                        </Button>
+
+                                        <Button
                                             variant="primary"
                                             onClick={handleDownload}
                                             disabled={downloading}
@@ -688,88 +695,46 @@ function PdfToolPage() {
                     onConfirm={handleClear}
                 />
 
-                {/* Unsaved changes modal — with delete option */}
-                {showUnsavedModal && (
+                {/* Leave confirmation modal — same as the editor.
+                    Only shows when there are unsaved changes. No modal when
+                    there are no changes (leaves silently via doSilentLeave). */}
+                {showLeaveModal && (
                     <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
-                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
-                            <h2 className="mb-2 text-lg font-bold text-foreground">
-                                {editorT('unsavedChangesTitle')}
+                        <div className="relative w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            {/* X close button — same as "continue editing" (just dismisses) */}
+                            <button
+                                type="button"
+                                onClick={() => setShowLeaveModal(false)}
+                                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-secondary transition-colors hover:bg-muted hover:text-foreground rtl:right-auto rtl:left-3"
+                                aria-label={editorT('keepEditing')}
+                            >
+                                <LuX className="h-5 w-5" />
+                            </button>
+                            <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
+                                {wasSyncedBeforeRef.current ? editorT('saveChangesTitle') : editorT('saveProjectTitle')}
                             </h2>
                             <p className="mb-6 text-sm text-secondary">
-                                {editorT('unsavedChangesDescription')}
+                                {wasSyncedBeforeRef.current ? editorT('saveChangesDescription') : editorT('saveProjectDescription')}
                             </p>
-                            <div className="flex flex-col gap-2">
+                            <div className="flex gap-3">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setShowLeaveModal(false);
+                                        doNoAndLeave();
+                                    }}
+                                    className="flex-1 text-secondary"
+                                >
+                                    {editorT('no')}
+                                </Button>
                                 <Button
                                     onClick={() => {
-                                        setShowUnsavedModal(false);
+                                        setShowLeaveModal(false);
                                         doSaveAndLeave();
                                     }}
-                                    className="w-full"
+                                    className="flex-1"
                                 >
-                                    {editorT('saveAndLeave')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowUnsavedModal(false);
-                                        doLeaveWithoutSaving();
-                                    }}
-                                    className="w-full text-secondary"
-                                >
-                                    {editorT('leaveWithoutSaving')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowUnsavedModal(false);
-                                        doSaveLeaveAndDelete();
-                                    }}
-                                    className="w-full text-error hover:bg-error/10"
-                                >
-                                    {editorT('saveLeaveDelete')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => setShowUnsavedModal(false)}
-                                    className="w-full"
-                                >
-                                    {editorT('cancel')}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* No changes modal — asks if user wants to delete the project */}
-                {showNoChangesModal && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
-                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
-                            <h2 className="mb-2 text-lg font-bold text-foreground">
-                                {editorT('noChangesTitle')}
-                            </h2>
-                            <p className="mb-6 text-sm text-secondary">
-                                {editorT('noChangesDescription')}
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowNoChangesModal(false);
-                                        doDeleteAndLeave();
-                                    }}
-                                    className="w-full text-error hover:bg-error/10"
-                                >
-                                    {editorT('leaveDelete')}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowNoChangesModal(false);
-                                        router.push('/projects');
-                                    }}
-                                    className="w-full"
-                                >
-                                    {editorT('leaveNoDelete')}
+                                    {editorT('yes')}
                                 </Button>
                             </div>
                         </div>

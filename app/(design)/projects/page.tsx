@@ -11,10 +11,9 @@ import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listProjects, createProject, deleteProject, renameProject, duplicateProject, recoverFromMirror } from '@/lib/store/projects';
+import { listProjects, createProject, deleteProject, renameProject, duplicateProject } from '@/lib/store/projects';
 import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import { kvStorage } from '@/lib/utils/kv-storage';
 import type { Project, PdfProject } from '@/types';
 
 export default function ProjectsPage() {
@@ -71,17 +70,8 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // 1. Instant render from IndexedDB cache (no network wait)
-    kvStorage.getItem<Project[]>('manasik:projects').then((cached) => {
-      if (cancelled || !cached || cached.length === 0) return;
-      const sorted = [...cached].sort((a, b) => b.updatedAt - a.updatedAt);
-      setProjects(sorted);
-      setLoading(false); // hide spinner as soon as we have anything
-    });
-
-    // 2. Fetch fresh data in parallel with mirror recovery.
-    //    Recovery is a safety net — it shouldn't block the network fetch.
-    recoverFromMirror();
+    // Fetch projects from the API (single source of truth — no IndexedDB).
+    // The in-memory cache in lib/store/projects.ts makes re-visits instant.
     listProjects().then((data) => {
       if (cancelled) return;
       const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);

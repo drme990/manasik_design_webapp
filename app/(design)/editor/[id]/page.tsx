@@ -39,7 +39,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
-import { getProject, updateProjectLocal, saveProject, syncProject, recoverFromMirror, deleteProject } from '@/lib/store/projects';
+import { getProject, saveProject, deleteProject, updateProjectRemote } from '@/lib/store/projects';
 import { useToast } from '@/components/providers/ToastProvider';
 import { uploadImageWithProgress, uploadImagesWithProgress } from '@/lib/storage/upload';
 import {
@@ -58,8 +58,6 @@ import { useSavedColors } from '@/lib/hooks/useSavedColors';
 import { useUserFonts } from '@/lib/hooks/useUserFonts';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer, SafeArea } from '@/types';
 import Input from '@/components/ui/Input';
-
-const SYNC_INTERVAL_MS = 10_000;
 
 const SHAPES: { shape: ShapeLayer['shape']; labelKey: string }[] = [
     { shape: 'rectangle', labelKey: 'rectangle' },
@@ -223,17 +221,16 @@ export default function EditorPage() {
         projectRef.current = project;
     }, [project]);
 
-    // Load the project
+    // Load the project — always from the API (single source of truth).
+    // No IndexedDB/localStorage — positions never drift because the DB is
+    // the only place data is read from.
     useEffect(() => {
-        // Recover any data from localStorage mirror (in case IndexedDB lost data)
-        recoverFromMirror().finally(() => {
-            getProject(id).then((p) => {
-                setProject(p);
-                // Track if this project was ever synced to the server.
-                // If not, it's a brand-new project and "No" on leave = delete it.
-                wasSyncedBeforeRef.current = !!(p && p.syncedAt);
-                setLoading(false);
-            });
+        getProject(id).then((p) => {
+            setProject(p);
+            // Track if this project was ever synced to the server.
+            // If not, it's a brand-new project and "No" on leave = delete it.
+            wasSyncedBeforeRef.current = !!(p && p.syncedAt);
+            setLoading(false);
         });
     }, [id]);
 
@@ -276,21 +273,20 @@ export default function EditorPage() {
     }, [project, bottomBarHeight]);
 
     const pendingPersistRef = useRef<Project | null>(null);
-    const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedRef = useRef(false);
     // Tracks whether the project had been synced to the server before this session.
     // If false, the project is "new" and leaving without saving means deleting it.
     const wasSyncedBeforeRef = useRef(false);
 
-    // Save to IndexedDB + localStorage mirror (debounced, skips during transactions)
-    const saveLocal = useCallback(async (projectToSave: Project) => {
+    // Write working state to sessionStorage — survives page refresh / mobile
+    // app kill, but does NOT touch the database. The DB is only written when
+    // the user clicks Save or confirms "Yes" on the leave modal.
+    const saveSession = useCallback((projectToSave: Project) => {
         try {
-            await saveProject(projectToSave);
-            // Don't clear hasUnsavedRef here — only clear after API sync
-            // The orange dot stays until the 10s sync interval pushes to the API
-        } catch (error) {
-            console.error('Failed to save project locally:', error);
+            sessionStorage.setItem(`manasik:project:${projectToSave.id}`, JSON.stringify(projectToSave));
+        } catch {
+            // sessionStorage might be full or unavailable — ignore
         }
     }, []);
 
@@ -300,13 +296,13 @@ export default function EditorPage() {
             hasUnsavedRef.current = true;
             setHasUnsavedChanges(true);
 
-            // If inside a transaction (drag, slider, etc.), don't save intermediate
-            // states — only save the final state when the transaction ends.
+            // If inside a transaction (drag, slider, etc.), don't write intermediate
+            // states — only write the final state when the transaction ends.
             if (inTransactionRef.current) {
                 return;
             }
 
-            // Debounce: rapid changes (e.g. typing) only save the last state
+            // Debounce: rapid changes (e.g. typing) only write the last state
             if (saveDebounceRef.current) {
                 clearTimeout(saveDebounceRef.current);
             }
@@ -314,14 +310,15 @@ export default function EditorPage() {
                 saveDebounceRef.current = null;
                 const current = pendingPersistRef.current;
                 if (current) {
-                    saveLocal(current);
+                    saveSession(current);
                 }
             }, 300);
         },
-        [saveLocal]
+        [saveSession]
     );
 
-    // Force save + sync to API immediately (used by the Save button)
+    // Force save to the database (MongoDB) immediately — used by the Save button.
+    // This is the ONLY path that writes to the server.
     const flushPersist = useCallback(async (updated: Project) => {
         pendingPersistRef.current = null;
         if (saveDebounceRef.current) {
@@ -329,18 +326,24 @@ export default function EditorPage() {
             saveDebounceRef.current = null;
         }
         setSaving(true);
-        await saveLocal(updated);
-        if (projectRef.current) {
-            await syncProject(projectRef.current.id);
+        try {
+            const saved = await saveProject(updated);
+            // Update local state with the server's response (canonical positions)
+            setProject(saved);
+            // Clear the sessionStorage backup since the DB now has the latest
+            try { sessionStorage.removeItem(`manasik:project:${updated.id}`); } catch { /* ignore */ }
+            hasUnsavedRef.current = false;
+            setHasUnsavedChanges(false);
+        } catch (error) {
+            console.error('Failed to save project to server:', error);
+        } finally {
+            setSaving(false);
         }
-        hasUnsavedRef.current = false;
-        setHasUnsavedChanges(false);
-        setSaving(false);
-    }, [saveLocal]);
+    }, []);
 
     // Save and navigate away — used by the "Yes" button in the leave modal.
-    // Saves the project (locally + syncs to server) then navigates to /projects.
-    const doSaveAndLeave = useCallback(() => {
+    // Writes the project to the database (MongoDB), then navigates to /projects.
+    const doSaveAndLeave = useCallback(async () => {
         const current = pendingPersistRef.current || projectRef.current;
         if (current) {
             if (saveDebounceRef.current) {
@@ -350,8 +353,18 @@ export default function EditorPage() {
             pendingPersistRef.current = null;
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
-            saveProject(current).catch(() => { });
-            syncProject(current.id).catch(() => { });
+            setSaving(true);
+            // Save to the database (PATCH /api/projects/[id]) — await so the
+            // request completes before we navigate away.
+            try {
+                await saveProject(current);
+                // Clear sessionStorage backup
+                try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
+            } catch (err) {
+                console.error('Failed to save project on leave:', err);
+            } finally {
+                setSaving(false);
+            }
         }
         // Use replace so the dummy history state from the back-button guard
         // doesn't stay in the browser history stack
@@ -373,14 +386,16 @@ export default function EditorPage() {
 
         const current = projectRef.current;
         if (current) {
+            // Clear sessionStorage backup — discarding unsaved changes
+            try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
             const isBlank = current.layers.length === 0 && !current.backgroundUri;
             if (isBlank || !wasSyncedBeforeRef.current) {
                 // Blank project or new project that was never synced — delete it
                 deleteProject(current.id).catch(() => { });
             }
         }
-        // For existing projects with content, just leave (local IndexedDB still
-        // has the last-synced version; unsaved session changes are discarded).
+        // For existing projects with content, just leave — the database still
+        // has the last-saved version; unsaved session changes are discarded.
         router.replace('/projects');
     }, [router]);
 
@@ -390,6 +405,8 @@ export default function EditorPage() {
     const doSilentLeave = useCallback(() => {
         const current = projectRef.current;
         if (current) {
+            // Clear any sessionStorage backup
+            try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
             const isBlank = current.layers.length === 0 && !current.backgroundUri;
             if (isBlank) {
                 // Blank project with no changes — delete it silently
@@ -453,7 +470,7 @@ export default function EditorPage() {
                 }
                 const current = pendingPersistRef.current;
                 if (current) {
-                    saveLocal(current);
+                    saveSession(current);
                     pendingPersistRef.current = null;
                 }
             }
@@ -464,37 +481,16 @@ export default function EditorPage() {
             window.removeEventListener('mouseup', endTransaction);
             window.removeEventListener('pointerup', endTransaction);
         };
-    }, [saveLocal]);
+    }, [saveSession]);
 
-    useEffect(() => {
-        syncIntervalRef.current = setInterval(async () => {
-            const currentId = projectRef.current?.id;
-            if (!currentId) return;
-            // Only sync if there are unsaved changes — avoid unnecessary API calls
-            if (!hasUnsavedRef.current) return;
-            // Snapshot the pending project so we can check if it changed during sync
-            const snapshot = pendingPersistRef.current || projectRef.current;
-            setSaving(true);
-            await syncProject(currentId);
-            // Only clear unsaved flag if no new changes happened during the sync
-            if (pendingPersistRef.current === snapshot || pendingPersistRef.current === null) {
-                hasUnsavedRef.current = false;
-                setHasUnsavedChanges(false);
-            }
-            setSaving(false);
-        }, SYNC_INTERVAL_MS);
-
-        return () => {
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
-            }
-        };
-    }, []);
+    // NOTE: No auto-sync interval. The database is only written when the user
+    // clicks the Save button (flushPersist) or confirms "Yes" on the leave
+    // modal (doSaveAndLeave). Working state is kept in React + sessionStorage.
 
     const handleRenameProject = useCallback(async () => {
         if (!project || !renameValue.trim()) return;
         const trimmed = renameValue.trim();
-        await updateProjectLocal(project.id, { name: trimmed });
+        await updateProjectRemote(project.id, { name: trimmed });
         setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
         setRenameOpen(false);
     }, [project, renameValue]);
@@ -643,9 +639,6 @@ export default function EditorPage() {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('beforeunload', handleBeforeUnload);
             window.removeEventListener('popstate', handlePopState);
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
-            }
             if (saveDebounceRef.current) {
                 clearTimeout(saveDebounceRef.current);
                 saveDebounceRef.current = null;

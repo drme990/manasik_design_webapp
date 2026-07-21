@@ -91,7 +91,16 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     if (w !== lastMeasuredRef.current.w || h !== lastMeasuredRef.current.h) {
       const oldW = lastMeasuredRef.current.w;
       const oldH = lastMeasuredRef.current.h;
+      const isFirstMeasure = oldW === 0 && oldH === 0;
       lastMeasuredRef.current = { w, h };
+      // On the first measure (initial mount / project reopen), just record
+      // the size WITHOUT calling onLayerChange. The layer already has the
+      // correct width/height/x/y from the saved project — re-centering here
+      // would shift the text by half its size (oldW=0 → newX = x - w/2).
+      if (isFirstMeasure) {
+        prevFontSizeRef.current = layer.fontSize;
+        return;
+      }
       // Only re-center when text content changed (not font size).
       // Font size changes are handled by the slider/resize handler
       // which already adjust x/y — re-centering here would fight them.
@@ -120,7 +129,14 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
 
     if (h !== lastMeasuredRef.current.h) {
       const oldH = lastMeasuredRef.current.h;
+      const isFirstMeasure = oldH === 0;
       lastMeasuredRef.current = { w: layer.boxWidth!, h };
+      // On the first measure (initial mount / project reopen), just record
+      // the size WITHOUT calling onLayerChange — the saved height/y are correct.
+      if (isFirstMeasure) {
+        prevFontSizeRef.current = layer.fontSize;
+        return;
+      }
       // Font size changes are handled by handleFontSizeChange which already
       // adjusts x/y/height/boxWidth — only update height here, don't re-center.
       const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
