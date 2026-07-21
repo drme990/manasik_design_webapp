@@ -95,7 +95,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
 const projectCache = new Map<string, { project: Project; cachedAt: number }>();
 let listCache: { projects: Project[]; cachedAt: number } | null = null;
-const CACHE_TTL_MS = 30_000; // 30 seconds — stale data is fine for UI, but refresh eventually
+const CACHE_TTL_MS = 60_000; // 60 seconds — stale data is fine for UI, but refresh eventually
 
 /** Invalidate the list cache (call after creating/deleting/renaming a project). */
 export function invalidateListCache(): void {
@@ -122,7 +122,18 @@ export async function listProjects(): Promise<Project[]> {
   try {
     const result = await fetchWithAuth('/api/projects');
     const projects = (result.data || []) as Project[];
-    await kvStorage.setItem(STORAGE_KEY, projects);
+
+    // Only write to IndexedDB if the data actually changed — avoids an
+    // expensive serialization + IDB write on every page visit when the
+    // server data matches what we already have.
+    const existing = await kvStorage.getItem<Project[]>(STORAGE_KEY);
+    const changed = !existing || existing.length !== projects.length ||
+      projects.some((p, i) => p.updatedAt !== existing[i]?.updatedAt || p.id !== existing[i]?.id);
+    if (changed) {
+      await kvStorage.setItem(STORAGE_KEY, projects);
+      mirrorToLocalStorage(projects);
+    }
+
     // Update cache
     listCache = { projects, cachedAt: Date.now() };
     // Also update individual project cache

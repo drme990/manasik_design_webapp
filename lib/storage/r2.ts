@@ -66,4 +66,26 @@ export function generateImageKey(file: File | { name: string; type: string }): s
   return `design/projects-images/${Date.now()}-${rand}.${safeExt}`;
 }
 
+/**
+ * Generate an S3 key for a user-uploaded font file under `design/fonts/`.
+ * The filename is sanitized to a safe family-id slug; the original extension
+ * is preserved so browsers can sniff the format.
+ * Fonts are global (shared across all projects) — no per-user subfolder.
+ */
+export function generateFontKey(file: File | { name: string; type: string }): string {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  // Slugify the base name: keep letters/digits, replace others with hyphen
+  const slug = baseName
+    .normalize('NFKD')
+    .replace(/[^\w\u0600-\u06FF-]/g, '-') // keep arabic range + word chars
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 40) || 'font';
+  const rand = Math.random().toString(36).slice(2, 8);
+  const safeExt = ext && /^[a-z0-9]+$/.test(ext) ? ext : 'ttf';
+  return `design/fonts/${slug}-${rand}.${safeExt}`;
+}
+
 export { PUBLIC_URL, BUCKET_NAME };

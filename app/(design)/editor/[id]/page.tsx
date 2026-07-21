@@ -20,6 +20,9 @@ import {
     LuPlus,
     LuPalette,
     LuScanLine,
+    LuUpload,
+    LuLoaderCircle,
+    LuX,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -52,6 +55,7 @@ import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
+import { useUserFonts } from '@/lib/hooks/useUserFonts';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer, SafeArea } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -198,6 +202,8 @@ export default function EditorPage() {
         onPick: (color: string) => void;
     } | null>(null);
     const { savedColors, persistColor: addSavedColor, removeColor: removeSavedColor } = useSavedColors();
+    const { fonts: userFonts, uploading: fontUploading, fontsLoaded, uploadFont, deleteFont } = useUserFonts();
+    const fontFileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Close drawers when selection changes
     const skipDrawerResetRef = useRef(false);
@@ -1060,6 +1066,55 @@ export default function EditorPage() {
         [handleLayerChange]
     );
 
+    // --- Font upload handlers ---
+    // These must be declared before any early return (Rules of Hooks).
+    // We use a ref to access the current selected layer inside the callbacks
+    // so the callbacks don't need selectedLayer in their deps (which would
+    // recreate them on every selection change).
+    const selectedLayerRef = useRef<AnyLayer | null>(null);
+    const handleFontFileSelect = useCallback(
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+                const uploaded = await uploadFont(file);
+                const layer = selectedLayerRef.current;
+                if (uploaded && layer && layer.type === 'text') {
+                    // Auto-apply the newly uploaded font to the currently selected text layer
+                    handleLayerChange(layer.id, {
+                        fontFamily: uploaded.family,
+                        fontWeight: uploaded.weight,
+                    } as Partial<AnyLayer>);
+                    setFontDrawerOpen(false);
+                }
+            } catch (err) {
+                console.error('Font upload failed:', err);
+                const msg = (err as Error)?.message;
+                toast.showToast({
+                    message:
+                        msg === 'unsupportedType' ? t('toolbars.text.fontUploadUnsupported')
+                            : msg === 'fileTooLarge' ? t('toolbars.text.fontUploadTooLarge')
+                                : t('toolbars.text.fontUploadFailed'),
+                    variant: 'error',
+                });
+            } finally {
+                // Reset input so the same file can be picked again
+                if (e.target) e.target.value = '';
+            }
+        },
+        [uploadFont, t, toast, handleLayerChange]
+    );
+
+    const handleDeleteUserFont = useCallback(
+        async (fontId: string) => {
+            const ok = await deleteFont(fontId);
+            if (!ok) {
+                toast.showToast({ message: t('toolbars.text.fontDeleteFailed'), variant: 'error' });
+            }
+        },
+        [deleteFont, t, toast]
+    );
+
     if (loading) {
         return (
             <div className="flex h-svh items-center justify-center">
@@ -1082,6 +1137,10 @@ export default function EditorPage() {
     }
 
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
+
+    // Keep the ref in sync so the font upload callbacks (declared before the
+    // early returns above) can access the current selected layer.
+    selectedLayerRef.current = selectedLayer;
 
     // Capture the canvas as a snapshot image for the mobile eye dropper fallback
     const captureCanvasSnapshot = async (): Promise<string | null> => {
@@ -1310,6 +1369,9 @@ export default function EditorPage() {
                                 >
                                     <Canvas
                                         ref={canvasRef}
+                                        // fontsLoaded forces a re-render when user fonts finish loading
+                                        // so text layers pick up the newly registered FontFace.
+                                        data-fonts-loaded={fontsLoaded}
                                         width={project.canvasWidth}
                                         height={project.canvasHeight}
                                         backgroundColor={project.backgroundColor ?? '#ffffff'}
@@ -1849,25 +1911,103 @@ export default function EditorPage() {
                     title={t('toolbars.text.font')}
                     height="auto"
                 >
-                    <div className="space-y-2">
-                        {ARABIC_SAFE_FONTS.map((font) => (
-                            <button
-                                key={font.id}
-                                onClick={() => {
-                                    if (selectedLayer) {
-                                        handleLayerChange(selectedLayer.id, { fontFamily: font.family, fontWeight: font.weight } as Partial<AnyLayer>);
-                                    }
-                                    setFontDrawerOpen(false);
-                                }}
-                                className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.family && (selectedLayer as TextLayer).fontWeight === font.weight
-                                    ? 'border-brand-primary bg-brand-primary text-primary-text'
-                                    : 'border-stroke bg-background text-foreground hover:bg-muted'
-                                    }`}
-                                style={{ fontFamily: resolveFontFamily(font.family), fontWeight: font.weight }}
-                            >
-                                {font.name}
-                            </button>
-                        ))}
+                    <div className="space-y-4">
+                        {/* Upload button */}
+                        <input
+                            ref={fontFileInputRef}
+                            type="file"
+                            accept=".ttf,.otf,.woff,.woff2,.eot,font/ttf,font/otf,font/woff,font/woff2"
+                            className="hidden"
+                            onChange={handleFontFileSelect}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => fontFileInputRef.current?.click()}
+                            disabled={fontUploading}
+                            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-brand-primary/40 bg-brand-primary-light/10 px-4 py-3 text-sm font-medium text-brand-primary transition-colors hover:border-brand-primary hover:bg-brand-primary-light/20 disabled:opacity-50"
+                        >
+                            {fontUploading ? (
+                                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                            ) : (
+                                <LuUpload className="h-5 w-5" />
+                            )}
+                            {fontUploading ? t('toolbars.text.fontUploading') : t('toolbars.text.uploadFont')}
+                        </button>
+
+                        {/* Built-in fonts */}
+                        <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                                {t('toolbars.text.builtinFonts')}
+                            </p>
+                            {ARABIC_SAFE_FONTS.map((font) => (
+                                <button
+                                    key={font.id}
+                                    onClick={() => {
+                                        if (selectedLayer) {
+                                            handleLayerChange(selectedLayer.id, { fontFamily: font.family, fontWeight: font.weight } as Partial<AnyLayer>);
+                                        }
+                                        setFontDrawerOpen(false);
+                                    }}
+                                    className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.family && (selectedLayer as TextLayer).fontWeight === font.weight
+                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
+                                        : 'border-stroke bg-background text-foreground hover:bg-muted'
+                                        }`}
+                                    style={{ fontFamily: resolveFontFamily(font.family), fontWeight: font.weight }}
+                                >
+                                    {font.name}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* User-uploaded fonts */}
+                        {userFonts.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                                    {t('toolbars.text.myFonts')}
+                                </p>
+                                {userFonts.map((font) => {
+                                    const isSelected = selectedLayer &&
+                                        (selectedLayer as TextLayer).fontFamily === font.family;
+                                    return (
+                                        <div
+                                            key={font.id}
+                                            className={`group flex items-center gap-2 rounded-xl border px-3 py-2 transition-colors ${isSelected
+                                                ? 'border-brand-primary bg-brand-primary text-primary-text'
+                                                : 'border-stroke bg-background text-foreground hover:bg-muted'
+                                                }`}
+                                        >
+                                            <button
+                                                onClick={() => {
+                                                    if (selectedLayer) {
+                                                        handleLayerChange(selectedLayer.id, {
+                                                            fontFamily: font.family,
+                                                            fontWeight: font.weight,
+                                                        } as Partial<AnyLayer>);
+                                                    }
+                                                    setFontDrawerOpen(false);
+                                                }}
+                                                className="flex flex-1 items-center justify-center truncate text-base"
+                                                style={{ fontFamily: font.family, fontWeight: font.weight }}
+                                                title={font.name}
+                                            >
+                                                {font.name}
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteUserFont(font.id)}
+                                                className={`shrink-0 rounded-lg p-1.5 transition-colors ${isSelected
+                                                    ? 'text-primary-text/80 hover:bg-white/20'
+                                                    : 'text-secondary hover:bg-muted hover:text-error'
+                                                    }`}
+                                                aria-label={t('toolbars.text.deleteFont')}
+                                                title={t('toolbars.text.deleteFont')}
+                                            >
+                                                <LuTrash2 className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </Drawer>
 
@@ -1996,41 +2136,41 @@ export default function EditorPage() {
                       - Existing project: "Save changes?"        Yes=save&leave   No=leave without saving */}
                 {showLeaveModal && (
                     <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
-                        <div className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
-                            <h2 className="mb-2 text-lg font-bold text-foreground">
+                        <div className="relative w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
+                            {/* X close button — same as "continue editing" (just dismisses the modal) */}
+                            <button
+                                type="button"
+                                onClick={() => setShowLeaveModal(false)}
+                                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-secondary transition-colors hover:bg-muted hover:text-foreground rtl:right-auto rtl:left-3"
+                                aria-label={t('keepEditing')}
+                            >
+                                <LuX className="h-5 w-5" />
+                            </button>
+                            <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
                                 {wasSyncedBeforeRef.current ? t('saveChangesTitle') : t('saveProjectTitle')}
                             </h2>
                             <p className="mb-6 text-sm text-secondary">
                                 {wasSyncedBeforeRef.current ? t('saveChangesDescription') : t('saveProjectDescription')}
                             </p>
-                            <div className="flex flex-col gap-2">
-                                <div className="flex gap-3">
-                                    <Button
-                                        variant="ghost"
-                                        onClick={() => {
-                                            setShowLeaveModal(false);
-                                            doNoAndLeave();
-                                        }}
-                                        className="flex-1 text-secondary"
-                                    >
-                                        {t('no')}
-                                    </Button>
-                                    <Button
-                                        onClick={() => {
-                                            setShowLeaveModal(false);
-                                            doSaveAndLeave();
-                                        }}
-                                        className="flex-1"
-                                    >
-                                        {t('yes')}
-                                    </Button>
-                                </div>
+                            <div className="flex gap-3">
                                 <Button
                                     variant="ghost"
-                                    onClick={() => setShowLeaveModal(false)}
-                                    className="w-full"
+                                    onClick={() => {
+                                        setShowLeaveModal(false);
+                                        doNoAndLeave();
+                                    }}
+                                    className="flex-1 text-secondary"
                                 >
-                                    {t('keepEditing')}
+                                    {t('no')}
+                                </Button>
+                                <Button
+                                    onClick={() => {
+                                        setShowLeaveModal(false);
+                                        doSaveAndLeave();
+                                    }}
+                                    className="flex-1"
+                                >
+                                    {t('yes')}
                                 </Button>
                             </div>
                         </div>

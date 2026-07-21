@@ -281,7 +281,16 @@
         "top": "أعلى",
         "middle": "وسط",
         "bottom": "أسفل",
-        "opacity": "الشفافية"
+        "opacity": "الشفافية",
+        "uploadFont": "رفع خط",
+        "fontUploading": "جارٍ الرفع…",
+        "fontUploadFailed": "فشل رفع الخط",
+        "fontUploadUnsupported": "صيغة الخط غير مدعومة. استخدم TTF أو OTF أو WOFF أو WOFF2",
+        "fontUploadTooLarge": "حجم الخط كبير جداً (الحد الأقصى 15 ميجابايت)",
+        "fontDeleteFailed": "فشل حذف الخط",
+        "deleteFont": "حذف الخط",
+        "builtinFonts": "خطوط جاهزة",
+        "myFonts": "خطوطي"
       },
       "image": {
         "title": "إعدادات الصورة",

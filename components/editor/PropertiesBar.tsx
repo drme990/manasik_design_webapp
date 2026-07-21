@@ -32,6 +32,7 @@ import {
     LuArrowRightLeft,
     LuLanguages,
     LuPipette,
+    LuRectangleHorizontal,
 } from 'react-icons/lu';
 import { TbBorderCorners } from 'react-icons/tb';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
@@ -266,7 +267,7 @@ export default function PropertiesBar({
                                     />
                                     <PropButton
                                         label={t('toolbars.image.aspectRatio')}
-                                        icon={<LuCrop className="h-5 w-5" />}
+                                        icon={<LuRectangleHorizontal className="h-5 w-5" />}
                                         active={activeProp === 'image.aspectRatio'}
                                         onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
                                     />
@@ -308,7 +309,7 @@ export default function PropertiesBar({
                                     />
                                     <PropButton
                                         label={t('toolbars.image.aspectRatio')}
-                                        icon={<LuCrop className="h-5 w-5" />}
+                                        icon={<LuRectangleHorizontal className="h-5 w-5" />}
                                         active={activeProp === 'image.aspectRatio'}
                                         onClick={() => setActiveProp(activeProp === 'image.aspectRatio' ? null : 'image.aspectRatio')}
                                     />

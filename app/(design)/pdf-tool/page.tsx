@@ -451,8 +451,11 @@ function PdfToolPage() {
                         bytes[i] = byteChars.charCodeAt(i);
                     }
                 } else {
-                    // Remote URL — fetch the bytes
-                    const resp = await fetch(img.uri);
+                    // Remote URL — fetch through our same-origin proxy to avoid
+                    // CORS errors when the R2/public host doesn't send CORS headers.
+                    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(img.uri)}`;
+                    const resp = await fetch(proxyUrl);
+                    if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
                     const buf = new Uint8Array(await resp.arrayBuffer());
                     bytes = buf;
                     isPng = img.uri.toLowerCase().endsWith('.png') || img.uri.toLowerCase().includes('.png');

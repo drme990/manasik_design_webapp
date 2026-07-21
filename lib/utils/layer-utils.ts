@@ -16,7 +16,7 @@ const DEFAULT_BORDER_COLOR = '#000000';    // Image border
 
 // Font
 const DEFAULT_FONT_SIZE = 24;
-const DEFAULT_FONT_WEIGHT = 400;           // ARABIC_SAFE_FONTS[0].weight
+const DEFAULT_FONT_WEIGHT = ARABIC_SAFE_FONTS[0].weight; // 700 (Expo Arabic Bold)
 const DEFAULT_LINE_HEIGHT = 1.3;
 
 // Layer sizing

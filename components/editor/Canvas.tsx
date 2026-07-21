@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils/cn';
 import type { AnyLayer, SafeArea } from '@/types';
 import { DEFAULT_SAFE_AREA } from '@/types';
 import { useRef, useCallback, useState, forwardRef, useEffect } from 'react';
-import { LuRotateCcw } from 'react-icons/lu';
+import { LuRotateCcw, LuArrowUp, LuArrowDown, LuArrowLeft, LuArrowRight } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import LayerRenderer from './LayerRenderer';
 import SelectionBox from './SelectionBox';
@@ -101,6 +101,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   onCropImageRef.current = onCropImage;
   const onEditCollageRef = useRef(onEditCollage);
   onEditCollageRef.current = onEditCollage;
+  const onEditTextRef = useRef(onEditText);
+  onEditTextRef.current = onEditText;
   const safeAreaRef = useRef(safeArea);
   safeAreaRef.current = safeArea ?? DEFAULT_SAFE_AREA;
   const onSafeAreaChangeRef = useRef(onSafeAreaChange);
@@ -130,6 +132,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const start = safeAreaDragRef.current.startArea;
       let { top, right, bottom, left } = start;
       const MIN = 0;
+      // Each edge only modifies its own inset.
+      // Dragging the handle toward the canvas center increases the inset
+      // (shrinks the safe area); dragging away from center decreases it
+      // (grows the safe area). The border always follows the finger.
       switch (safeAreaDragRef.current.edge) {
         case 'move':
           left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
@@ -138,32 +144,36 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           bottom = start.bottom + (start.top - top);
           break;
         case 'top':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          // Drag down → top inset increases → top border moves down (follows finger)
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
           break;
         case 'bottom':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          // Drag up → bottom inset increases → bottom border moves up (follows finger)
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
           break;
         case 'left':
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          // Drag right → left inset increases → left border moves right (follows finger)
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'right':
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          // Drag left → right inset increases → right border moves left (follows finger)
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
         case 'top-left':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'top-right':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
         case 'bottom-left':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'bottom-right':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
       }
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
@@ -360,17 +370,19 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       suppressClickRef.current = true;
       setTimeout(() => { suppressClickRef.current = false; }, 300);
       const layer = layers.find((l) => l.id === layerId);
-      if (layer?.type === 'image') {
-        const imgLayer = layer as import('@/types').ImageLayer;
-        // Defer modal opening until after the ghost click event has fired
-        setTimeout(() => {
+      // Defer modal/drawer opening until after the ghost click event has fired
+      setTimeout(() => {
+        if (layer?.type === 'text' && onEditTextRef.current) {
+          onEditTextRef.current(layerId);
+        } else if (layer?.type === 'image') {
+          const imgLayer = layer as import('@/types').ImageLayer;
           if (imgLayer.collage) {
             onEditCollageRef.current?.(layerId);
           } else {
             onCropImageRef.current?.(layerId);
           }
-        }, 0);
-      }
+        }
+      }, 0);
       return;
     }
     lastTapRef.current = { id: layerId, time: now, x: e.clientX, y: e.clientY };
@@ -599,32 +611,32 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           bottom = start.bottom + (start.top - top);
           break;
         case 'top':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
           break;
         case 'bottom':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
           break;
         case 'left':
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'right':
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
         case 'top-left':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'top-right':
-          top = Math.max(MIN, Math.min(100 - bottom - MIN, start.top + deltaPctY));
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
         case 'bottom-left':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
-          left = Math.max(MIN, Math.min(100 - right - MIN, start.left + deltaPctX));
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
+          left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'bottom-right':
-          bottom = Math.max(MIN, Math.min(100 - top - MIN, start.bottom - deltaPctY));
-          right = Math.max(MIN, Math.min(100 - left - MIN, start.right - deltaPctX));
+          bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
+          right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
       }
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
@@ -1035,19 +1047,48 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
                   <LuRotateCcw className="h-4 w-4" />
                   {resetLabel}
                 </Button>
-                {/* Edge handles — large transparent touch area with visible line */}
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')} className="absolute -top-4 left-0 right-0 h-8 cursor-ns-resize touch-none">
-                  <div className="absolute top-3 left-0 right-0 h-0.5 bg-brand-primary" />
-                </div>
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')} className="absolute -bottom-4 left-0 right-0 h-8 cursor-ns-resize touch-none">
-                  <div className="absolute bottom-3 left-0 right-0 h-0.5 bg-brand-primary" />
-                </div>
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')} className="absolute top-0 bottom-0 -left-4 w-8 cursor-ew-resize touch-none">
-                  <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-brand-primary" />
-                </div>
-                <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')} className="absolute top-0 bottom-0 -right-4 w-8 cursor-ew-resize touch-none">
-                  <div className="absolute right-3 top-0 bottom-0 w-0.5 bg-brand-primary" />
-                </div>
+                {/* Edge drag buttons — visible, labeled, draggable to resize each side.
+                    Each button only modifies its own inset. Dragging toward the
+                    canvas center shrinks the safe area from that side; dragging
+                    away from center grows it. */}
+                {/* TOP — centered on top edge */}
+                <button
+                  type="button"
+                  onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')}
+                  className="absolute -top-5 left-1/2 flex h-9 w-20 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-xs font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  aria-label="Top"
+                >
+                  <LuArrowUp className="h-4 w-4" />
+                  TOP
+                </button>
+                {/* BOTTOM — centered on bottom edge */}
+                <button
+                  type="button"
+                  onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')}
+                  className="absolute -bottom-5 left-1/2 flex h-9 w-20 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-xs font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  aria-label="Bottom"
+                >
+                  <LuArrowDown className="h-4 w-4" />
+                  BTM
+                </button>
+                {/* LEFT — centered on left edge */}
+                <button
+                  type="button"
+                  onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')}
+                  className="absolute -left-5 top-1/2 flex h-20 w-9 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-[10px] font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  aria-label="Left"
+                >
+                  <LuArrowLeft className="h-4 w-4" />
+                </button>
+                {/* RIGHT — centered on right edge */}
+                <button
+                  type="button"
+                  onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')}
+                  className="absolute -right-5 top-1/2 flex h-20 w-9 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-[10px] font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  aria-label="Right"
+                >
+                  <LuArrowRight className="h-4 w-4" />
+                </button>
                 {/* Corner handles — large transparent touch area with visible dot */}
                 <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-4 -left-4 h-8 w-8 cursor-nwse-resize touch-none">
                   <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />

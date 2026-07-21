@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { Project } from '@/types';
 import LayerRenderer from '@/components/editor/LayerRenderer';
 
@@ -9,7 +9,7 @@ interface ProjectCardPreviewProps {
   className?: string;
 }
 
-export default function ProjectCardPreview({ project, className }: ProjectCardPreviewProps) {
+function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps) {
   const layers = useMemo(
     () => [...project.layers].filter((l) => l.visible).sort((a, b) => a.zIndex - b.zIndex),
     [project.layers]
@@ -24,12 +24,16 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
     );
   }, [project.canvasWidth, project.canvasHeight]);
 
+  // Stable signature for detecting changes — avoids re-rendering when the
+  // parent re-renders but this project's data hasn't changed.
+  const bg = project.backgroundThumbnailUri || project.backgroundUri;
+
   return (
     <div
       className={`relative h-full w-full overflow-hidden ${className}`}
       style={{
         backgroundColor: project.backgroundColor ?? '#ffffff',
-        backgroundImage: (project.backgroundThumbnailUri || project.backgroundUri) ? `url(${project.backgroundThumbnailUri || project.backgroundUri})` : undefined,
+        backgroundImage: bg ? `url(${bg})` : undefined,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
@@ -49,3 +53,16 @@ export default function ProjectCardPreview({ project, className }: ProjectCardPr
     </div>
   );
 }
+
+// Memoized so cards only re-render when their project data actually changes.
+const ProjectCardPreview = memo(ProjectCardPreviewInner, (prev, next) =>
+  prev.project.id === next.project.id &&
+  prev.project.updatedAt === next.project.updatedAt &&
+  prev.project.layers === next.project.layers &&
+  prev.project.backgroundUri === next.project.backgroundUri &&
+  prev.project.backgroundThumbnailUri === next.project.backgroundThumbnailUri &&
+  prev.project.backgroundColor === next.project.backgroundColor &&
+  prev.className === next.className
+);
+
+export default ProjectCardPreview;

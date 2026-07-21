@@ -14,6 +14,7 @@ import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { listProjects, createProject, deleteProject, renameProject, duplicateProject, recoverFromMirror } from '@/lib/store/projects';
 import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
+import { kvStorage } from '@/lib/utils/kv-storage';
 import type { Project, PdfProject } from '@/types';
 
 export default function ProjectsPage() {
@@ -69,19 +70,31 @@ export default function ProjectsPage() {
   };
 
   useEffect(() => {
-    // Recover any data from localStorage mirror before listing
-    recoverFromMirror().finally(() => {
-      listProjects().then((data) => {
-        const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
-        setProjects(sorted);
-        setLoading(false);
-      });
-      // Load PDF projects in parallel
-      listPdfProjects().then((data) => {
-        const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
-        setPdfProjects(sorted);
-      });
+    let cancelled = false;
+    // 1. Instant render from IndexedDB cache (no network wait)
+    kvStorage.getItem<Project[]>('manasik:projects').then((cached) => {
+      if (cancelled || !cached || cached.length === 0) return;
+      const sorted = [...cached].sort((a, b) => b.updatedAt - a.updatedAt);
+      setProjects(sorted);
+      setLoading(false); // hide spinner as soon as we have anything
     });
+
+    // 2. Fetch fresh data in parallel with mirror recovery.
+    //    Recovery is a safety net — it shouldn't block the network fetch.
+    recoverFromMirror();
+    listProjects().then((data) => {
+      if (cancelled) return;
+      const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
+      setProjects(sorted);
+      setLoading(false);
+    });
+    listPdfProjects().then((data) => {
+      if (cancelled) return;
+      const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
+      setPdfProjects(sorted);
+    });
+
+    return () => { cancelled = true; };
   }, []);
 
   const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
@@ -165,7 +178,9 @@ export default function ProjectsPage() {
             bytes[i] = byteChars.charCodeAt(i);
           }
         } else {
-          const resp = await fetch(img.uri);
+          // Route through same-origin proxy to avoid CORS errors on R2 URLs
+          const resp = await fetch(`/api/image-proxy?url=${encodeURIComponent(img.uri)}`);
+          if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
           bytes = new Uint8Array(await resp.arrayBuffer());
           isPng = img.uri.toLowerCase().endsWith('.png');
         }
