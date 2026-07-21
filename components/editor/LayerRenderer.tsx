@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useLayoutEffect } from 'react';
+import { LuRefreshCw, LuLoaderCircle } from 'react-icons/lu';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
@@ -16,6 +17,8 @@ export interface LayerRendererProps {
   onPointerDown?: (e: React.PointerEvent) => void;
   onLayerChange?: (id: string, updates: Partial<AnyLayer>, recordHistory?: boolean) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
+  /** Retry a failed background upload for this layer */
+  onRetryUpload?: (id: string) => void;
 }
 
 interface LayerComponentProps extends LayerRendererProps {
@@ -23,7 +26,42 @@ interface LayerComponentProps extends LayerRendererProps {
   style: React.CSSProperties;
 }
 
-export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick }: LayerRendererProps) {
+/**
+ * Overlay shown on image layers while a background upload is in progress
+ * or has failed. For 'uploading', shows a small spinner badge. For 'error',
+ * shows a tappable "re-upload" button so the user can retry.
+ */
+function UploadStatusOverlay({ layer, onRetryUpload }: { layer: ImageLayer; onRetryUpload?: (id: string) => void }) {
+  if (!layer.uploadStatus) return null;
+  if (layer.uploadStatus === 'uploading') {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end p-1.5">
+        <div className="flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
+          <LuLoaderCircle className="h-3 w-3 animate-spin" />
+        </div>
+      </div>
+    );
+  }
+  // error
+  return (
+    <div className="absolute inset-0 z-10 flex items-start justify-end p-1.5">
+      <button
+        type="button"
+        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRetryUpload?.(layer.id);
+        }}
+        className="flex items-center gap-1 rounded-full bg-error px-2 py-1 text-[10px] font-semibold text-white shadow-lg transition-transform active:scale-95"
+        aria-label="Re-upload"
+      >
+        <LuRefreshCw className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick, onRetryUpload }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     !layer.visible && 'hidden',
@@ -54,7 +92,7 @@ export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbn
     case 'text':
       return <TextLayerComponent layer={layer as TextLayer} {...commonProps} />;
     case 'image':
-      return <ImageLayerComponent layer={layer as ImageLayer} useThumbnail={useThumbnail} {...commonProps} />;
+      return <ImageLayerComponent layer={layer as ImageLayer} useThumbnail={useThumbnail} onRetryUpload={onRetryUpload} {...commonProps} />;
     case 'shape':
       return <ShapeLayerComponent layer={layer as ShapeLayer} {...commonProps} />;
     case 'dynamic_field':
@@ -208,7 +246,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   );
 }
 
-function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean }) {
+function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick, onRetryUpload }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean; onRetryUpload?: (id: string) => void }) {
   // Use thumbnail for galleries/lists when available (smaller payload)
   const displayUri = (useThumbnail && layer.thumbnailUri) ? layer.thumbnailUri : layer.uri;
   // Collage rendering
@@ -267,6 +305,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
             </div>
           );
         })}
+        <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
       </div>
     );
   }
@@ -315,6 +354,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
             userSelect: 'none',
           }}
         />
+        <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
       </div>
     );
   }
@@ -347,6 +387,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
           userSelect: 'none',
         }}
       />
+      <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
     </div>
   );
 }

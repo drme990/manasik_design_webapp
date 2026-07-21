@@ -41,7 +41,7 @@ import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
 import { getProject, saveProject, deleteProject, updateProjectRemote } from '@/lib/store/projects';
 import { useToast } from '@/components/providers/ToastProvider';
-import { uploadImageWithProgress, uploadImagesWithProgress } from '@/lib/storage/upload';
+import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground } from '@/lib/storage/upload';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -941,71 +941,202 @@ export default function EditorPage() {
             }
 
             const maxImages = Math.min(files.length, 4);
-            try {
-                const results = await uploadImagesWithProgress(
-                    files.slice(0, maxImages),
-                    toast,
-                    'جاري رفع الصور...',
-                    'تم رفع الصور بنجاح'
-                );
+            const selectedFiles = files.slice(0, maxImages);
 
-                if (results.length === 1) {
-                    // Single image — normal image layer
-                    const { uri, naturalWidth: nw, naturalHeight: nh, thumbnailUri } = results[0];
-                    const newLayer = buildImageLayer({
-                        uri,
-                        naturalWidth: nw,
-                        naturalHeight: nh,
-                        thumbnailUri,
-                        x: (project.canvasWidth - boxW) / 2,
-                        y: (project.canvasHeight - boxH) / 2,
-                        canvasWidth: project.canvasWidth,
-                        canvasHeight: project.canvasHeight,
-                    });
-                    newLayer.width = boxW;
-                    newLayer.height = boxH;
-                    newLayer.maskWidth = boxW;
-                    newLayer.maskHeight = boxH;
-                    newLayer.imageScale = Math.max(boxW / nw, boxH / nh) * 1.1;
-                    newLayer.zIndex = nextZIndex(project.layers);
-                    updateProjectState((prev) => ({
-                        ...prev,
-                        layers: [...prev.layers, newLayer],
-                    }));
-                    setSelectedLayerId(newLayer.id);
-                    setAddDrawerOpen(false);
-                } else {
-                    // Multiple images — collage layer
-                    const uris = results.map(r => r.uri);
-                    const naturalSizes = results.map(r => ({ width: r.naturalWidth, height: r.naturalHeight }));
-                    const layout = COLLAGE_LAYOUTS.find(l => l.count === uris.length) || COLLAGE_LAYOUTS[0];
-                    const newLayer = buildCollageLayer({
-                        uris,
-                        naturalSizes,
-                        layoutId: layout.id,
-                        canvasWidth: project.canvasWidth,
-                        canvasHeight: project.canvasHeight,
-                    });
-                    // Override box dimensions to match project aspect
-                    newLayer.width = boxW;
-                    newLayer.height = boxH;
-                    newLayer.maskWidth = boxW;
-                    newLayer.maskHeight = boxH;
-                    newLayer.x = (project.canvasWidth - boxW) / 2;
-                    newLayer.y = (project.canvasHeight - boxH) / 2;
-                    newLayer.zIndex = nextZIndex(project.layers);
-                    updateProjectState((prev) => ({
-                        ...prev,
-                        layers: [...prev.layers, newLayer],
-                    }));
-                    setSelectedLayerId(newLayer.id);
-                    setAddDrawerOpen(false);
-                }
-            } catch {
-                // toast already shown by uploader
+            // --- Instant add: create object URLs and add layers immediately ---
+            // Get instant previews (object URL + dimensions) for all files
+            const previews = await Promise.all(
+                selectedFiles.map((f) => createInstantPreview(f).catch(() => null))
+            );
+
+            if (previews.every((p) => p === null)) {
+                toast.showToast({ message: t('toolbars.image.uploadFailed'), variant: 'error' });
+                return;
+            }
+
+            const validPreviews = previews.filter((p): p is { uri: string; naturalWidth: number; naturalHeight: number } => p !== null);
+            const validFiles = selectedFiles.filter((_, i) => previews[i] !== null);
+
+            if (validPreviews.length === 1) {
+                // Single image — normal image layer with instant preview
+                const { uri: tempUri, naturalWidth: nw, naturalHeight: nh } = validPreviews[0];
+                const file = validFiles[0];
+                const newLayer = buildImageLayer({
+                    uri: tempUri,
+                    naturalWidth: nw,
+                    naturalHeight: nh,
+                    x: (project.canvasWidth - boxW) / 2,
+                    y: (project.canvasHeight - boxH) / 2,
+                    canvasWidth: project.canvasWidth,
+                    canvasHeight: project.canvasHeight,
+                });
+                newLayer.width = boxW;
+                newLayer.height = boxH;
+                newLayer.maskWidth = boxW;
+                newLayer.maskHeight = boxH;
+                newLayer.imageScale = Math.max(boxW / nw, boxH / nh) * 1.1;
+                newLayer.zIndex = nextZIndex(project.layers);
+                // Mark as uploading — the background upload will swap the URI
+                newLayer.uploadStatus = 'uploading';
+                newLayer.pendingFile = file;
+                updateProjectState((prev) => ({
+                    ...prev,
+                    layers: [...prev.layers, newLayer],
+                }));
+                setSelectedLayerId(newLayer.id);
+                setAddDrawerOpen(false);
+
+                // Start background upload
+                startBackgroundUpload(newLayer.id, file, tempUri);
+            } else {
+                // Multiple images — collage layer with instant previews
+                const uris = validPreviews.map(r => r.uri);
+                const naturalSizes = validPreviews.map(r => ({ width: r.naturalWidth, height: r.naturalHeight }));
+                const layout = COLLAGE_LAYOUTS.find(l => l.count === uris.length) || COLLAGE_LAYOUTS[0];
+                const newLayer = buildCollageLayer({
+                    uris,
+                    naturalSizes,
+                    layoutId: layout.id,
+                    canvasWidth: project.canvasWidth,
+                    canvasHeight: project.canvasHeight,
+                });
+                newLayer.width = boxW;
+                newLayer.height = boxH;
+                newLayer.maskWidth = boxW;
+                newLayer.maskHeight = boxH;
+                newLayer.x = (project.canvasWidth - boxW) / 2;
+                newLayer.y = (project.canvasHeight - boxH) / 2;
+                newLayer.zIndex = nextZIndex(project.layers);
+                // For collage, mark as uploading and keep all files
+                newLayer.uploadStatus = 'uploading';
+                newLayer.pendingFile = undefined; // collage handles its own upload
+                updateProjectState((prev) => ({
+                    ...prev,
+                    layers: [...prev.layers, newLayer],
+                }));
+                setSelectedLayerId(newLayer.id);
+                setAddDrawerOpen(false);
+
+                // Upload each cell image in the background and swap URIs
+                validFiles.forEach((file, i) => {
+                    const tempUri = uris[i];
+                    uploadImageInBackground(file)
+                        .then((uploaded) => {
+                            // Revoke the object URL
+                            try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                            // Swap the cell URI in the collage
+                            updateProjectState((prev) => {
+                                const layer = prev.layers.find((l) => l.id === newLayer.id);
+                                if (!layer || layer.type !== 'image' || !layer.collage) return prev;
+                                const newCells = [...layer.collage.cells];
+                                if (newCells[i]) {
+                                    newCells[i] = { ...newCells[i], uri: uploaded.uri };
+                                }
+                                const newUris = [...layer.collage.uris];
+                                newUris[i] = uploaded.uri;
+                                const updatedLayer: ImageLayer = {
+                                    ...layer,
+                                    uri: newUris[0] || layer.uri,
+                                    thumbnailUri: uploaded.thumbnailUri,
+                                    collage: { ...layer.collage, uris: newUris, cells: newCells },
+                                };
+                                // Clear upload status only when all cells are uploaded
+                                const allUploaded = newUris.every((u) => !u.startsWith('blob:'));
+                                if (allUploaded) {
+                                    updatedLayer.uploadStatus = undefined;
+                                    updatedLayer.pendingFile = undefined;
+                                }
+                                return {
+                                    ...prev,
+                                    layers: prev.layers.map((l) => l.id === newLayer.id ? updatedLayer : l),
+                                };
+                            });
+                        })
+                        .catch((err) => {
+                            console.error('Collage cell upload failed:', err);
+                            // Mark the layer as error so the user can retry
+                            updateProjectState((prev) => {
+                                const layer = prev.layers.find((l) => l.id === newLayer.id);
+                                if (!layer || layer.type !== 'image') return prev;
+                                return {
+                                    ...prev,
+                                    layers: prev.layers.map((l) =>
+                                        l.id === newLayer.id
+                                            ? { ...l, uploadStatus: 'error' } as ImageLayer
+                                            : l
+                                    ),
+                                };
+                            });
+                        });
+                });
             }
         },
-        [project, updateProjectState, toast]
+        [project, updateProjectState, toast, t]
+    );
+
+    /**
+     * Upload a single image file in the background and swap the layer's URI
+     * from the temporary object URL to the R2 URL when done.
+     * On failure, marks the layer with uploadStatus='error' so the re-upload
+     * button appears.
+     */
+    const startBackgroundUpload = useCallback(
+        (layerId: string, file: File, tempUri: string) => {
+            uploadImageInBackground(file)
+                .then((uploaded) => {
+                    // Revoke the temporary object URL
+                    try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                    // Swap the URI on the layer and clear upload status
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: prev.layers.map((l) => {
+                            if (l.id !== layerId || l.type !== 'image') return l;
+                            return {
+                                ...l,
+                                uri: uploaded.uri,
+                                thumbnailUri: uploaded.thumbnailUri ?? l.thumbnailUri,
+                                uploadStatus: undefined,
+                                pendingFile: undefined,
+                            } as ImageLayer;
+                        }),
+                    }));
+                })
+                .catch((err) => {
+                    console.error('Background image upload failed:', err);
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: prev.layers.map((l) => {
+                            if (l.id !== layerId || l.type !== 'image') return l;
+                            return { ...l, uploadStatus: 'error', pendingFile: file } as ImageLayer;
+                        }),
+                    }));
+                });
+        },
+        [updateProjectState]
+    );
+
+    /**
+     * Retry a failed background upload for a specific layer.
+     * Called by the "re-upload" button in the LayerRenderer.
+     */
+    const handleRetryUpload = useCallback(
+        (layerId: string) => {
+            const layer = projectRef.current?.layers.find((l) => l.id === layerId);
+            if (!layer || layer.type !== 'image') return;
+            const file = layer.pendingFile;
+            if (!file) return;
+            const tempUri = layer.uri.startsWith('blob:') ? layer.uri : URL.createObjectURL(file);
+            // Mark as uploading again
+            updateProjectState((prev) => ({
+                ...prev,
+                layers: prev.layers.map((l) => {
+                    if (l.id !== layerId || l.type !== 'image') return l;
+                    return { ...l, uploadStatus: 'uploading' } as ImageLayer;
+                }),
+            }));
+            startBackgroundUpload(layerId, file, tempUri);
+        },
+        [updateProjectState, startBackgroundUpload]
     );
 
     const handleReplaceImage = useCallback(
@@ -1390,6 +1521,7 @@ export default function EditorPage() {
                                         onEditText={() => setTextEditDrawerOpen(true)}
                                         onCropImage={() => setIsCropOpen(true)}
                                         onEditCollage={() => setCollageEditOpen(true)}
+                                        onRetryUpload={handleRetryUpload}
                                     />
                                 </div>
                             </div>

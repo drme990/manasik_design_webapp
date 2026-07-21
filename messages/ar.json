@@ -312,7 +312,10 @@
         "borderColor": "لون الإطار",
         "flipHorizontal": "عكس أفقي",
         "flipVertical": "عكس رأسي",
-        "opacity": "الشفافية"
+        "opacity": "الشفافية",
+        "uploadFailed": "فشل رفع الصورة",
+        "reupload": "إعادة الرفع",
+        "uploading": "جاري الرفع..."
       },
       "shape": {
         "title": "إعدادات الشكل",
@@ -447,6 +450,7 @@
     "confirmClear": "هل تريد مسح جميع الصور؟",
     "imageCount": "{count} صورة",
     "preview": "معاينة",
-    "previewTitle": "معاينة الصفحات"
+    "previewTitle": "معاينة الصفحات",
+    "reupload": "إعادة الرفع"
   }
 }

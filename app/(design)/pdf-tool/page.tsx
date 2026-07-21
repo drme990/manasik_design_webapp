@@ -20,12 +20,13 @@ import {
     LuEye,
     LuArrowLeft,
     LuSave,
+    LuRefreshCw,
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
 import { listPdfProjects, savePdfProject, createPdfProject, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
 import { useToast } from '@/components/providers/ToastProvider';
-import { uploadImagesWithProgress } from '@/lib/storage/upload';
+import { createInstantPreview, uploadImageInBackground } from '@/lib/storage/upload';
 import type { PdfImage as PdfImageType, PdfProject } from '@/types';
 
 const ITEM_TYPE = 'PDF_IMAGE';
@@ -70,12 +71,14 @@ function PdfImageRow({
     index,
     onRemove,
     onReorder,
+    onRetryUpload,
     t,
 }: {
     img: PdfImageType;
     index: number;
     onRemove: (id: string) => void;
     onReorder: (from: number, to: number) => void;
+    onRetryUpload?: (id: string) => void;
     t: (key: string, params?: Record<string, string | number>) => string;
 }) {
     const ref = useRef<HTMLDivElement>(null);
@@ -151,7 +154,7 @@ function PdfImageRow({
                     {/* Drag handle */}
                     <LuGripVertical className="h-4 w-4 shrink-0 text-secondary sm:h-5 sm:w-5" />
 
-                    {/* Thumbnail with page number badge */}
+                    {/* Thumbnail with page number badge + upload status */}
                     <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-stroke bg-muted sm:h-20 sm:w-28">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -162,6 +165,28 @@ function PdfImageRow({
                         <div className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold text-white shadow sm:h-6 sm:w-6 sm:text-xs">
                             {index + 1}
                         </div>
+                        {/* Upload status overlay */}
+                        {img.uploadStatus === 'uploading' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                <LuLoaderCircle className="h-5 w-5 animate-spin text-white" />
+                            </div>
+                        )}
+                        {img.uploadStatus === 'error' && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 p-1">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRetryUpload?.(img.id);
+                                    }}
+                                    className="flex items-center gap-1 rounded-full bg-error px-2 py-1 text-[10px] font-semibold text-white shadow-lg transition-transform active:scale-95"
+                                    aria-label={t('reupload')}
+                                >
+                                    <LuRefreshCw className="h-3 w-3" />
+                                    {t('reupload')}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Info */}
@@ -267,28 +292,96 @@ function PdfToolPage() {
         if (files.length === 0) return;
         e.target.value = '';
 
-        try {
-            const uploaded = await uploadImagesWithProgress(
-                files,
-                toast,
-                'جاري رفع الصور...',
-                'تم رفع الصور بنجاح'
-            );
-            const newImages: PdfImageType[] = uploaded.map((img, idx) => ({
-                id: `pdf-img-${Date.now()}-${idx}`,
-                uri: img.uri,
-                thumbnailUri: img.thumbnailUri,
-                naturalWidth: img.naturalWidth,
-                naturalHeight: img.naturalHeight,
-            }));
-            setImages((prev) => [...prev, ...newImages]);
-        } catch {
-            // toast already shown by uploader
+        // --- Instant add: create object URLs and add rows immediately ---
+        const previews = await Promise.all(
+            files.map((f) => createInstantPreview(f).catch(() => null))
+        );
+
+        const valid = previews
+            .map((p, i) => (p ? { preview: p, file: files[i] } : null))
+            .filter((x): x is { preview: { uri: string; naturalWidth: number; naturalHeight: number }; file: File } => x !== null);
+
+        if (valid.length === 0) {
+            toast.showToast({ message: editorT('toolbars.image.uploadFailed'), variant: 'error' });
+            return;
         }
+
+        const newImages: PdfImageType[] = valid.map(({ preview, file }, idx) => ({
+            id: `pdf-img-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            uri: preview.uri,
+            naturalWidth: preview.naturalWidth,
+            naturalHeight: preview.naturalHeight,
+            uploadStatus: 'uploading',
+            pendingFile: file,
+        }));
+        setImages((prev) => [...prev, ...newImages]);
+
+        // --- Background upload for each image ---
+        newImages.forEach((img) => {
+            const file = img.pendingFile!;
+            const tempUri = img.uri;
+            uploadImageInBackground(file)
+                .then((uploaded) => {
+                    try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                    setImages((prev) => prev.map((p) =>
+                        p.id === img.id
+                            ? {
+                                ...p,
+                                uri: uploaded.uri,
+                                thumbnailUri: uploaded.thumbnailUri,
+                                uploadStatus: undefined,
+                                pendingFile: undefined,
+                            }
+                            : p
+                    ));
+                })
+                .catch((err) => {
+                    console.error('PDF image upload failed:', err);
+                    setImages((prev) => prev.map((p) =>
+                        p.id === img.id
+                            ? { ...p, uploadStatus: 'error' }
+                            : p
+                    ));
+                });
+        });
     };
 
+    /** Retry a failed background upload for a specific PDF image. */
+    const handleRetryUpload = useCallback((id: string) => {
+        const img = images.find((i) => i.id === id);
+        if (!img || !img.pendingFile) return;
+        const file = img.pendingFile;
+        const tempUri = img.uri.startsWith('blob:') ? img.uri : URL.createObjectURL(file);
+        setImages((prev) => prev.map((p) => p.id === id ? { ...p, uploadStatus: 'uploading' } : p));
+        uploadImageInBackground(file)
+            .then((uploaded) => {
+                try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                setImages((prev) => prev.map((p) =>
+                    p.id === id
+                        ? {
+                            ...p,
+                            uri: uploaded.uri,
+                            thumbnailUri: uploaded.thumbnailUri,
+                            uploadStatus: undefined,
+                            pendingFile: undefined,
+                        }
+                        : p
+                ));
+            })
+            .catch((err) => {
+                console.error('PDF image re-upload failed:', err);
+                setImages((prev) => prev.map((p) => p.id === id ? { ...p, uploadStatus: 'error' } : p));
+            });
+    }, [images]);
+
     const handleRemove = (id: string) => {
-        setImages((prev) => prev.filter((img) => img.id !== id));
+        setImages((prev) => {
+            const removed = prev.find((p) => p.id === id);
+            if (removed?.uri.startsWith('blob:')) {
+                try { URL.revokeObjectURL(removed.uri); } catch { /* ignore */ }
+            }
+            return prev.filter((img) => img.id !== id);
+        });
     };
 
     const handleReorder = (fromIndex: number, toIndex: number) => {
@@ -301,6 +394,12 @@ function PdfToolPage() {
     };
 
     const handleClear = () => {
+        // Revoke any pending blob: URLs to free memory
+        images.forEach((img) => {
+            if (img.uri.startsWith('blob:')) {
+                try { URL.revokeObjectURL(img.uri); } catch { /* ignore */ }
+            }
+        });
         setImages([]);
         setConfirmClear(false);
         setCurrentProject(null);
@@ -315,17 +414,35 @@ function PdfToolPage() {
     // by doSaveAndLeave (leave modal "Yes").
     const flushSave = useCallback(async () => {
         if (images.length === 0) return;
+        // Block save while any image is still uploading — blob: URIs can't be
+        // persisted to the DB (they're client-side only and would be broken
+        // on reload). Also warn if any upload failed.
+        const stillUploading = images.some((i) => i.uploadStatus === 'uploading');
+        const hasFailed = images.some((i) => i.uploadStatus === 'error');
+        if (stillUploading) {
+            toast.showToast({ message: t('generating'), variant: 'info' });
+            return;
+        }
+        if (hasFailed) {
+            toast.showToast({ message: t('reupload'), variant: 'error' });
+            return;
+        }
+        // Only persist images that have real (non-blob) URIs
+        const persistable = images.filter((i) => !i.uri.startsWith('blob:'));
+        if (persistable.length === 0) return;
         setSaving(true);
         try {
             const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
             const existing = currentProjectRef.current;
+            // Strip transient upload fields before persisting
+            const cleanImages = persistable.map(({ uploadStatus, pendingFile, ...rest }) => rest);
             if (existing) {
-                const updated: PdfProject = { ...existing, name, images };
+                const updated: PdfProject = { ...existing, name, images: cleanImages };
                 await savePdfProject(updated);
                 currentProjectRef.current = updated;
                 setCurrentProject(updated);
             } else {
-                const created = await createPdfProject(name, images);
+                const created = await createPdfProject(name, cleanImages);
                 currentProjectRef.current = created;
                 setCurrentProject(created);
                 setProjectName(created.name);
@@ -339,7 +456,7 @@ function PdfToolPage() {
         } finally {
             setSaving(false);
         }
-    }, [images, projectName]);
+    }, [images, projectName, toast, t]);
 
     // ─── Leave navigation ───────────────────────────────────────────────────
     // Save and navigate away — used by the "Yes" button in the leave modal.
@@ -425,6 +542,17 @@ function PdfToolPage() {
 
     const handleDownload = useCallback(async () => {
         if (images.length === 0) return;
+        // Block download if any image is still uploading or failed — the blob:
+        // URLs can't be fetched server-side via the proxy, and failed uploads
+        // would produce a broken PDF.
+        const pending = images.find((i) => i.uploadStatus === 'uploading' || i.uploadStatus === 'error');
+        if (pending) {
+            toast.showToast({
+                message: pending.uploadStatus === 'error' ? t('reupload') : t('generating'),
+                variant: 'error',
+            });
+            return;
+        }
         setDownloading(true);
 
         try {
@@ -434,7 +562,13 @@ function PdfToolPage() {
                 let bytes: Uint8Array;
                 let isPng: boolean;
 
-                if (img.uri.startsWith('data:')) {
+                if (img.uri.startsWith('blob:')) {
+                    // Local object URL — fetch directly (same origin/client-side)
+                    const resp = await fetch(img.uri);
+                    if (!resp.ok) throw new Error(`Failed to fetch blob: ${resp.status}`);
+                    bytes = new Uint8Array(await resp.arrayBuffer());
+                    isPng = img.pendingFile?.type === 'image/png';
+                } else if (img.uri.startsWith('data:')) {
                     // Legacy data URI
                     isPng = img.uri.startsWith('data:image/png');
                     const base64 = img.uri.split(',')[1];
@@ -486,7 +620,7 @@ function PdfToolPage() {
         } finally {
             setDownloading(false);
         }
-    }, [images]);
+    }, [images, toast, t]);
 
     return (
         <DndProvider backend={HTML5Backend}>
@@ -558,7 +692,7 @@ function PdfToolPage() {
                                         <Button
                                             variant="outline"
                                             onClick={flushSave}
-                                            disabled={saving || !hasUnsavedChanges}
+                                            disabled={saving || !hasUnsavedChanges || images.some((i) => i.uploadStatus === 'uploading')}
                                             className="gap-2"
                                         >
                                             {saving ? (
@@ -616,6 +750,7 @@ function PdfToolPage() {
                                                 index={index}
                                                 onRemove={handleRemove}
                                                 onReorder={handleReorder}
+                                                onRetryUpload={handleRetryUpload}
                                                 t={t}
                                             />
                                         ))}

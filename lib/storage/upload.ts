@@ -102,6 +102,53 @@ function uploadFile(file: File): Promise<string> {
 }
 
 /**
+ * Create an instant object URL for a File so the user can see and start
+ * editing the image immediately while the upload happens in the background.
+ * Also reads the natural dimensions from the object URL.
+ *
+ * Returns the temporary `uri` (blob: URL) + dimensions. The caller is
+ * responsible for revoking the object URL after the real R2 URL replaces it.
+ */
+export function createInstantPreview(file: File): Promise<{
+  uri: string;
+  naturalWidth: number;
+  naturalHeight: number;
+}> {
+  const uri = URL.createObjectURL(file);
+  return loadImageDimensions(uri).then(({ width, height }) => ({
+    uri,
+    naturalWidth: width,
+    naturalHeight: height,
+  }));
+}
+
+/**
+ * Upload a single image file to R2 in the background (no progress toast).
+ * Also generates and uploads a thumbnail.
+ *
+ * Used by the instant-add flow: the layer is already on the canvas with a
+ * temporary object URL; this function uploads the real file and returns the
+ * R2 URL + thumbnail URL so the caller can swap the layer's `uri`.
+ */
+export async function uploadImageInBackground(file: File): Promise<UploadedImage> {
+  const url = await uploadFile(file);
+  const { width, height } = await loadImageDimensions(url);
+
+  // Generate and upload thumbnail silently
+  const thumbnailFile = await generateThumbnail(file);
+  let thumbnailUri: string | undefined;
+  if (thumbnailFile) {
+    try {
+      thumbnailUri = await uploadFileSilent(thumbnailFile);
+    } catch {
+      thumbnailUri = undefined;
+    }
+  }
+
+  return { uri: url, naturalWidth: width, naturalHeight: height, thumbnailUri };
+}
+
+/**
  * Upload a file with XHR progress events (no progress tracking).
  * Used for thumbnails (small files, progress not needed).
  */

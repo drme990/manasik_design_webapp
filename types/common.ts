@@ -22,6 +22,17 @@ export interface PdfImage {
   thumbnailUri?: string;
   naturalWidth: number;
   naturalHeight: number;
+  /**
+   * Background upload state for instant-add UX.
+   * - 'uploading': file is being uploaded to R2 in the background; `uri`
+   *   is a temporary object URL (blob:) so the user can see/reorder the image
+   *   immediately. When the upload finishes, `uri` is swapped to the R2 URL.
+   * - 'error': upload failed; user can tap "re-upload" to retry.
+   * - undefined: upload complete or not applicable.
+   */
+  uploadStatus?: 'uploading' | 'error';
+  /** The original File, kept in memory only while uploadStatus is set. Not serialized. */
+  pendingFile?: File;
 }
 
 export interface PdfProject extends SyncableDocument {
