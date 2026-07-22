@@ -136,11 +136,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const start = safeAreaDragRef.current.startArea;
       let { top, right, bottom, left } = start;
       const MIN = 0;
+      const edge = safeAreaDragRef.current.edge;
       // Each edge only modifies its own inset.
       // Dragging the handle toward the canvas center increases the inset
       // (shrinks the safe area); dragging away from center decreases it
       // (grows the safe area). The border always follows the finger.
-      switch (safeAreaDragRef.current.edge) {
+      switch (edge) {
         case 'move':
           left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
@@ -148,19 +149,15 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           bottom = start.bottom + (start.top - top);
           break;
         case 'top':
-          // Drag down → top inset increases → top border moves down (follows finger)
           top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
           break;
         case 'bottom':
-          // Drag up → bottom inset increases → bottom border moves up (follows finger)
           bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
           break;
         case 'left':
-          // Drag right → left inset increases → left border moves right (follows finger)
           left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           break;
         case 'right':
-          // Drag left → right inset increases → right border moves left (follows finger)
           right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
         case 'top-left':
@@ -179,6 +176,24 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
           right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
+      }
+      // Magnetic snap — when a side's value gets close to its opposite side,
+      // snap it to match. This makes it easy to create symmetric safe areas.
+      // Only applies to single-edge and corner drags (not 'move').
+      const SNAP_THRESHOLD = 0.5; // % — how close before snapping kicks in
+      if (edge !== 'move') {
+        if (edge === 'top' || edge === 'top-left' || edge === 'top-right') {
+          if (Math.abs(top - bottom) < SNAP_THRESHOLD) top = bottom;
+        }
+        if (edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right') {
+          if (Math.abs(bottom - top) < SNAP_THRESHOLD) bottom = top;
+        }
+        if (edge === 'left' || edge === 'top-left' || edge === 'bottom-left') {
+          if (Math.abs(left - right) < SNAP_THRESHOLD) left = right;
+        }
+        if (edge === 'right' || edge === 'top-right' || edge === 'bottom-right') {
+          if (Math.abs(right - left) < SNAP_THRESHOLD) right = left;
+        }
       }
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
     };
@@ -606,8 +621,9 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       const start = safeDrag.startArea;
       let { top, right, bottom, left } = start;
       const MIN = 0;
+      const edge = safeDrag.edge;
 
-      switch (safeDrag.edge) {
+      switch (edge) {
         case 'move':
           left = Math.max(MIN, Math.min(100 - start.right - MIN, start.left + deltaPctX));
           top = Math.max(MIN, Math.min(100 - start.bottom - MIN, start.top + deltaPctY));
@@ -642,6 +658,23 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           bottom = Math.max(MIN, Math.min(100 - start.top - MIN, start.bottom - deltaPctY));
           right = Math.max(MIN, Math.min(100 - start.left - MIN, start.right - deltaPctX));
           break;
+      }
+      // Magnetic snap — when a side's value gets close to its opposite side,
+      // snap it to match. This makes it easy to create symmetric safe areas.
+      const SNAP_THRESHOLD = 0.5; // % — how close before snapping kicks in
+      if (edge !== 'move') {
+        if (edge === 'top' || edge === 'top-left' || edge === 'top-right') {
+          if (Math.abs(top - bottom) < SNAP_THRESHOLD) top = bottom;
+        }
+        if (edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right') {
+          if (Math.abs(bottom - top) < SNAP_THRESHOLD) bottom = top;
+        }
+        if (edge === 'left' || edge === 'top-left' || edge === 'bottom-left') {
+          if (Math.abs(left - right) < SNAP_THRESHOLD) left = right;
+        }
+        if (edge === 'right' || edge === 'top-right' || edge === 'bottom-right') {
+          if (Math.abs(right - left) < SNAP_THRESHOLD) right = left;
+        }
       }
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
       return; // Don't process other interactions while dragging safe area
@@ -1051,47 +1084,50 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
                   <LuRotateCcw className="h-4 w-4" />
                   {resetLabel}
                 </Button>
-                {/* Edge drag buttons — visible, labeled, draggable to resize each side.
-                    Each button only modifies its own inset. Dragging toward the
-                    canvas center shrinks the safe area from that side; dragging
-                    away from center grows it. */}
+                {/* Edge drag buttons — visible, labeled with the current inset
+                    percentage, draggable to resize each side. Each button only
+                    modifies its own inset. Dragging toward the canvas center
+                    shrinks the safe area from that side; dragging away from
+                    center grows it. */}
                 {/* TOP — centered on top edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')}
-                  className="absolute -top-5 left-1/2 flex h-9 w-20 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-xs font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -top-7 left-1/2 flex h-12 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-base font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Top"
                 >
-                  <LuArrowUp className="h-4 w-4" />
-                  TOP
+                  <LuArrowUp className="h-5 w-5" />
+                  {area.top.toFixed(1)}%
                 </button>
                 {/* BOTTOM — centered on bottom edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')}
-                  className="absolute -bottom-5 left-1/2 flex h-9 w-20 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-xs font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -bottom-7 left-1/2 flex h-12 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-base font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Bottom"
                 >
-                  <LuArrowDown className="h-4 w-4" />
-                  BTM
+                  <LuArrowDown className="h-5 w-5" />
+                  {area.bottom.toFixed(1)}%
                 </button>
                 {/* LEFT — centered on left edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')}
-                  className="absolute -left-5 top-1/2 flex h-20 w-9 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-[10px] font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -left-8 top-1/2 flex h-28 w-12 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-sm font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Left"
                 >
-                  <LuArrowLeft className="h-4 w-4" />
+                  <LuArrowLeft className="h-5 w-5" />
+                  {area.left.toFixed(1)}%
                 </button>
                 {/* RIGHT — centered on right edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')}
-                  className="absolute -right-5 top-1/2 flex h-20 w-9 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center gap-1 rounded-lg border-2 border-brand-primary bg-card-bg text-[10px] font-semibold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -right-8 top-1/2 flex h-28 w-12 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-sm font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Right"
                 >
-                  <LuArrowRight className="h-4 w-4" />
+                  <LuArrowRight className="h-5 w-5" />
+                  {area.right.toFixed(1)}%
                 </button>
                 {/* Corner handles — large transparent touch area with visible dot */}
                 <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-4 -left-4 h-8 w-8 cursor-nwse-resize touch-none">

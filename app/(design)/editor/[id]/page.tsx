@@ -1561,7 +1561,7 @@ export default function EditorPage() {
                             onClick={() => setLayersDrawerOpen(true)}
                             className="gap-1 px-2 sm:px-3"
                         >
-                            <LuLayers className="h-4 w-4" />
+                            <LuLayers className="h-4 w-4" fill={layersDrawerOpen ? 'currentColor' : 'none'} />
                             <span className="hidden sm:inline">{t('layers')}</span>
                         </Button>
 
