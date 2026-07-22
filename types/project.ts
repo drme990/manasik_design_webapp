@@ -39,6 +39,17 @@ export interface Project extends SyncableDocument {
   backgroundUri?: string;
   /** Smaller version of backgroundUri for galleries/lists */
   backgroundThumbnailUri?: string;
+  /**
+   * Background image upload state (instant-add UX).
+   * - 'uploading': file is being uploaded to R2 in the background; `backgroundUri`
+   *   is a temporary object URL (blob:) so the user sees the image immediately.
+   * - 'error': upload failed; user can retry.
+   * - undefined: upload complete or not applicable.
+   * Transient — not persisted to the DB.
+   */
+  bgUploadStatus?: 'uploading' | 'error';
+  /** The original File for retry. Transient — not persisted. */
+  bgPendingFile?: File;
   safeArea?: SafeArea;
   layers: AnyLayer[];
   thumbnail?: string;

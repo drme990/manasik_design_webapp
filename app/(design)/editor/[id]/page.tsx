@@ -23,6 +23,7 @@ import {
     LuUpload,
     LuLoaderCircle,
     LuX,
+    LuRefreshCw,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -56,6 +57,7 @@ import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
 import { useUserFonts } from '@/lib/hooks/useUserFonts';
+import { useUserShapes } from '@/lib/hooks/useUserShapes';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer, SafeArea } from '@/types';
 import Input from '@/components/ui/Input';
 
@@ -123,6 +125,7 @@ export default function EditorPage() {
     const t = useTranslations('editor');
     const uiT = useTranslations('ui');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const shapeFileInputRef = useRef<HTMLInputElement>(null);
     const bgFileInputRef = useRef<HTMLInputElement>(null);
     const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
@@ -201,6 +204,7 @@ export default function EditorPage() {
     } | null>(null);
     const { savedColors, persistColor: addSavedColor, removeColor: removeSavedColor } = useSavedColors();
     const { fonts: userFonts, uploading: fontUploading, fontsLoaded, uploadFont, deleteFont } = useUserFonts();
+    const { shapes: userShapes, uploading: shapeUploading, uploadShape, deleteShape } = useUserShapes();
     const fontFileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Close drawers when selection changes
@@ -429,6 +433,7 @@ export default function EditorPage() {
 
     const handleExportJpg = useCallback(async () => {
         if (!canvasRef.current || !project) return;
+        if (isExporting) return; // Prevent double-clicks
 
         const previousSelection = selectedLayerId;
         setSelectedLayerId(null);
@@ -457,7 +462,7 @@ export default function EditorPage() {
             setIsExporting(false);
             setSelectedLayerId(previousSelection);
         }
-    }, [project, selectedLayerId]);
+    }, [project, selectedLayerId, isExporting]);
 
     useEffect(() => {
         const endTransaction = () => {
@@ -520,17 +525,79 @@ export default function EditorPage() {
     const handleBackgroundImageChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !project) return;
-        try {
-            const { uri, thumbnailUri } = await uploadImageWithProgress(file, toast, 'جاري رفع صورة الخلفية...');
-            updateProjectState((prev) => ({ ...prev, backgroundUri: uri, backgroundThumbnailUri: thumbnailUri }));
-        } catch {
-            // toast already shown by uploader
-        }
         e.target.value = '';
-    }, [project, toast, updateProjectState]);
+
+        // --- Instant: create object URL and set as background immediately ---
+        const tempUri = URL.createObjectURL(file);
+        // Revoke the previous blob: background if there was one
+        const prevBg = projectRef.current?.backgroundUri;
+        updateProjectState((prev) => ({
+            ...prev,
+            backgroundUri: tempUri,
+            backgroundThumbnailUri: undefined,
+            bgUploadStatus: 'uploading',
+        }));
+
+        // --- Background upload ---
+        uploadImageInBackground(file)
+            .then((uploaded) => {
+                try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                updateProjectState((prev) => ({
+                    ...prev,
+                    backgroundUri: uploaded.uri,
+                    backgroundThumbnailUri: uploaded.thumbnailUri,
+                    bgUploadStatus: undefined,
+                }));
+            })
+            .catch((err) => {
+                console.error('Background image upload failed:', err);
+                // Keep the blob: URL so the user still sees the image, but mark as error
+                updateProjectState((prev) => ({
+                    ...prev,
+                    backgroundUri: tempUri,
+                    bgUploadStatus: 'error',
+                    bgPendingFile: file,
+                }));
+            });
+    }, [project, updateProjectState]);
+
+    /** Retry a failed background image upload. */
+    const handleRetryBgUpload = useCallback(() => {
+        const current = projectRef.current;
+        if (!current || current.bgUploadStatus !== 'error' || !current.bgPendingFile) return;
+        const file = current.bgPendingFile;
+        const tempUri = current.backgroundUri?.startsWith('blob:') ? current.backgroundUri : URL.createObjectURL(file);
+        updateProjectState((prev) => ({ ...prev, bgUploadStatus: 'uploading' }));
+        uploadImageInBackground(file)
+            .then((uploaded) => {
+                try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                updateProjectState((prev) => ({
+                    ...prev,
+                    backgroundUri: uploaded.uri,
+                    backgroundThumbnailUri: uploaded.thumbnailUri,
+                    bgUploadStatus: undefined,
+                    bgPendingFile: undefined,
+                }));
+            })
+            .catch((err) => {
+                console.error('Background image re-upload failed:', err);
+                updateProjectState((prev) => ({ ...prev, bgUploadStatus: 'error' }));
+            });
+    }, [updateProjectState]);
 
     const handleRemoveBackgroundImage = useCallback(() => {
-        updateProjectState((prev) => ({ ...prev, backgroundUri: undefined, backgroundThumbnailUri: undefined }));
+        // Revoke the blob: URL if the background is still uploading
+        const prevBg = projectRef.current?.backgroundUri;
+        if (prevBg && prevBg.startsWith('blob:')) {
+            try { URL.revokeObjectURL(prevBg); } catch { /* ignore */ }
+        }
+        updateProjectState((prev) => ({
+            ...prev,
+            backgroundUri: undefined,
+            backgroundThumbnailUri: undefined,
+            bgUploadStatus: undefined,
+            bgPendingFile: undefined,
+        }));
     }, [updateProjectState]);
 
     const handleSafeAreaChange = useCallback(
@@ -900,6 +967,66 @@ export default function EditorPage() {
         setSelectedLayerId(newLayer.id);
         setAddDrawerOpen(false);
     }, [updateProjectState, project]);
+
+    // Add a user-uploaded PNG shape to the canvas
+    const handleAddPngShape = useCallback((shape: { id: string; name: string; url: string; naturalWidth: number; naturalHeight: number; }) => {
+        const w = project?.canvasWidth ?? 1080;
+        const h = project?.canvasHeight ?? 1080;
+        // Size the layer to fit within 25% of canvas while preserving aspect ratio
+        const maxDim = w * 0.25;
+        const aspect = shape.naturalWidth / shape.naturalHeight || 1;
+        let shapeW: number, shapeH: number;
+        if (aspect >= 1) {
+            shapeW = maxDim;
+            shapeH = maxDim / aspect;
+        } else {
+            shapeH = maxDim;
+            shapeW = maxDim * aspect;
+        }
+        const newLayer = buildShapeLayer({
+            shape: 'png',
+            uri: shape.url,
+            naturalWidth: shape.naturalWidth,
+            naturalHeight: shape.naturalHeight,
+            name: shape.name,
+            x: (w - shapeW) / 2,
+            y: (h - shapeH) / 2,
+            width: shapeW,
+            height: shapeH,
+        });
+        newLayer.zIndex = nextZIndex(project?.layers ?? []);
+        updateProjectState((prev) => ({
+            ...prev,
+            layers: [...prev.layers, newLayer],
+        }));
+        setSelectedLayerId(newLayer.id);
+        setAddDrawerOpen(false);
+    }, [updateProjectState, project]);
+
+    // Upload a PNG shape file
+    const handleShapeFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        e.target.value = '';
+        try {
+            const uploaded = await uploadShape(file);
+            if (uploaded) {
+                toast.showToast({ message: t('toolbars.shape.shapeUploaded'), variant: 'success', duration: 2000 });
+            }
+        } catch {
+            toast.showToast({ message: t('toolbars.shape.uploadFailed'), variant: 'error', duration: 3000 });
+        }
+    }, [uploadShape, toast, t]);
+
+    // Delete a user-uploaded PNG shape
+    const handleDeleteShape = useCallback(async (id: string) => {
+        const ok = await deleteShape(id);
+        if (ok) {
+            toast.showToast({ message: t('toolbars.shape.shapeDeleted'), variant: 'success', duration: 2000 });
+        } else {
+            toast.showToast({ message: t('toolbars.shape.deleteFailed'), variant: 'error', duration: 3000 });
+        }
+    }, [deleteShape, toast, t]);
 
     const handleAddDynamicField = useCallback(() => {
         const w = project?.canvasWidth ?? 1080;
@@ -1442,9 +1569,14 @@ export default function EditorPage() {
                             variant="outline"
                             size="sm"
                             onClick={handleExportJpg}
+                            disabled={isExporting}
                             className="gap-1 px-2 sm:px-3"
                         >
-                            <LuDownload className="h-4 w-4" />
+                            {isExporting ? (
+                                <LuLoaderCircle className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <LuDownload className="h-4 w-4" />
+                            )}
                             <span className="hidden sm:inline">{t('export')}</span>
                         </Button>
 
@@ -1541,11 +1673,25 @@ export default function EditorPage() {
                                 />
                                 <PropToggle
                                     label={project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
-                                    icon={<LuImage className="h-5 w-5" />}
+                                    icon={
+                                        project.bgUploadStatus === 'uploading' ? (
+                                            <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                                        ) : project.bgUploadStatus === 'error' ? (
+                                            <LuRefreshCw className="h-5 w-5 text-error" />
+                                        ) : (
+                                            <LuImage className="h-5 w-5" />
+                                        )
+                                    }
                                     active={false}
-                                    onClick={() => bgFileInputRef.current?.click()}
+                                    onClick={() => {
+                                        if (project.bgUploadStatus === 'error') {
+                                            handleRetryBgUpload();
+                                        } else if (project.bgUploadStatus !== 'uploading') {
+                                            bgFileInputRef.current?.click();
+                                        }
+                                    }}
                                 />
-                                {project.backgroundUri && (
+                                {project.backgroundUri && project.bgUploadStatus !== 'uploading' && (
                                     <PropToggle
                                         label={t('removeBgImage')}
                                         icon={<LuTrash2 className="h-5 w-5 text-error" />}
@@ -1596,6 +1742,13 @@ export default function EditorPage() {
                         accept="image/*"
                         className="hidden"
                         onChange={handleReplaceImage}
+                    />
+                    <input
+                        ref={shapeFileInputRef}
+                        type="file"
+                        accept="image/png"
+                        className="hidden"
+                        onChange={handleShapeFileSelect}
                     />
 
                     {/* Properties bar */}
@@ -1680,6 +1833,56 @@ export default function EditorPage() {
                                     <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
                                 </button>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* My PNG Shapes — user-uploaded PNGs treated as shapes */}
+                    <div className="mt-6">
+                        <div className="mb-3 flex items-center justify-between">
+                            <h3 className="text-sm font-medium text-secondary">{t('myShapes')}</h3>
+                        </div>
+                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                            {userShapes.map((shape) => (
+                                <div
+                                    key={shape.id}
+                                    className="group relative flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                >
+                                    <button
+                                        onClick={() => handleAddPngShape(shape)}
+                                        className="flex flex-col items-center gap-2"
+                                    >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                            src={shape.url}
+                                            alt={shape.name}
+                                            className="h-10 w-10 object-contain"
+                                            draggable={false}
+                                        />
+                                        <span className="w-full truncate text-center text-xs text-secondary">{shape.name}</span>
+                                    </button>
+                                    {/* Delete button — appears on hover/tap */}
+                                    <button
+                                        onClick={() => handleDeleteShape(shape.id)}
+                                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white opacity-0 transition-opacity group-hover:opacity-100"
+                                        aria-label={t('toolbars.shape.deleteShape')}
+                                    >
+                                        <LuTrash2 className="h-3 w-3" />
+                                    </button>
+                                </div>
+                            ))}
+                            {/* Upload button */}
+                            <button
+                                onClick={() => shapeFileInputRef.current?.click()}
+                                disabled={shapeUploading}
+                                className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-dashed border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary disabled:opacity-50"
+                            >
+                                {shapeUploading ? (
+                                    <LuLoaderCircle className="h-8 w-8 animate-spin text-secondary" />
+                                ) : (
+                                    <LuUpload className="h-8 w-8 text-secondary" />
+                                )}
+                                <span className="text-xs text-secondary">{t('uploadShape')}</span>
+                            </button>
                         </div>
                     </div>
                 </Drawer>

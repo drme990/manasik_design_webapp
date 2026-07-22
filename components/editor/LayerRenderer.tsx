@@ -412,6 +412,7 @@ function ShapeLayerComponent({ layer, className, style, onPointerDown }: LayerCo
         strokeWidth={layer.strokeWidth}
         filled={layer.filled}
         cornerRadius={layer.cornerRadius}
+        uri={layer.uri}
         className="h-full w-full"
       />
     </div>

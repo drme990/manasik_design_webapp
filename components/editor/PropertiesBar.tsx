@@ -377,6 +377,20 @@ export default function PropertiesBar({
                 {selectedLayer.type === 'shape' && (() => {
                     const l = selectedLayer as ShapeLayer;
                     const filled = l.filled ?? true;
+                    // PNG shapes only show opacity (no fill/stroke controls)
+                    if (l.shape === 'png') {
+                        return (
+                            <>
+                                <PropButton
+                                    label={t('toolbars.shape.opacity')}
+                                    value={`${Math.round(l.opacity * 100)}%`}
+                                    icon={<LuDroplet className="h-5 w-5" />}
+                                    active={activeProp === 'shape.opacity'}
+                                    onClick={() => setActiveProp(activeProp === 'shape.opacity' ? null : 'shape.opacity')}
+                                />
+                            </>
+                        );
+                    }
                     return (
                         <>
                             <PropToggle

@@ -3,7 +3,7 @@ export type LayerType = 'text' | 'image' | 'shape' | 'dynamic_field';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
 export type TextDirection = 'auto' | 'rtl' | 'ltr';
-export type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
+export type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line' | 'png';
 export type ImageFit = 'cover' | 'contain';
 
 export interface BaseLayer {
@@ -106,6 +106,13 @@ export interface ShapeLayer extends BaseLayer {
   filled: boolean;
   cornerRadius?: number;
   points?: number;
+  /** PNG shape only — R2 URL of the uploaded PNG image */
+  uri?: string;
+  /** PNG shape only — smaller version for galleries/lists */
+  thumbnailUri?: string;
+  /** PNG shape only — natural dimensions of the source PNG */
+  naturalWidth?: number;
+  naturalHeight?: number;
 }
 
 export interface DynamicFieldLayer extends BaseLayer {

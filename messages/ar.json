@@ -224,6 +224,8 @@
     "addShape": "شكل",
     "addField": "حقل",
     "addElement": "إضافة عنصر",
+    "myShapes": "أشكالي",
+    "uploadShape": "رفع شكل",
     "canvasBackground": "خلفية اللوحة",
     "setBgImage": "تعيين صورة",
     "changeBgImage": "تغيير الصورة",
@@ -334,7 +336,12 @@
         "cornerRadius": "نصف قطر الزاوية",
         "increaseHeight": "زيادة الارتفاع",
         "increaseWidth": "زيادة العرض",
-        "opacity": "الشفافية"
+        "opacity": "الشفافية",
+        "deleteShape": "حذف الشكل",
+        "shapeUploaded": "تم رفع الشكل بنجاح",
+        "shapeDeleted": "تم حذف الشكل",
+        "uploadFailed": "فشل رفع الشكل",
+        "deleteFailed": "فشل حذف الشكل"
       },
       "dynamicField": {
         "title": "إعدادات الحقل الديناميكي",

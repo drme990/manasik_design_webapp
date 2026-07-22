@@ -122,11 +122,33 @@ export async function getProject(id: string): Promise<Project | null> {
  * Save a project to the server (MongoDB) via PATCH.
  * This is the only write path — call it from the Save button or the
  * leave-modal "Yes" handler.
+ *
+ * Strips transient fields (bgUploadStatus, bgPendingFile) and any blob: URIs
+ * (from instant-add background uploads that haven't finished) before sending.
  */
 export async function saveProject(project: Project): Promise<Project> {
+  // Strip transient fields and blob: URIs before persisting
+  const { bgUploadStatus: _bgStatus, bgPendingFile: _bgFile, ...rest } = project;
+  const clean: Project = {
+    ...rest,
+    // Don't persist blob: URIs — they're client-side only and would break on reload
+    backgroundUri: project.backgroundUri?.startsWith('blob:') ? undefined : project.backgroundUri,
+    backgroundThumbnailUri: project.backgroundThumbnailUri?.startsWith('blob:') ? undefined : project.backgroundThumbnailUri,
+    // Also strip blob: URIs from image layers (from instant-add image uploads)
+    layers: project.layers.map((l) => {
+      if (l.type === 'image' && l.uri.startsWith('blob:')) {
+        return { ...l, uri: '', uploadStatus: undefined, pendingFile: undefined };
+      }
+      if (l.type === 'image') {
+        const { uploadStatus: _us, pendingFile: _pf, ...imgRest } = l;
+        return imgRest as typeof l;
+      }
+      return l;
+    }),
+  };
   const result = await fetchWithAuth(`/api/projects/${project.id}`, {
     method: 'PATCH',
-    body: JSON.stringify(project),
+    body: JSON.stringify(clean),
   });
   const saved = result.data as Project;
   // Update caches

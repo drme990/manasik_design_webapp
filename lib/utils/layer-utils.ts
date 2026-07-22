@@ -234,7 +234,7 @@ export function buildCollageLayer(options: {
 }
 
 export function buildShapeLayer(options: {
-  shape: 'rectangle' | 'circle' | 'triangle' | 'star_4' | 'star_5' | 'star_6' | 'star_8' | 'line';
+  shape: ShapeLayer['shape'];
   x?: number;
   y?: number;
   width?: number;
@@ -243,6 +243,12 @@ export function buildShapeLayer(options: {
   strokeColor?: string;
   strokeWidth?: number;
   filled?: boolean;
+  /** PNG shape only — R2 URL of the uploaded PNG */
+  uri?: string;
+  thumbnailUri?: string;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  name?: string;
 }): ShapeLayer {
   const {
     shape = 'rectangle',
@@ -253,7 +259,12 @@ export function buildShapeLayer(options: {
     fillColor = DEFAULT_FILL_COLOR,
     strokeColor = DEFAULT_STROKE_COLOR,
     strokeWidth = shape === 'line' ? 6 : 2,
-    filled = true
+    filled = true,
+    uri,
+    thumbnailUri,
+    naturalWidth,
+    naturalHeight,
+    name,
   } = options;
 
   let points: number | undefined;
@@ -274,14 +285,15 @@ export function buildShapeLayer(options: {
     zIndex: 1,
     visible: true,
     locked: false,
-    name: `شكل (${shape})`,
+    name: name ?? `شكل (${shape})`,
     shape,
     fillColor,
     filled,
     strokeColor,
     strokeWidth,
     cornerRadius: 0,
-    points
+    points,
+    ...(uri ? { uri, thumbnailUri, naturalWidth, naturalHeight } : {}),
   };
 }
 

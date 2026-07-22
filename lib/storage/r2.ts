@@ -88,4 +88,23 @@ export function generateFontKey(file: File | { name: string; type: string }): st
   return `design/fonts/${slug}-${rand}.${safeExt}`;
 }
 
+/**
+ * Generate an R2 key for a user-uploaded PNG shape.
+ * Stored under `design/shapes/` so all custom shapes are grouped together.
+ */
+export function generateShapeKey(file: File | { name: string; type: string }): string {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  const slug = baseName
+    .normalize('NFKD')
+    .replace(/[^\w\u0600-\u06FF-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 40) || 'shape';
+  const rand = Math.random().toString(36).slice(2, 8);
+  const safeExt = ext && /^[a-z0-9]+$/.test(ext) ? ext : 'png';
+  return `design/shapes/${slug}-${rand}.${safeExt}`;
+}
+
 export { PUBLIC_URL, BUCKET_NAME };

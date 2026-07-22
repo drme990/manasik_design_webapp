@@ -12,6 +12,8 @@ export interface ShapeRendererProps {
   filled?: boolean;
   cornerRadius?: number;
   className?: string;
+  /** PNG shape only — R2 URL of the uploaded PNG */
+  uri?: string;
 }
 
 function buildStarPoints(points: number, cx: number, cy: number, outerR: number, innerR: number): string {
@@ -35,11 +37,26 @@ export default function ShapeRenderer({
   filled = true,
   cornerRadius = 0,
   className,
+  uri,
 }: ShapeRendererProps) {
   const padding = strokeWidth / 2;
   const innerWidth = Math.max(0, width - strokeWidth);
   const innerHeight = Math.max(0, height - strokeWidth);
   const fill = filled ? fillColor : 'transparent';
+
+  // PNG shape — render as an <img> with objectFit: contain to preserve transparency
+  if (shape === 'png' && uri) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={uri}
+        alt=""
+        className={className}
+        style={{ width, height, objectFit: 'contain', userSelect: 'none' }}
+        draggable={false}
+      />
+    );
+  }
 
   if (shape === 'line') {
     return (
