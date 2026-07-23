@@ -24,6 +24,7 @@ import {
     LuLoaderCircle,
     LuX,
     LuRefreshCw,
+    LuCheck,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -52,6 +53,7 @@ import {
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
+import { cn } from '@/lib/utils/cn';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
@@ -134,9 +136,6 @@ export default function EditorPage() {
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [showLeaveModal, setShowLeaveModal] = useState(false);
-    // When true, the rename modal is being used as part of the leave flow —
-    // after the user confirms the name, we save and leave instead of just renaming.
-    const renameThenLeaveRef = useRef(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     // History snapshots include layers + background properties so undo/redo
@@ -194,6 +193,8 @@ export default function EditorPage() {
     const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
+    // When true, delete buttons are shown above each uploaded user shape
+    const [editShapesMode, setEditShapesMode] = useState(false);
     const [activeProp, setActiveProp] = useState<string | null>(null);
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
@@ -503,18 +504,19 @@ export default function EditorPage() {
     const handleRenameProject = useCallback(async () => {
         if (!project || !renameValue.trim()) return;
         const trimmed = renameValue.trim();
-        // If this rename was triggered from the leave flow, save with the new
-        // name and navigate away instead of just updating the name in-place.
-        if (renameThenLeaveRef.current) {
-            renameThenLeaveRef.current = false;
-            setRenameOpen(false);
-            await doSaveAndLeave(trimmed);
-            return;
-        }
         await updateProjectRemote(project.id, { name: trimmed });
         setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
         setRenameOpen(false);
-    }, [project, renameValue, doSaveAndLeave]);
+    }, [project, renameValue]);
+
+    // When the leave modal opens for a brand-new (never-synced) project,
+    // seed the inline rename input with the current project name so the user
+    // can rename and save in one step (no separate rename modal).
+    useEffect(() => {
+        if (showLeaveModal && !wasSyncedBefore) {
+            setRenameValue(projectRef.current?.name ?? '');
+        }
+    }, [showLeaveModal, wasSyncedBefore]);
 
     const updateProjectState = useCallback(
         (updater: (prev: Project) => Project, recordHistory = true) => {
@@ -1796,7 +1798,10 @@ export default function EditorPage() {
                 {/* Add drawer — text, image, shapes */}
                 <Drawer
                     isOpen={addDrawerOpen}
-                    onClose={() => setAddDrawerOpen(false)}
+                    onClose={() => {
+                        setAddDrawerOpen(false);
+                        setEditShapesMode(false);
+                    }}
                     title={t('addElement')}
                     height="half"
                 >
@@ -1829,10 +1834,37 @@ export default function EditorPage() {
                         </div>
                     </div>
 
-                    {/* Shapes */}
+                    {/* Shapes — built-in + user-uploaded in one row */}
                     <div>
-                        <h3 className="mb-3 text-sm font-medium text-secondary">{t('addShape')}</h3>
-                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                        <div className="mb-3 flex items-center justify-between">
+                            <h3 className="text-sm font-medium text-secondary">{t('addShape')}</h3>
+                            {/* Edit shapes button — only visible when user has uploaded shapes */}
+                            {userShapes.length > 0 && (
+                                <button
+                                    onClick={() => setEditShapesMode((v) => !v)}
+                                    className={cn(
+                                        'flex items-center gap-1 text-xs transition-colors',
+                                        editShapesMode
+                                            ? 'font-semibold text-brand-primary'
+                                            : 'text-secondary hover:text-foreground'
+                                    )}
+                                >
+                                    {editShapesMode ? (
+                                        <>
+                                            <LuCheck className="h-3.5 w-3.5" />
+                                            {t('doneEditShapes')}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LuPencil className="h-3.5 w-3.5" />
+                                            {t('editShapes')}
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                        </div>
+                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2 pt-2">
+                            {/* Built-in shapes */}
                             {SHAPES.map(({ shape, labelKey }) => (
                                 <button
                                     key={shape}
@@ -1851,22 +1883,23 @@ export default function EditorPage() {
                                     <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
                                 </button>
                             ))}
-                        </div>
-                    </div>
 
-                    {/* My PNG Shapes — user-uploaded PNGs treated as shapes */}
-                    <div className="mt-6">
-                        <div className="mb-3 flex items-center justify-between">
-                            <h3 className="text-sm font-medium text-secondary">{t('myShapes')}</h3>
-                        </div>
-                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                            {/* Divider between built-in and user shapes */}
+                            {userShapes.length > 0 && (
+                                <div className="my-1 w-px shrink-0 self-stretch bg-stroke" aria-hidden />
+                            )}
+
+                            {/* User-uploaded PNG shapes */}
                             {userShapes.map((shape) => (
                                 <div
                                     key={shape.id}
                                     className="group relative flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                                 >
                                     <button
-                                        onClick={() => handleAddPngShape(shape)}
+                                        onClick={() => {
+                                            if (editShapesMode) return; // don't add while editing
+                                            handleAddPngShape(shape);
+                                        }}
                                         className="flex flex-col items-center gap-2"
                                     >
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1878,17 +1911,20 @@ export default function EditorPage() {
                                         />
                                         <span className="w-full truncate text-center text-xs text-secondary">{shape.name}</span>
                                     </button>
-                                    {/* Delete button — appears on hover/tap */}
-                                    <button
-                                        onClick={() => handleDeleteShape(shape.id)}
-                                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                        aria-label={t('toolbars.shape.deleteShape')}
-                                    >
-                                        <LuTrash2 className="h-3 w-3" />
-                                    </button>
+                                    {/* Delete button — only shown in edit mode */}
+                                    {editShapesMode && (
+                                        <button
+                                            onClick={() => handleDeleteShape(shape.id)}
+                                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
+                                            aria-label={t('toolbars.shape.deleteShape')}
+                                        >
+                                            <LuTrash2 className="h-3 w-3" />
+                                        </button>
+                                    )}
                                 </div>
                             ))}
-                            {/* Upload button */}
+
+                            {/* Upload button — at the end */}
                             <button
                                 onClick={() => shapeFileInputRef.current?.click()}
                                 disabled={shapeUploading}
@@ -2479,6 +2515,8 @@ export default function EditorPage() {
                 {/* Unified leave confirmation modal — simple yes/no question.
                     Behavior depends on whether the project is new (never synced) or existing:
                       - New project:     "Save this project?"   Yes=save&leave   No=delete&leave
+                        For new projects the name input is shown inline so the user can
+                        rename and save in one step (no separate rename modal).
                       - Existing project: "Save changes?"        Yes=save&leave   No=leave without saving */}
                 {showLeaveModal && (
                     <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
@@ -2495,9 +2533,21 @@ export default function EditorPage() {
                             <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
                                 {wasSyncedBefore ? t('saveChangesTitle') : t('saveProjectTitle')}
                             </h2>
-                            <p className="mb-6 text-sm text-secondary">
+                            <p className="mb-4 text-sm text-secondary">
                                 {wasSyncedBefore ? t('saveChangesDescription') : t('saveProjectDescription')}
                             </p>
+                            {/* Inline rename input — only for first-time save (brand-new project).
+                                The user can rename and confirm save in one step. */}
+                            {!wasSyncedBefore && (
+                                <div className="mb-4">
+                                    <Input
+                                        value={renameValue}
+                                        onChange={(e) => setRenameValue(e.target.value)}
+                                        placeholder={t('renameProjectPlaceholder')}
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
                             <div className="flex gap-3">
                                 <Button
                                     variant="ghost"
@@ -2512,16 +2562,10 @@ export default function EditorPage() {
                                 <Button
                                     onClick={() => {
                                         setShowLeaveModal(false);
-                                        if (wasSyncedBefore) {
-                                            // Project already exists in the DB — just save changes and leave
-                                            doSaveAndLeave();
-                                        } else {
-                                            // First-time save (brand-new project) — open the rename modal,
-                                            // then save and leave after the user confirms the name
-                                            renameThenLeaveRef.current = true;
-                                            setRenameValue(projectRef.current?.name ?? '');
-                                            setRenameOpen(true);
-                                        }
+                                        // For a new project, pass the inline name so the
+                                        // first save uses the user's chosen name. For an
+                                        // existing project, just save the current state.
+                                        doSaveAndLeave(!wasSyncedBefore ? renameValue : undefined);
                                     }}
                                     className="flex-1"
                                 >

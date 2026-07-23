@@ -36,6 +36,29 @@ export default function CollageEditModal({
     startOffsetY: number;
   } | null>(null);
 
+  // Drag-and-drop swap state — pointer-based (works on both desktop mouse and
+  // mobile touch). Separate from the pointer-based pan/zoom above.
+  // Only unselected cells with images are drag sources; all cells are drop
+  // targets. Dropping cell A onto cell B swaps their content.
+  //
+  // swapStartRef tracks a potential swap before the movement threshold is met
+  // (so a tap still selects the cell, while a drag initiates a swap).
+  const swapStartRef = useRef<{ x: number; y: number; index: number; pointerId: number; cellW: number; cellH: number; uri: string } | null>(null);
+  const [swapDrag, setSwapDrag] = useState<{
+    sourceIndex: number;
+    x: number;
+    y: number;
+    imgW: number;
+    imgH: number;
+    uri: string;
+  } | null>(null);
+  const swapDragRef = useRef(swapDrag);
+  useEffect(() => { swapDragRef.current = swapDrag; }, [swapDrag]);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  // Set to true when a swap drag just ended — prevents the subsequent click
+  // from selecting the cell (a drag should not also select).
+  const swapJustEndedRef = useRef(false);
+
   // Natural dimensions of each cell's image — needed to calculate the cover
   // scale and clamp the drag offset so the image always covers the cell frame.
   const [imageDimensions, setImageDimensions] = useState<Map<number, { w: number; h: number }>>(new Map());
@@ -65,6 +88,8 @@ export default function CollageEditModal({
     if (isOpen) {
       setSelectedCell(null);
       setDragState(null);
+      setSwapDrag(null);
+      setDropTarget(null);
     }
   }
 
@@ -77,6 +102,9 @@ export default function CollageEditModal({
       pinchRef.current.lastScaleFactor = undefined;
       pinchRef.current.lastAngleDelta = undefined;
       pinchRef.current.lastDelta = undefined;
+      // Reset swap-drag refs too (can't mutate refs during render)
+      swapStartRef.current = null;
+      swapJustEndedRef.current = false;
     }
   }, [isOpen]);
 
@@ -198,6 +226,121 @@ export default function CollageEditModal({
         layout: newLayout?.id ?? collage.layout,
       },
     });
+  };
+
+  // Swap the contents of two cells (uri, offsets, scale, rotation, natural
+  // dimensions). Used by the drag-and-drop swap interaction.
+  const swapCells = (a: number, b: number) => {
+    if (!collage || a === b) return;
+    const cells = [...collage.cells];
+    const tmp = cells[a];
+    cells[a] = cells[b];
+    cells[b] = tmp;
+    const uris = cells.map(c => c.uri);
+    // Swap cached image dimensions so pan/zoom clamping still works after swap
+    setImageDimensions(prev => {
+      const next = new Map(prev);
+      const da = prev.get(a);
+      const db = prev.get(b);
+      if (db) next.set(a, db); else next.delete(a);
+      if (da) next.set(b, da); else next.delete(b);
+      return next;
+    });
+    onUpdate({ collage: { ...collage, cells, uris } });
+  };
+
+  // ─── Pointer-based swap drag (works on desktop + mobile) ───────────────
+  // On unselected cells with images, a tap selects the cell (via onClick),
+  // while a drag beyond SWAP_THRESHOLD initiates a swap. The floating preview
+  // follows the pointer; the cell under the pointer is highlighted as the
+  // drop target. On pointer up, if over a different cell, the two cells swap.
+  const SWAP_THRESHOLD = 6; // px of movement before swap drag starts
+
+  const handleSwapPointerDown = (e: React.PointerEvent, index: number, cellW: number, cellH: number) => {
+    if (!collage || selectedCell === index) return;
+    const cell = collage.cells[index];
+    if (!cell?.uri) return;
+    // Record the potential swap start — don't begin the drag yet, wait for
+    // movement beyond the threshold so a quick tap still selects the cell.
+    swapStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      index,
+      pointerId: e.pointerId,
+      cellW,
+      cellH,
+      uri: cell.uri,
+    };
+    // Capture the pointer so move/up events keep firing even outside the cell
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handleSwapPointerMove = (e: React.PointerEvent) => {
+    const start = swapStartRef.current;
+    if (!start || start.pointerId !== e.pointerId) return;
+
+    // If swap drag hasn't started yet, check the threshold
+    if (!swapDragRef.current) {
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (Math.hypot(dx, dy) < SWAP_THRESHOLD) return;
+      // Threshold met — begin the swap drag
+      setSwapDrag({
+        sourceIndex: start.index,
+        x: e.clientX,
+        y: e.clientY,
+        imgW: start.cellW,
+        imgH: start.cellH,
+        uri: start.uri,
+      });
+    }
+
+    // Update floating preview position
+    setSwapDrag(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev);
+
+    // Detect drop target via elementFromPoint — the floating preview has
+    // pointer-events:none so it won't intercept the hit test.
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cellEl = el?.closest('[data-cell-index]') as HTMLElement | null;
+    if (cellEl) {
+      const targetIdx = Number(cellEl.dataset.cellIndex);
+      if (targetIdx !== swapDragRef.current?.sourceIndex) {
+        setDropTarget(targetIdx);
+      } else {
+        setDropTarget(null);
+      }
+    } else {
+      setDropTarget(null);
+    }
+  };
+
+  const handleSwapPointerUp = (e: React.PointerEvent) => {
+    swapStartRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+
+    const drag = swapDragRef.current;
+    if (drag) {
+      // A swap drag was in progress — perform the swap if there's a valid target
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cellEl = el?.closest('[data-cell-index]') as HTMLElement | null;
+      const targetIdx = cellEl ? Number(cellEl.dataset.cellIndex) : null;
+      if (targetIdx !== null && targetIdx !== drag.sourceIndex) {
+        swapCells(drag.sourceIndex, targetIdx);
+      }
+      // Suppress the click that follows pointerup — a drag shouldn't select
+      swapJustEndedRef.current = true;
+    }
+    // If no swap drag was started (movement < threshold), the onClick handler
+    // will fire and select the cell — nothing to do here.
+    setSwapDrag(null);
+    setDropTarget(null);
+  };
+
+  const handleSwapPointerCancel = (e: React.PointerEvent) => {
+    swapStartRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    setSwapDrag(null);
+    setDropTarget(null);
   };
 
   const handleImagePointerDown = (e: React.PointerEvent, index: number) => {
@@ -418,10 +561,20 @@ export default function CollageEditModal({
               return (
                 <div
                   key={i}
-                  onClick={() => setSelectedCell(i)}
+                  data-cell-index={i}
+                  onClick={() => {
+                    // Suppress click after a swap drag (drag shouldn't select)
+                    if (swapJustEndedRef.current) {
+                      swapJustEndedRef.current = false;
+                      return;
+                    }
+                    setSelectedCell(i);
+                  }}
                   className={cn(
                     'absolute overflow-hidden transition-all cursor-pointer',
-                    isSelected ? 'ring-2 ring-brand-primary ring-offset-1 touch-none' : 'hover:ring-1 hover:ring-brand-primary/50'
+                    isSelected ? 'ring-2 ring-brand-primary ring-offset-1 touch-none' : 'hover:ring-1 hover:ring-brand-primary/50',
+                    dropTarget === i && 'ring-2 ring-brand-primary ring-offset-2',
+                    swapDrag?.sourceIndex === i && 'opacity-40'
                   )}
                   style={{
                     left: cellX,
@@ -430,10 +583,28 @@ export default function CollageEditModal({
                     height: cellH,
                     borderRadius: layer.borderRadius,
                   }}
-                  onPointerDown={isSelected ? (e) => handleImagePointerDown(e, i) : undefined}
-                  onPointerMove={isSelected ? handleImagePointerMove : undefined}
-                  onPointerUp={isSelected ? handleImagePointerUp : undefined}
-                  onPointerCancel={isSelected ? handleImagePointerUp : undefined}
+                  // Selected cell: pointer-based pan/zoom (existing handlers).
+                  // Unselected cell with image: pointer-based swap drag (new).
+                  onPointerDown={isSelected
+                    ? (e) => handleImagePointerDown(e, i)
+                    : cell?.uri
+                      ? (e) => handleSwapPointerDown(e, i, cellW, cellH)
+                      : undefined}
+                  onPointerMove={isSelected
+                    ? handleImagePointerMove
+                    : cell?.uri
+                      ? handleSwapPointerMove
+                      : undefined}
+                  onPointerUp={isSelected
+                    ? handleImagePointerUp
+                    : cell?.uri
+                      ? handleSwapPointerUp
+                      : undefined}
+                  onPointerCancel={isSelected
+                    ? handleImagePointerUp
+                    : cell?.uri
+                      ? handleSwapPointerCancel
+                      : undefined}
                 >
                   {cell?.uri ? (
                     <CollageCellImage
@@ -586,11 +757,43 @@ export default function CollageEditModal({
 
             {/* Drag hint */}
             <p className="text-center text-xs text-secondary">{t('dragHint')}</p>
+            <p className="text-center text-xs text-secondary">{t('swapHint')}</p>
           </div>
         ) : (
-          <p className="text-center text-sm text-secondary">{t('selectHint')}</p>
+          <div className="space-y-1 text-center">
+            <p className="text-sm text-secondary">{t('selectHint')}</p>
+            <p className="text-xs text-secondary">{t('swapHint')}</p>
+          </div>
         )}
       </div>
+
+      {/* Floating swap-drag preview — follows the pointer (mouse or finger).
+          Shows just the image content (not the cell frame) so the user sees
+          exactly what they're dragging. pointer-events:none so it doesn't
+          interfere with elementFromPoint hit-testing for drop targets. */}
+      {swapDrag && (
+        <div
+          className="pointer-events-none fixed z-9999"
+          style={{
+            left: swapDrag.x - swapDrag.imgW / 2,
+            top: swapDrag.y - swapDrag.imgH / 2,
+            width: swapDrag.imgW,
+            height: swapDrag.imgH,
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={swapDrag.uri}
+            alt=""
+            className="h-full w-full object-cover shadow-2xl ring-2 ring-brand-primary"
+            style={{
+              borderRadius: layer.borderRadius,
+              opacity: 0.9,
+            }}
+            draggable={false}
+          />
+        </div>
+      )}
     </FullPageDrawer>
   );
 }

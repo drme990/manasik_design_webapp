@@ -99,6 +99,7 @@ export default function CollageCellImage({
       }}
       width={cellWidth}
       height={cellHeight}
+      loading='eager'
     />
   );
 }

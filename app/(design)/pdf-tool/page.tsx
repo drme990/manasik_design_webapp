@@ -484,15 +484,17 @@ function PdfToolPage() {
     }, [flushSave, router]);
 
     // "No" button in the leave modal — discards unsaved changes.
-    // Deletes the project if it's blank or was never saved to the server.
+    // Only deletes the project if it's truly blank (no images). For a
+    // first-time creation with content, the user chose not to save, so
+    // unsaved session changes are discarded but we do NOT delete the PDF —
+    // any previously-saved version in the DB is kept as-is.
     const doNoAndLeave = useCallback(() => {
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
         const proj = currentProjectRef.current;
         if (proj) {
             const isBlank = images.length === 0;
-            if (isBlank || !wasSyncedBefore) {
-                // Blank project or new project that was never synced — delete it
+            if (isBlank) {
                 deletePdfProject(proj.id).catch(() => { });
                 invalidatePdfListCache();
             }
@@ -500,7 +502,7 @@ function PdfToolPage() {
         // For existing projects with content, just leave — the DB still has
         // the last-saved version; unsaved session changes are discarded.
         router.replace('/projects');
-    }, [router, images.length, wasSyncedBefore]);
+    }, [router, images.length]);
 
     // Silently leave without asking — used when there are no changes at all.
     // Deletes the project if it's blank (no images).
@@ -524,9 +526,12 @@ function PdfToolPage() {
         }
     }, [doSilentLeave]);
 
-    // Browser back-button guard — same pattern as the editor
+    // Browser back-button guard — same pattern as the editor.
+    // Active for both existing projects AND first-time creation, so the user
+    // is always asked before losing unsaved work (e.g. images added to a new
+    // PDF that hasn't been saved yet). When there are no unsaved changes the
+    // handler silently leaves via doSilentLeave.
     useEffect(() => {
-        if (!projectId) return; // Only guard when editing an existing project
         window.history.pushState({ pdfGuard: true }, '');
         const handlePopState = () => {
             // Re-push the guard state so the next back press is also caught
@@ -541,7 +546,7 @@ function PdfToolPage() {
         return () => {
             window.removeEventListener('popstate', handlePopState);
         };
-    }, [projectId, doSilentLeave]);
+    }, [doSilentLeave]);
 
     // beforeunload — desktop: trigger native browser confirmation if unsaved
     useEffect(() => {

@@ -383,6 +383,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
         }}
         width={layer.naturalWidth * layer.imageScale}
         height={layer.naturalHeight * layer.imageScale}
+        loading="eager"
       />
       <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
     </div>

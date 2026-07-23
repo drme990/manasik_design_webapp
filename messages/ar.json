@@ -204,6 +204,8 @@
     "addElement": "إضافة عنصر",
     "myShapes": "أشكالي",
     "uploadShape": "رفع شكل",
+    "editShapes": "تعديل الأشكال",
+    "doneEditShapes": "تم",
     "canvasBackground": "خلفية اللوحة",
     "setBgImage": "تعيين صورة",
     "changeBgImage": "تغيير الصورة",
@@ -375,7 +377,8 @@
         "offsetY": "إزاحة Y",
         "swapWith": "تبديل مع",
         "selectHint": "اختر صورة لتحريرها",
-        "dragHint": "اسحب الصورة لتغيير موقعها"
+        "dragHint": "اسحب الصورة لتغيير موقعها",
+        "swapHint": "اسحب صورة وأفلتها على أخرى لتبديل موقعهما"
       },
       "imageFieldSize": {
         "title": "حجم حقل الصورة"
