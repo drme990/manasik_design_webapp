@@ -24,7 +24,7 @@ import {
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
-import { listPdfProjects, savePdfProject, createPdfProject, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
+import { getPdfProject, savePdfProject, createPdfProject, deletePdfProject, invalidatePdfListCache } from '@/lib/store/pdf-projects';
 import { useToast } from '@/components/providers/ToastProvider';
 import { createInstantPreview, uploadImageInBackground } from '@/lib/storage/upload';
 import type { PdfImage as PdfImageType, PdfProject } from '@/types';
@@ -253,8 +253,7 @@ function PdfToolPage() {
     useEffect(() => {
         if (!projectId) return;
         setLoading(true);
-        listPdfProjects().then((projects) => {
-            const found = projects.find((p) => p.id === projectId);
+        getPdfProject(projectId).then((found) => {
             if (found) {
                 currentProjectRef.current = found;
                 setCurrentProject(found);

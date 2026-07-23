@@ -1,20 +1,5 @@
 import type { SyncableDocument } from './storage';
 
-export type ExportType = 'png' | 'pdf';
-
-export interface ExportedItem extends SyncableDocument {
-  id: string;
-  _id?: string;
-  projectId?: string;
-  uri: string;
-  type: ExportType;
-  createdAt: number;
-  localModifiedAt: number;
-  syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
-  syncedAt?: number;
-  userId?: string;
-}
-
 export interface PdfImage {
   id: string;
   uri: string;

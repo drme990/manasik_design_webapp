@@ -61,6 +61,7 @@ export default function RootLayout({
       <body
         className="min-h-full"
         style={{ fontFamily: 'var(--font-expo-arabic), sans-serif' }}
+        suppressHydrationWarning
       >
         <ThemeProvider>
           <ToastProvider>

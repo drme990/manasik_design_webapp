@@ -12,7 +12,7 @@ import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { listProjects, createProject, deleteProject, renameProject, duplicateProject } from '@/lib/store/projects';
-import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/exports';
+import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project, PdfProject } from '@/types';
 

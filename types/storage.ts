@@ -1,64 +1,17 @@
-export interface StorageKey {
-  projects: 'manasik:projects';
-  exports: 'manasik:exports';
-  pdfProjects: 'manasik:pdf_projects';
-  bookingProducts: 'manasik:booking_products';
-  recentColors: 'manasik:recent-colors';
-  syncQueue: 'manasik:sync-queue';
-  syncState: 'manasik:sync-state';
-}
-
-export type StorageKeys = StorageKey[keyof StorageKey];
-
-export interface StorageOptions {
-  ttl?: number; // Time to live in milliseconds
-}
-
-export interface StorageResult<T> {
-  data: T | null;
-  error: Error | null;
-}
-
-// Sync-related types
+// `SyncStatus`/`SyncableDocument` are historical naming from an earlier
+// offline-first design, but are still the shape used by every document
+// stored in MongoDB (Project, PdfProject, BookingProduct, ...):
+// - `syncStatus: 'synced'` once the document has been written to the DB.
+// - `syncedAt` records when that happened.
+// There is no offline sync engine anymore — the DB is always the source of
+// truth — but the fields are kept as-is to match the existing DB schema.
 export type SyncStatus = 'synced' | 'pending' | 'conflict' | 'error';
 
 export interface SyncableDocument {
   id: string;
   _id?: string;
-  _rev?: string; // Revision for conflict detection
   syncedAt?: number;
   localModifiedAt: number;
   syncStatus: SyncStatus;
-  conflictData?: Record<string, unknown>;
   [key: string]: unknown; // Allow additional properties
-}
-
-export interface SyncOperation {
-  id: string;
-  type: 'create' | 'update' | 'delete';
-  collection: string;
-  documentId: string;
-  data: any;
-  timestamp: number;
-  retryCount: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  error?: string;
-  nextRetryAt?: number;
-}
-
-export interface SyncState {
-  lastSyncAt: number | null;
-  isOnline: boolean;
-  isSyncing: boolean;
-  pendingOperations: number;
-  conflicts: number;
-  lastError?: string;
-}
-
-export interface ConflictResolution {
-  documentId: string;
-  localVersion: any;
-  remoteVersion: any;
-  resolution: 'local' | 'remote' | 'merge';
-  resolvedAt: number;
 }

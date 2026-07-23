@@ -1,5 +1,7 @@
 import type { Project, ProjectCreateInput, ProjectUpdateInput } from '@/types';
 import { generateId } from '@/lib/utils/id';
+import { fetchWithAuth } from './fetch-with-auth';
+import { createResourceCache } from './cache';
 
 /**
  * Project store — API-first architecture.
@@ -8,114 +10,60 @@ import { generateId } from '@/lib/utils/id';
  * - No IndexedDB, no localStorage mirror. The database is the single source
  *   of truth — positions never drift on reopen because we always load from
  *   the server.
- * - An in-memory cache (Map) is used to avoid redundant API calls when
- *   navigating between pages within the same session.
+ * - An in-memory cache (see lib/store/cache.ts) is used to avoid redundant
+ *   API calls when navigating between pages within the same session.
  * - The editor keeps working state in React (and optionally sessionStorage
  *   for crash recovery), and only writes to the DB when the user clicks
  *   "Save" or confirms "Yes" on the leave modal.
  */
 
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'unknown' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-// ─── In-memory cache ─────────────────────────────────────────────────────────
-// Avoids redundant API calls when navigating between pages.
-// Cache is invalidated when a project is saved/deleted or explicitly.
-
-const projectCache = new Map<string, { project: Project; cachedAt: number }>();
-let listCache: { projects: Project[]; cachedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000; // 60 seconds
+const cache = createResourceCache<Project>(CACHE_TTL_MS);
 
 /** Invalidate the list cache (call after creating/deleting/renaming). */
 export function invalidateListCache(): void {
-  listCache = null;
+  cache.invalidateList();
 }
 
 /** Invalidate a single project from cache (call after saving). */
 export function invalidateProjectCache(id: string): void {
-  projectCache.delete(id);
-}
-
-/** Invalidate all caches. */
-export function invalidateAllCaches(): void {
-  projectCache.clear();
-  listCache = null;
+  cache.removeItem(id);
 }
 
 export async function listProjects(): Promise<Project[]> {
-  // Return cached list if fresh
-  if (listCache && Date.now() - listCache.cachedAt < CACHE_TTL_MS) {
-    return listCache.projects;
-  }
+  const cached = cache.getList();
+  if (cached) return cached;
 
   const result = await fetchWithAuth('/api/projects');
   const projects = (result.data || []) as Project[];
-
-  // Update caches
-  listCache = { projects, cachedAt: Date.now() };
-  for (const p of projects) {
-    projectCache.set(p.id, { project: p, cachedAt: Date.now() });
-  }
+  cache.setList(projects);
   return projects;
-}
-
-export async function listAllProjects(): Promise<Project[]> {
-  return listProjects();
-}
-
-export async function listBookingTemplateProjects(): Promise<Project[]> {
-  const projects = await listProjects();
-  return projects.filter((p) => p.kind === 'booking_template');
 }
 
 /**
  * Load a single project from the API. Always fetches the latest from the
  * server — no local storage fallback — so positions never drift.
  */
-export async function loadProject(id: string): Promise<Project | null> {
-  // Use in-memory cache as instant fallback only if fresh
-  const cached = projectCache.get(id);
-  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+export async function getProject(id: string): Promise<Project | null> {
+  const cached = cache.getItem(id);
+  if (cached) {
     // Still fetch in background to refresh cache, but return cached for UX
     fetchWithAuth(`/api/projects/${id}`)
-      .then((result) => {
-        const fresh = result.data as Project;
-        projectCache.set(id, { project: fresh, cachedAt: Date.now() });
-      })
+      .then((result) => cache.setItem(result.data as Project))
       .catch(() => { /* ignore background refresh errors */ });
-    return cached.project;
+    return cached;
   }
 
   try {
     const result = await fetchWithAuth(`/api/projects/${id}`);
     const project = result.data as Project;
-    projectCache.set(id, { project, cachedAt: Date.now() });
+    cache.setItem(project);
     return project;
   } catch (error) {
     console.warn('Failed to fetch project from API:', error);
     // Last resort: stale in-memory cache
-    if (cached) return cached.project;
-    return null;
+    return cache.getStaleItem(id);
   }
-}
-
-export async function getProject(id: string): Promise<Project | null> {
-  return loadProject(id);
 }
 
 /**
@@ -151,27 +99,9 @@ export async function saveProject(project: Project): Promise<Project> {
     body: JSON.stringify(clean),
   });
   const saved = result.data as Project;
-  // Update caches
-  projectCache.set(project.id, { project: saved, cachedAt: Date.now() });
-  listCache = null;
+  cache.setItem(saved);
+  cache.invalidateList();
   return saved;
-}
-
-/**
- * Sync is now the same as save — kept for backward compatibility with
- * callers that use `syncProject`.
- */
-export async function syncProject(id: string): Promise<Project | null> {
-  // No-op if no cached project to sync from
-  const cached = projectCache.get(id);
-  if (!cached) return null;
-  try {
-    const saved = await saveProject(cached.project);
-    return saved;
-  } catch (error) {
-    console.warn('Failed to sync project to API:', error);
-    return cached.project;
-  }
 }
 
 export async function createProject(input: ProjectCreateInput): Promise<Project> {
@@ -180,9 +110,8 @@ export async function createProject(input: ProjectCreateInput): Promise<Project>
     body: JSON.stringify(input),
   });
   const project = result.data as Project;
-  // Update caches
-  projectCache.set(project.id, { project, cachedAt: Date.now() });
-  invalidateListCache();
+  cache.setItem(project);
+  cache.invalidateList();
   return project;
 }
 
@@ -195,22 +124,15 @@ export async function updateProjectRemote(id: string, updates: ProjectUpdateInpu
     body: JSON.stringify(updates),
   });
   const updated = result.data as Project;
-  projectCache.set(id, { project: updated, cachedAt: Date.now() });
-  listCache = null;
+  cache.setItem(updated);
+  cache.invalidateList();
   return updated;
-}
-
-/**
- * Kept for backward compatibility — now just calls updateProjectRemote.
- */
-export async function updateProjectLocal(id: string, updates: ProjectUpdateInput): Promise<Project | null> {
-  return updateProjectRemote(id, updates);
 }
 
 export async function deleteProject(id: string): Promise<void> {
   await fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' });
-  invalidateProjectCache(id);
-  invalidateListCache();
+  cache.removeItem(id);
+  cache.invalidateList();
 }
 
 export async function duplicateProject(id: string): Promise<Project | null> {
@@ -231,8 +153,8 @@ export async function duplicateProject(id: string): Promise<Project | null> {
     } as ProjectCreateInput),
   });
   const created = result.data as Project;
-  projectCache.set(created.id, { project: created, cachedAt: Date.now() });
-  invalidateListCache();
+  cache.setItem(created);
+  cache.invalidateList();
   return created;
 }
 
@@ -240,14 +162,4 @@ export async function renameProject(id: string, newName: string): Promise<void> 
   const trimmed = newName.trim();
   if (!trimmed) return;
   await updateProjectRemote(id, { name: trimmed });
-}
-
-/** No-op — kept for backward compatibility with callers that import it. */
-export async function canSyncProject(_id: string): Promise<boolean> {
-  return false;
-}
-
-/** No-op — kept for backward compatibility. The mirror recovery system is gone. */
-export async function recoverFromMirror(): Promise<void> {
-  return;
 }

@@ -1,142 +1,71 @@
-import type { BookingProduct, BookingProductCreateInput, BookingProductUpdateInput, TemplateKey, Project } from '@/types';
-import { kvStorage } from '@/lib/utils/kv-storage';
-import { generateId } from '@/lib/utils/id';
-import { createProject, getProject, saveProject } from './projects';
+import type { BookingProduct, BookingProductCreateInput, BookingProductUpdateInput, Project } from '@/types';
+import { fetchWithAuth } from './fetch-with-auth';
+import { createResourceCache } from './cache';
+import { createProject, getProject } from './projects';
 
-const STORAGE_KEY = 'manasik:booking_products';
+/**
+ * Booking product store — API-first architecture (same pattern as
+ * lib/store/projects.ts). Booking products live in MongoDB (via
+ * /api/booking-products). No IndexedDB, no localStorage mirror — the
+ * database is the single source of truth. An in-memory cache avoids
+ * redundant API calls when navigating between pages within the same
+ * session.
+ */
 
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'unknown' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}
-
-async function mergeLocalProduct(product: BookingProduct): Promise<void> {
-  const products = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY) || [];
-  const index = products.findIndex((p) => p.id === product.id);
-  if (index >= 0) {
-    products[index] = product;
-  } else {
-    products.push(product);
-  }
-  await kvStorage.setItem(STORAGE_KEY, products);
-}
+const CACHE_TTL_MS = 60_000; // 60 seconds
+const cache = createResourceCache<BookingProduct>(CACHE_TTL_MS);
 
 export async function listBookingProducts(): Promise<BookingProduct[]> {
-  try {
-    const result = await fetchWithAuth('/api/booking-products');
-    const products = (result.data || []) as BookingProduct[];
-    await kvStorage.setItem(STORAGE_KEY, products);
-    return products;
-  } catch (error) {
-    console.warn('Failed to fetch booking products from API, falling back to local cache:', error);
-    const data = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY);
-    return data || [];
-  }
+  const cached = cache.getList();
+  if (cached) return cached;
+
+  const result = await fetchWithAuth('/api/booking-products');
+  const products = (result.data || []) as BookingProduct[];
+  cache.setList(products);
+  return products;
 }
 
 export async function getBookingProduct(id: string): Promise<BookingProduct | null> {
+  const cached = cache.getItem(id);
+  if (cached) return cached;
+
   try {
     const result = await fetchWithAuth(`/api/booking-products/${id}`);
     const product = result.data as BookingProduct;
-    await mergeLocalProduct(product);
+    cache.setItem(product);
     return product;
   } catch (error) {
-    console.warn('Failed to fetch booking product from API, falling back to local cache:', error);
-    const products = await listBookingProducts();
-    return products.find((p) => p.id === id) || null;
+    console.warn('Failed to fetch booking product from API:', error);
+    return cache.getStaleItem(id);
   }
 }
 
 export async function createBookingProduct(input: BookingProductCreateInput): Promise<BookingProduct> {
-  try {
-    const result = await fetchWithAuth('/api/booking-products', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    const product = result.data as BookingProduct;
-    await mergeLocalProduct(product);
-    return product;
-  } catch (error) {
-    console.warn('Failed to create booking product on API, creating locally only:', error);
-    const product: BookingProduct = {
-      id: generateId(),
-      name: input.name,
-      imageUri: input.imageUri,
-      defaultCanvas: input.defaultCanvas,
-      templates: {
-        withImage: { single: null, double: null, multiple: null },
-        withoutImage: { single: null, double: null, multiple: null },
-      },
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      localModifiedAt: Date.now(),
-      syncStatus: 'pending',
-      userId: input.userId,
-    };
-    await mergeLocalProduct(product);
-    return product;
-  }
-}
-
-export async function saveBookingProduct(product: BookingProduct): Promise<void> {
-  try {
-    await fetchWithAuth(`/api/booking-products/${product.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(product),
-    });
-  } catch (error) {
-    console.warn('Failed to save booking product to API, saving locally only:', error);
-  }
-
-  await mergeLocalProduct({
-    ...product,
-    updatedAt: Date.now(),
-    localModifiedAt: Date.now(),
-    syncStatus: 'pending',
+  const result = await fetchWithAuth('/api/booking-products', {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
+  const product = result.data as BookingProduct;
+  cache.setItem(product);
+  cache.invalidateList();
+  return product;
 }
 
 export async function updateBookingProduct(id: string, updates: BookingProductUpdateInput): Promise<BookingProduct | null> {
-  const product = await getBookingProduct(id);
-  if (!product) return null;
-
-  const updated = {
-    ...product,
-    ...updates,
-    id,
-    localModifiedAt: Date.now(),
-    syncStatus: 'pending' as const,
-  };
-
-  await saveBookingProduct(updated);
+  const result = await fetchWithAuth(`/api/booking-products/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+  const updated = result.data as BookingProduct;
+  cache.setItem(updated);
+  cache.invalidateList();
   return updated;
 }
 
 export async function deleteBookingProduct(id: string): Promise<void> {
-  try {
-    await fetchWithAuth(`/api/booking-products/${id}`, {
-      method: 'DELETE',
-    });
-  } catch (error) {
-    console.warn('Failed to delete booking product from API, deleting locally only:', error);
-  }
-
-  const products = await kvStorage.getItem<BookingProduct[]>(STORAGE_KEY) || [];
-  const filtered = products.filter((p) => p.id !== id);
-  await kvStorage.setItem(STORAGE_KEY, filtered);
+  await fetchWithAuth(`/api/booking-products/${id}`, { method: 'DELETE' });
+  cache.removeItem(id);
+  cache.invalidateList();
 }
 
 export async function getOrCreateTemplateProject(

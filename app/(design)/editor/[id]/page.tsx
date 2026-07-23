@@ -134,6 +134,12 @@ export default function EditorPage() {
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [showLeaveModal, setShowLeaveModal] = useState(false);
+    // When true, the rename modal is being used as part of the leave flow —
+    // after the user confirms the name, we save and leave instead of just renaming.
+    const renameThenLeaveRef = useRef(false);
+    // Tracks whether the user has saved at least once during this editor session.
+    // Used to decide whether to show the rename modal on the first leave save.
+    const hasSavedInSessionRef = useRef(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     // History snapshots include layers + background properties so undo/redo
@@ -338,6 +344,7 @@ export default function EditorPage() {
             try { sessionStorage.removeItem(`manasik:project:${updated.id}`); } catch { /* ignore */ }
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
+            hasSavedInSessionRef.current = true;
         } catch (error) {
             console.error('Failed to save project to server:', error);
         } finally {
@@ -347,7 +354,7 @@ export default function EditorPage() {
 
     // Save and navigate away — used by the "Yes" button in the leave modal.
     // Writes the project to the database (MongoDB), then navigates to /projects.
-    const doSaveAndLeave = useCallback(async () => {
+    const doSaveAndLeave = useCallback(async (nameOverride?: string) => {
         const current = pendingPersistRef.current || projectRef.current;
         if (current) {
             if (saveDebounceRef.current) {
@@ -358,10 +365,14 @@ export default function EditorPage() {
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
             setSaving(true);
+            // Apply rename if provided (first-time save flow)
+            const toSave = nameOverride && nameOverride.trim()
+                ? { ...current, name: nameOverride.trim() }
+                : current;
             // Save to the database (PATCH /api/projects/[id]) — await so the
             // request completes before we navigate away.
             try {
-                await saveProject(current);
+                await saveProject(toSave);
                 // Clear sessionStorage backup
                 try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
             } catch (err) {
@@ -495,10 +506,18 @@ export default function EditorPage() {
     const handleRenameProject = useCallback(async () => {
         if (!project || !renameValue.trim()) return;
         const trimmed = renameValue.trim();
+        // If this rename was triggered from the leave flow, save with the new
+        // name and navigate away instead of just updating the name in-place.
+        if (renameThenLeaveRef.current) {
+            renameThenLeaveRef.current = false;
+            setRenameOpen(false);
+            await doSaveAndLeave(trimmed);
+            return;
+        }
         await updateProjectRemote(project.id, { name: trimmed });
         setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
         setRenameOpen(false);
-    }, [project, renameValue]);
+    }, [project, renameValue, doSaveAndLeave]);
 
     const updateProjectState = useCallback(
         (updater: (prev: Project) => Project, recordHistory = true) => {
@@ -2494,7 +2513,16 @@ export default function EditorPage() {
                                 <Button
                                     onClick={() => {
                                         setShowLeaveModal(false);
-                                        doSaveAndLeave();
+                                        if (hasSavedInSessionRef.current) {
+                                            // Already saved during this session — just save and leave
+                                            doSaveAndLeave();
+                                        } else {
+                                            // First-time save — open the existing rename modal,
+                                            // then save and leave after the user confirms the name
+                                            renameThenLeaveRef.current = true;
+                                            setRenameValue(projectRef.current?.name ?? '');
+                                            setRenameOpen(true);
+                                        }
                                     }}
                                     className="flex-1"
                                 >
