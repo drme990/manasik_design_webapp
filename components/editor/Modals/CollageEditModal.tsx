@@ -175,7 +175,12 @@ export default function CollageEditModal({
       return;
     }
 
-    // Single pointer — start drag
+    // Single pointer — start drag.
+    // Capture the pointer so move/up events keep firing on this element even
+    // when the cursor leaves the cell bounds. Without this, pointerup is missed
+    // when the mouse exits the cell, leaving dragState stuck and causing the
+    // image to follow the mouse without a click.
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     setDragState({
       startX: e.clientX,
       startY: e.clientY,
@@ -251,6 +256,8 @@ export default function CollageEditModal({
 
   const handleImagePointerUp = (e: React.PointerEvent) => {
     const pinch = pinchRef.current;
+    // Release pointer capture so the element stops tracking the pointer
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     pinch.pointers.delete(e.pointerId);
     // If one pointer remains, restart drag from its position
     if (pinch.pointers.size === 1 && selectedCell !== null && collage) {
