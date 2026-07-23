@@ -120,6 +120,9 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   } | null>(null);
   const safeAreaDragRef = useRef(safeAreaDrag);
   safeAreaDragRef.current = safeAreaDrag;
+  // Tracks which axis has a snap match during safe area dragging — used to
+  // show guide lines on the opposite edge when values match.
+  const [safeAreaSnap, setSafeAreaSnap] = useState<{ horizontal: boolean; vertical: boolean }>({ horizontal: false, vertical: false });
 
   // Global pointer event listeners for safe area dragging — mobile fallback.
   // On mobile, setPointerCapture can be unreliable, so we also listen on window
@@ -180,24 +183,28 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       // snap it to match. This makes it easy to create symmetric safe areas.
       // Only applies to single-edge and corner drags (not 'move').
       const SNAP_THRESHOLD = 0.5; // % — how close before snapping kicks in
+      let snapH = false; // horizontal match (top ≈ bottom)
+      let snapV = false; // vertical match (left ≈ right)
       if (edge !== 'move') {
         if (edge === 'top' || edge === 'top-left' || edge === 'top-right') {
-          if (Math.abs(top - bottom) < SNAP_THRESHOLD) top = bottom;
+          if (Math.abs(top - bottom) < SNAP_THRESHOLD) { top = bottom; snapH = true; }
         }
         if (edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right') {
-          if (Math.abs(bottom - top) < SNAP_THRESHOLD) bottom = top;
+          if (Math.abs(bottom - top) < SNAP_THRESHOLD) { bottom = top; snapH = true; }
         }
         if (edge === 'left' || edge === 'top-left' || edge === 'bottom-left') {
-          if (Math.abs(left - right) < SNAP_THRESHOLD) left = right;
+          if (Math.abs(left - right) < SNAP_THRESHOLD) { left = right; snapV = true; }
         }
         if (edge === 'right' || edge === 'top-right' || edge === 'bottom-right') {
-          if (Math.abs(right - left) < SNAP_THRESHOLD) right = left;
+          if (Math.abs(right - left) < SNAP_THRESHOLD) { right = left; snapV = true; }
         }
       }
+      setSafeAreaSnap({ horizontal: snapH, vertical: snapV });
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
     };
     const handleUp = () => {
       setSafeAreaDrag(null);
+      setSafeAreaSnap({ horizontal: false, vertical: false });
     };
     window.addEventListener('pointermove', handleMove, { passive: false });
     window.addEventListener('pointerup', handleUp);
@@ -661,20 +668,23 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       // Magnetic snap — when a side's value gets close to its opposite side,
       // snap it to match. This makes it easy to create symmetric safe areas.
       const SNAP_THRESHOLD = 0.5; // % — how close before snapping kicks in
+      let snapH = false;
+      let snapV = false;
       if (edge !== 'move') {
         if (edge === 'top' || edge === 'top-left' || edge === 'top-right') {
-          if (Math.abs(top - bottom) < SNAP_THRESHOLD) top = bottom;
+          if (Math.abs(top - bottom) < SNAP_THRESHOLD) { top = bottom; snapH = true; }
         }
         if (edge === 'bottom' || edge === 'bottom-left' || edge === 'bottom-right') {
-          if (Math.abs(bottom - top) < SNAP_THRESHOLD) bottom = top;
+          if (Math.abs(bottom - top) < SNAP_THRESHOLD) { bottom = top; snapH = true; }
         }
         if (edge === 'left' || edge === 'top-left' || edge === 'bottom-left') {
-          if (Math.abs(left - right) < SNAP_THRESHOLD) left = right;
+          if (Math.abs(left - right) < SNAP_THRESHOLD) { left = right; snapV = true; }
         }
         if (edge === 'right' || edge === 'top-right' || edge === 'bottom-right') {
-          if (Math.abs(right - left) < SNAP_THRESHOLD) right = left;
+          if (Math.abs(right - left) < SNAP_THRESHOLD) { right = left; snapV = true; }
         }
       }
+      setSafeAreaSnap({ horizontal: snapH, vertical: snapV });
       onSafeAreaChangeRef.current?.({ top, right, bottom, left });
       return; // Don't process other interactions while dragging safe area
     }
@@ -942,6 +952,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         }
       }
       setSafeAreaDrag(null);
+      setSafeAreaSnap({ horizontal: false, vertical: false });
     }
   }, []);
 
@@ -1092,40 +1103,40 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')}
-                  className="absolute -top-7 left-1/2 flex h-12 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-base font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -top-9 left-1/2 flex h-16 w-36 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-xl font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Top"
                 >
-                  <LuArrowUp className="h-5 w-5" />
+                  <LuArrowUp className="h-6 w-6" />
                   {area.top.toFixed(1)}%
                 </button>
                 {/* BOTTOM — centered on bottom edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')}
-                  className="absolute -bottom-7 left-1/2 flex h-12 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-base font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -bottom-9 left-1/2 flex h-16 w-36 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-xl font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Bottom"
                 >
-                  <LuArrowDown className="h-5 w-5" />
+                  <LuArrowDown className="h-6 w-6" />
                   {area.bottom.toFixed(1)}%
                 </button>
                 {/* LEFT — centered on left edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')}
-                  className="absolute -left-8 top-1/2 flex h-28 w-12 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-sm font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -left-10 top-1/2 flex h-36 w-16 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-lg font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Left"
                 >
-                  <LuArrowLeft className="h-5 w-5" />
+                  <LuArrowLeft className="h-6 w-6" />
                   {area.left.toFixed(1)}%
                 </button>
                 {/* RIGHT — centered on right edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')}
-                  className="absolute -right-8 top-1/2 flex h-28 w-12 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-brand-primary bg-card-bg text-sm font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -right-10 top-1/2 flex h-36 w-16 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-lg font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Right"
                 >
-                  <LuArrowRight className="h-5 w-5" />
+                  <LuArrowRight className="h-6 w-6" />
                   {area.right.toFixed(1)}%
                 </button>
                 {/* Corner handles — large transparent touch area with visible dot */}
@@ -1144,6 +1155,47 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               </>
             )}
           </div>
+        );
+      })()}
+
+      {/* Safe area snap guide lines — shown during drag when top≈bottom
+          (horizontal match) or left≈right (vertical match). The line is
+          drawn on the opposite edge so the user sees the match visually. */}
+      {showGrid && safeAreaEditMode && safeAreaDrag && (() => {
+        const area = safeArea || DEFAULT_SAFE_AREA;
+        return (
+          <>
+            {/* Horizontal snap — top matches bottom: show lines on BOTH edges */}
+            {safeAreaSnap.horizontal && (
+              <>
+                {/* Top edge line */}
+                <div
+                  className="pointer-events-none absolute left-0 right-0 z-40 border-t-4 border-brand-primary"
+                  style={{ top: `${area.top}%`, height: 0 }}
+                />
+                {/* Bottom edge line */}
+                <div
+                  className="pointer-events-none absolute left-0 right-0 z-40 border-t-4 border-brand-primary"
+                  style={{ top: `${100 - area.bottom}%`, height: 0 }}
+                />
+              </>
+            )}
+            {/* Vertical snap — left matches right: show lines on BOTH edges */}
+            {safeAreaSnap.vertical && (
+              <>
+                {/* Left edge line */}
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 z-40 border-l-4 border-brand-primary"
+                  style={{ left: `${area.left}%`, width: 0 }}
+                />
+                {/* Right edge line */}
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 z-40 border-l-4 border-brand-primary"
+                  style={{ left: `${100 - area.right}%`, width: 0 }}
+                />
+              </>
+            )}
+          </>
         );
       })()}
 

@@ -17,7 +17,7 @@ import {
     LuPencil,
     LuText,
     LuDownload,
-    LuPlus,
+    LuShapes,
     LuPalette,
     LuScanLine,
     LuUpload,
@@ -25,6 +25,7 @@ import {
     LuX,
     LuRefreshCw,
     LuCheck,
+    LuSquare,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -195,6 +196,8 @@ export default function EditorPage() {
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     // When true, delete buttons are shown above each uploaded user shape
     const [editShapesMode, setEditShapesMode] = useState(false);
+    // Shape fill mode for fast-add from the shapes drawer: true=filled, false=outline
+    const [shapeFilled, setShapeFilled] = useState(true);
     const [activeProp, setActiveProp] = useState<string | null>(null);
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
@@ -966,7 +969,7 @@ export default function EditorPage() {
         setTextEditDrawerOpen(true);
     }, [updateProjectState, project]);
 
-    const handleAddShape = useCallback((shape: ShapeLayer['shape']) => {
+    const handleAddShape = useCallback((shape: ShapeLayer['shape'], filled = true) => {
         const w = project?.canvasWidth ?? 1080;
         const h = project?.canvasHeight ?? 1080;
         const shapeW = w * 0.25;
@@ -977,6 +980,7 @@ export default function EditorPage() {
             y: (h - shapeH) / 2,
             width: shapeW,
             height: shapeH,
+            filled,
         });
         newLayer.zIndex = nextZIndex(project?.layers ?? []);
         updateProjectState((prev) => ({
@@ -1682,15 +1686,39 @@ export default function EditorPage() {
 
                     {/* Bottom bar — shown when no layer is selected (mobile style) */}
                     {!selectedLayer && (
-                        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg">
+                        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg" dir='ltr'>
                             <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
-                                <PropButton
-                                    label={t('canvasBackground')}
-                                    swatch={project.backgroundColor ?? '#ffffff'}
-                                    icon={<LuPalette className="h-5 w-5" />}
-                                    active={colorPickerProp === 'canvas.bg'}
-                                    onClick={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
+                                {/* 1 — Dynamic field (booking templates only) */}
+                                {project?.kind === 'booking_template' && (
+                                    <PropToggle
+                                        label={t('addField')}
+                                        icon={<LuText className="h-5 w-5" />}
+                                        active={false}
+                                        onClick={handleAddDynamicField}
+                                    />
+                                )}
+                                {/* 2 — Text */}
+                                <PropToggle
+                                    label={t('addText')}
+                                    icon={<LuType className="h-5 w-5" />}
+                                    active={false}
+                                    onClick={handleAddText}
                                 />
+                                {/* 3 — Image */}
+                                <PropToggle
+                                    label={t('addImage')}
+                                    icon={<LuImage className="h-5 w-5" />}
+                                    active={false}
+                                    onClick={() => fileInputRef.current?.click()}
+                                />
+                                {/* 4 — Shape (opens the shapes drawer) */}
+                                <PropToggle
+                                    label={t('addShape')}
+                                    icon={<LuShapes className="h-5 w-5" />}
+                                    active={addDrawerOpen}
+                                    onClick={() => setAddDrawerOpen(true)}
+                                />
+                                {/* 5 — BG image */}
                                 <PropToggle
                                     label={project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
                                     icon={
@@ -1719,6 +1747,15 @@ export default function EditorPage() {
                                         onClick={handleRemoveBackgroundImage}
                                     />
                                 )}
+                                {/* 6 — BG color */}
+                                <PropButton
+                                    label={t('canvasBackground')}
+                                    swatch={project.backgroundColor ?? '#ffffff'}
+                                    icon={<LuPalette className="h-5 w-5" />}
+                                    active={colorPickerProp === 'canvas.bg'}
+                                    onClick={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
+                                />
+                                {/* 7 — Safe zone controller */}
                                 <PropToggle
                                     label={safeAreaEditMode ? t('safeAreaEditOn') : t('safeAreaEditOff')}
                                     icon={<LuScanLine className="h-5 w-5" />}
@@ -1728,17 +1765,6 @@ export default function EditorPage() {
                             </div>
                         </div>
                     )}
-
-                    {/* Floating + button — bottom right, sits just above the bottom bar */}
-                    <button
-                        type="button"
-                        onClick={() => setAddDrawerOpen(true)}
-                        className="absolute right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-[bottom] duration-200 ease-out hover:scale-105 active:scale-95"
-                        style={{ bottom: bottomBarHeight + 16 }}
-                        aria-label={t('addElement')}
-                    >
-                        <LuPlus className="h-7 w-7" />
-                    </button>
 
                     {/* Hidden file inputs */}
                     <input
@@ -1795,148 +1821,143 @@ export default function EditorPage() {
                     )}
                 </div>
 
-                {/* Add drawer — text, image, shapes */}
+                {/* Shapes drawer — opened from the bottom bar shape button */}
                 <Drawer
                     isOpen={addDrawerOpen}
                     onClose={() => {
                         setAddDrawerOpen(false);
                         setEditShapesMode(false);
                     }}
-                    title={t('addElement')}
-                    height="half"
-                >
-                    {/* Add text, image, field options */}
-                    <div className="mb-6">
-                        <div className="grid grid-cols-2 gap-3">
+                    title={t('addShape')}
+                    height="auto"
+                    footer={
+                        <div className="w-full grid grid-cols-2">
                             <button
-                                onClick={handleAddText}
-                                className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                            >
-                                <LuType className="h-8 w-8 text-brand-primary" />
-                                <span className="text-sm font-medium text-foreground">{t('addText')}</span>
-                            </button>
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                            >
-                                <LuImage className="h-8 w-8 text-brand-primary" />
-                                <span className="text-sm font-medium text-foreground">{t('addImage')}</span>
-                            </button>
-                            {project?.kind === 'booking_template' && (
-                                <button
-                                    onClick={handleAddDynamicField}
-                                    className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                >
-                                    <LuText className="h-8 w-8 text-brand-primary" />
-                                    <span className="text-sm font-medium text-foreground">{t('addField')}</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Shapes — built-in + user-uploaded in one row */}
-                    <div>
-                        <div className="mb-3 flex items-center justify-between">
-                            <h3 className="text-sm font-medium text-secondary">{t('addShape')}</h3>
-                            {/* Edit shapes button — only visible when user has uploaded shapes */}
-                            {userShapes.length > 0 && (
-                                <button
-                                    onClick={() => setEditShapesMode((v) => !v)}
-                                    className={cn(
-                                        'flex items-center gap-1 text-xs transition-colors',
-                                        editShapesMode
-                                            ? 'font-semibold text-brand-primary'
-                                            : 'text-secondary hover:text-foreground'
-                                    )}
-                                >
-                                    {editShapesMode ? (
-                                        <>
-                                            <LuCheck className="h-3.5 w-3.5" />
-                                            {t('doneEditShapes')}
-                                        </>
-                                    ) : (
-                                        <>
-                                            <LuPencil className="h-3.5 w-3.5" />
-                                            {t('editShapes')}
-                                        </>
-                                    )}
-                                </button>
-                            )}
-                        </div>
-                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2 pt-2">
-                            {/* Built-in shapes */}
-                            {SHAPES.map(({ shape, labelKey }) => (
-                                <button
-                                    key={shape}
-                                    onClick={() => handleAddShape(shape)}
-                                    className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                >
-                                    <ShapeRenderer
-                                        shape={shape}
-                                        width={40}
-                                        height={40}
-                                        fillColor="var(--brand-primary)"
-                                        strokeColor="var(--brand-primary)"
-                                        strokeWidth={2}
-                                        filled
-                                    />
-                                    <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
-                                </button>
-                            ))}
-
-                            {/* Divider between built-in and user shapes */}
-                            {userShapes.length > 0 && (
-                                <div className="my-1 w-px shrink-0 self-stretch bg-stroke" aria-hidden />
-                            )}
-
-                            {/* User-uploaded PNG shapes */}
-                            {userShapes.map((shape) => (
-                                <div
-                                    key={shape.id}
-                                    className="group relative flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                >
-                                    <button
-                                        onClick={() => {
-                                            if (editShapesMode) return; // don't add while editing
-                                            handleAddPngShape(shape);
-                                        }}
-                                        className="flex flex-col items-center gap-2"
-                                    >
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                            src={shape.url}
-                                            alt={shape.name}
-                                            className="h-10 w-10 object-contain"
-                                            draggable={false}
-                                        />
-                                        <span className="w-full truncate text-center text-xs text-secondary">{shape.name}</span>
-                                    </button>
-                                    {/* Delete button — only shown in edit mode */}
-                                    {editShapesMode && (
-                                        <button
-                                            onClick={() => handleDeleteShape(shape.id)}
-                                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
-                                            aria-label={t('toolbars.shape.deleteShape')}
-                                        >
-                                            <LuTrash2 className="h-3 w-3" />
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-
-                            {/* Upload button — at the end */}
-                            <button
-                                onClick={() => shapeFileInputRef.current?.click()}
-                                disabled={shapeUploading}
-                                className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-dashed border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary disabled:opacity-50"
-                            >
-                                {shapeUploading ? (
-                                    <LuLoaderCircle className="h-8 w-8 animate-spin text-secondary" />
-                                ) : (
-                                    <LuUpload className="h-8 w-8 text-secondary" />
+                                onClick={() => setShapeFilled(true)}
+                                className={cn(
+                                    'w-full flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors',
+                                    shapeFilled
+                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
+                                        : 'border-stroke text-secondary hover:bg-muted'
                                 )}
-                                <span className="text-xs text-secondary">{t('uploadShape')}</span>
+                            >
+                                <LuSquare className="h-4 w-4 fill-current" />
+                                {t('shapeFilled')}
                             </button>
+                            <button
+                                onClick={() => setShapeFilled(false)}
+                                className={cn(
+                                    'flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors',
+                                    !shapeFilled
+                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
+                                        : 'border-stroke text-secondary hover:bg-muted'
+                                )}
+                            >
+                                <LuSquare className="h-4 w-4" />
+                                {t('shapeOutline')}
+                            </button>
+                        </div>
+                    }
+                >
+                    <div className="space-y-6">
+                        {/* Built-in shapes — grid layout, scrollable on Y axis */}
+                        <div>
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-sm font-medium text-secondary">{t('addShape')}</h3>
+                                {/* Edit shapes button — only visible when user has uploaded shapes */}
+                                {userShapes.length > 0 && (
+                                    <button
+                                        onClick={() => setEditShapesMode((v) => !v)}
+                                        className={cn(
+                                            'flex items-center gap-1 text-xs transition-colors',
+                                            editShapesMode
+                                                ? 'font-semibold text-brand-primary'
+                                                : 'text-secondary hover:text-foreground'
+                                        )}
+                                    >
+                                        {editShapesMode ? (
+                                            <>
+                                                <LuCheck className="h-3.5 w-3.5" />
+                                                {t('doneEditShapes')}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <LuPencil className="h-3.5 w-3.5" />
+                                                {t('editShapes')}
+                                            </>
+                                        )}
+                                    </button>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+                                {SHAPES.map(({ shape, labelKey }) => (
+                                    <button
+                                        key={shape}
+                                        onClick={() => handleAddShape(shape, shapeFilled)}
+                                        className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                    >
+                                        <ShapeRenderer
+                                            shape={shape}
+                                            width={40}
+                                            height={40}
+                                            fillColor="var(--brand-primary)"
+                                            strokeColor="var(--brand-primary)"
+                                            strokeWidth={2}
+                                            filled={shapeFilled}
+                                        />
+                                        <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
+                                    </button>
+                                ))}
+
+                                {/* User-uploaded PNG shapes — directly after built-in shapes */}
+                                {userShapes.map((shape) => (
+                                    <div
+                                        key={shape.id}
+                                        className="group relative flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                    >
+                                        <button
+                                            onClick={() => {
+                                                if (editShapesMode) return; // don't add while editing
+                                                handleAddPngShape(shape);
+                                            }}
+                                            className="flex flex-col items-center gap-2"
+                                        >
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={shape.url}
+                                                alt={shape.name}
+                                                className="h-10 w-10 object-contain"
+                                                draggable={false}
+                                            />
+                                            <span className="w-full truncate text-center text-xs text-secondary">{shape.name}</span>
+                                        </button>
+                                        {/* Delete button — only shown in edit mode */}
+                                        {editShapesMode && (
+                                            <button
+                                                onClick={() => handleDeleteShape(shape.id)}
+                                                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
+                                                aria-label={t('toolbars.shape.deleteShape')}
+                                            >
+                                                <LuTrash2 className="h-3 w-3" />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+
+                                {/* Upload button — at the end of the grid */}
+                                <button
+                                    onClick={() => shapeFileInputRef.current?.click()}
+                                    disabled={shapeUploading}
+                                    className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary disabled:opacity-50"
+                                >
+                                    {shapeUploading ? (
+                                        <LuLoaderCircle className="h-8 w-8 animate-spin text-secondary" />
+                                    ) : (
+                                        <LuUpload className="h-8 w-8 text-secondary" />
+                                    )}
+                                    <span className="text-xs text-secondary">{t('uploadShape')}</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Drawer>
