@@ -77,7 +77,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     showGrid = true,
     className,
     onAlign,
-    onVerticalAlign,
     onEditText,
     onCropImage,
     onEditCollage,

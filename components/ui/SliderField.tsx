@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 export interface SliderFieldProps {
@@ -27,10 +27,11 @@ export default function SliderField({
   suffix,
 }: SliderFieldProps) {
   const [inputValue, setInputValue] = useState(String(value));
-
-  useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setInputValue(String(value));
-  }, [value]);
+  }
 
   const handleRangeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(e.target.value);

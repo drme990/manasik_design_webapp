@@ -65,7 +65,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = (await request.json()) as BookingProductUpdateInput;
-    const { _id, id: bodyId, ...safeBody } = body as Record<string, unknown>;
+    // Strip fields that must never be overwritten by a client update
+    const safeBody = { ...body } as Record<string, unknown>;
+    delete safeBody._id;
+    delete safeBody.id;
+    delete safeBody.userId;
     const updates: Partial<BookingProduct> = {
       ...(safeBody as BookingProductUpdateInput),
       updatedAt: Date.now(),

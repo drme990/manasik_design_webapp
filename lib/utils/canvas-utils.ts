@@ -1,4 +1,4 @@
-import type { Point, Size, Rect } from '@/lib/utils/geometry';
+import type { Rect } from '@/lib/utils/geometry';
 
 export function createCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');

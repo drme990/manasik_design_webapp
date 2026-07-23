@@ -78,7 +78,11 @@ export async function GET() {
     const collection = await getCollection();
     const docs = await collection.find({ userId: session.id }).toArray();
     // Strip Mongo's _id before returning
-    const fonts = docs.map(({ _id: _omit, ...rest }) => rest);
+    const fonts = docs.map((doc) => {
+      const rest = { ...doc };
+      delete (rest as Record<string, unknown>)._id;
+      return rest;
+    });
     return NextResponse.json({ success: true, data: fonts });
   } catch (error) {
     console.error('[GET /api/fonts]', error);
@@ -138,8 +142,9 @@ export async function POST(request: NextRequest) {
     await collection.insertOne(doc);
 
     // Strip Mongo's _id before returning (not in our type / not needed by client)
-    const { _id: _omit, ...rest } = doc as UserFontDoc & { _id?: unknown };
-    return NextResponse.json({ success: true, data: rest });
+    const fontData = { ...doc } as UserFontDoc & { _id?: unknown };
+    delete fontData._id;
+    return NextResponse.json({ success: true, data: fontData });
   } catch (error) {
     console.error('[POST /api/fonts]', error);
     return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });

@@ -73,11 +73,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = (await request.json()) as ProjectUpdateInput;
-    const { _id, id: bodyId, userId, ...safeBody } = body as Record<string, unknown>;
+    // Strip fields that must never be overwritten by a client update
+    const safeBody = { ...body } as Record<string, unknown>;
+    delete safeBody._id;
+    delete safeBody.id;
+    delete safeBody.userId;
     const updates: Partial<Project> = {
       ...(safeBody as ProjectUpdateInput),
       updatedAt: Date.now(),
       localModifiedAt: Date.now(),
+      // Mark as synced on first save (syncedAt is not set at creation time)
+      syncedAt: existing.syncedAt ?? Date.now(),
+      syncStatus: 'synced',
     };
 
     const collection = await getCollection();

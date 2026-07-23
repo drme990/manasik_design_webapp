@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+
 export interface GestureState {
   isDragging: boolean;
   isRotating: boolean;
@@ -42,7 +43,9 @@ export function useGestures(handlers: GestureHandlers = {}) {
   });
 
   const stateRef = useRef(gestureState);
-  stateRef.current = gestureState;
+  useEffect(() => {
+    stateRef.current = gestureState;
+  }, [gestureState]);
 
   const getEventPosition = useCallback((e: MouseEvent | TouchEvent) => {
     if ('touches' in e) {
@@ -79,8 +82,7 @@ export function useGestures(handlers: GestureHandlers = {}) {
     e.preventDefault();
 
     const { x, y } = getEventPosition(e);
-    const deltaX = x - stateRef.current.lastX;
-    const deltaY = y - stateRef.current.lastY;
+
 
     setGestureState(prev => ({
       ...prev,

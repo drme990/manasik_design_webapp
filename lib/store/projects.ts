@@ -76,9 +76,10 @@ export async function getProject(id: string): Promise<Project | null> {
  */
 export async function saveProject(project: Project): Promise<Project> {
   // Strip transient fields and blob: URIs before persisting
-  const { bgUploadStatus: _bgStatus, bgPendingFile: _bgFile, ...rest } = project;
   const clean: Project = {
-    ...rest,
+    ...project,
+    bgUploadStatus: undefined,
+    bgPendingFile: undefined,
     // Don't persist blob: URIs — they're client-side only and would break on reload
     backgroundUri: project.backgroundUri?.startsWith('blob:') ? undefined : project.backgroundUri,
     backgroundThumbnailUri: project.backgroundThumbnailUri?.startsWith('blob:') ? undefined : project.backgroundThumbnailUri,
@@ -88,7 +89,9 @@ export async function saveProject(project: Project): Promise<Project> {
         return { ...l, uri: '', uploadStatus: undefined, pendingFile: undefined };
       }
       if (l.type === 'image') {
-        const { uploadStatus: _us, pendingFile: _pf, ...imgRest } = l;
+        const imgRest = { ...l };
+        delete (imgRest as Partial<typeof l>).uploadStatus;
+        delete (imgRest as Partial<typeof l>).pendingFile;
         return imgRest as typeof l;
       }
       return l;

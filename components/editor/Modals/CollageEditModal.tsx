@@ -40,7 +40,9 @@ export default function CollageEditModal({
   // scale and clamp the drag offset so the image always covers the cell frame.
   const [imageDimensions, setImageDimensions] = useState<Map<number, { w: number; h: number }>>(new Map());
   const imageDimensionsRef = useRef(imageDimensions);
-  imageDimensionsRef.current = imageDimensions;
+  useEffect(() => {
+    imageDimensionsRef.current = imageDimensions;
+  }, [imageDimensions]);
 
   // Pinch-to-zoom + rotate state
   const pinchRef = useRef<{
@@ -55,10 +57,19 @@ export default function CollageEditModal({
     lastDelta?: { dist: number; angle: number };
   }>({ pointers: new Map(), startDistance: 0, startScale: 1, startAngle: 0, startRotation: 0 });
 
-  useEffect(() => {
+  // Reset state when the modal opens (adjusting state when a prop changes —
+  // per React docs, this is done during render, not in an effect).
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       setSelectedCell(null);
       setDragState(null);
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen) {
       pinchRef.current.pointers.clear();
       pinchRef.current.startDistance = 0;
       pinchRef.current.startAngle = 0;

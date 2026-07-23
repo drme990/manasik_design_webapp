@@ -8,6 +8,7 @@ import { resolveFontFamily } from '@/lib/constants/fonts';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import ShapeRenderer from './ShapeRenderer';
 import CollageCellImage from './CollageCellImage';
+import Image from 'next/image';
 
 export interface LayerRendererProps {
   layer: AnyLayer;
@@ -155,7 +156,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     prevFontSizeRef.current = layer.fontSize;
     // Only re-measure when text content or font properties change —
     // deliberately exclude width/height to prevent feedback loops.
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth, layer.x, layer.y]);
 
   // When boxWidth is set, measure height only (width is user-controlled)
   useLayoutEffect(() => {
@@ -188,7 +189,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
       }
     }
     prevFontSizeRef.current = layer.fontSize;
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth, layer.y]);
 
   return (
     <div
@@ -312,9 +313,6 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
   // by using background-image with precise positioning. The original image is never modified.
   const hasCrop = !!layer.cropRect;
   const crop = layer.cropRect;
-  // The "effective" natural dimensions = cropped size if crop exists, else original
-  const effNaturalW = hasCrop ? crop!.width : layer.naturalWidth;
-  const effNaturalH = hasCrop ? crop!.height : layer.naturalHeight;
 
   if (hasCrop) {
     // Non-destructive crop: use background-image to show only the crop region.
@@ -371,7 +369,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
       onDoubleClick={onDoubleClick}
       onClick={(e) => e.stopPropagation()}
     >
-      <img
+      <Image
         src={displayUri}
         alt="Layer"
         draggable={false}
@@ -383,6 +381,8 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
           transform: `translate(${layer.offsetX}px, ${layer.offsetY}px)`,
           userSelect: 'none',
         }}
+        width={layer.naturalWidth * layer.imageScale}
+        height={layer.naturalHeight * layer.imageScale}
       />
       <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
     </div>

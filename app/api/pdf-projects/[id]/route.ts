@@ -65,7 +65,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = (await request.json()) as Partial<PdfProject>;
-    const { _id, id: bodyId, userId, ...safeBody } = body as Record<string, unknown>;
+    // Strip fields that should never be overwritten by a client update
+    const safeBody = { ...body };
+    delete (safeBody as Record<string, unknown>)._id;
+    delete (safeBody as Record<string, unknown>).id;
+    delete (safeBody as Record<string, unknown>).userId;
     const updates: Partial<PdfProject> = {
       ...(safeBody as Partial<PdfProject>),
       updatedAt: Date.now(),

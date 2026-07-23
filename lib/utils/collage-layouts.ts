@@ -387,7 +387,7 @@ export function getCellRects(
 ): Array<{ x: number; y: number; width: number; height: number; index: number }> {
   const rects: Array<{ x: number; y: number; width: number; height: number; index: number }> = [];
 
-  walkShape(shape, (node, path) => {
+  walkShape(shape, (node) => {
     if (node.type === 'cell' && node.cellIndex !== undefined) {
       // Calculate rect based on path and ratios
       // This is a simplified version - full implementation would need to track

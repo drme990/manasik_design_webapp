@@ -134,14 +134,20 @@ function LayerRow({
     collect: (monitor) => ({ isOver: monitor.isOver() }),
   });
 
-  drag(drop(ref));
-
+  // Connect drag + drop to the ref node (in effect to avoid reading ref during render)
   useEffect(() => {
+    drag(drop(ref));
+  }, [drag, drop]);
+
+  // Reset drop indicators when drag leaves
+  const [prevIsOver, setPrevIsOver] = useState(isOver);
+  if (isOver !== prevIsOver) {
+    setPrevIsOver(isOver);
     if (!isOver) {
       setDropAbove(false);
       setDropBelow(false);
     }
-  }, [isOver]);
+  }
 
   return (
     <div className="relative">

@@ -1,4 +1,4 @@
-import { PDFDocument, PDFPage, rgb, StandardFonts, type Color, type PDFFont } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, StandardFonts, type PDFFont } from 'pdf-lib';
 import { loadImage } from './image-utils';
 
 export async function createBlankPdf(): Promise<PDFDocument> {
@@ -43,7 +43,7 @@ export async function addImageToPdf(
   }
 
   const pdfPage = pages[page];
-  const { width: pageWidth, height: pageHeight } = pdfPage.getSize();
+  const { width: pageWidth } = pdfPage.getSize();
 
   const imgWidth = width || pageWidth;
   const imgHeight = height || (imgWidth / (img.width / img.height));

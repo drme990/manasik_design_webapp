@@ -1,13 +1,11 @@
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { generateId } from './id';
 import { ARABIC_SAFE_FONTS } from '../constants/arabic-fonts';
-import { COLLAGE_LAYOUTS } from '../constants/presets';
 
 // ─── Default values ──────────────────────────────────────────────────────────
 
 // Canvas / Project
 const DEFAULT_CANVAS_WIDTH = 1080;
-const DEFAULT_CANVAS_HEIGHT = 1350;       // 4:5 aspect ratio
 
 // Colors
 const DEFAULT_COLOR = '#000000';           // Text color
@@ -190,7 +188,6 @@ export function buildCollageLayer(options: {
   // cell.scale = 1.0 means "100% = fills the box" (cover mode).
   // The CollageCellImage component internally multiplies by fillScale
   // (coverScale/containScale) to go from contain → cover.
-  const layoutDef = COLLAGE_LAYOUTS.find(l => l.id === layoutId) || COLLAGE_LAYOUTS[0];
   const cells = uris.map((uri, i) => {
     const natW = naturalSizes[i]?.width ?? 1080;
     const natH = naturalSizes[i]?.height ?? 1080;

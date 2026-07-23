@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils/cn';
+import Image from 'next/image';
 import { LuImageOff } from 'react-icons/lu';
 
 export interface CollageLayoutCell {
@@ -65,10 +66,12 @@ export default function CollageRenderer({
             }}
           >
             {cell.uri ? (
-              <img
+              <Image
                 src={cell.uri}
                 alt={`collage cell ${index + 1}`}
                 className="h-full w-full object-cover"
+                width={cellWidth}
+                height={cellHeight}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-muted text-secondary">

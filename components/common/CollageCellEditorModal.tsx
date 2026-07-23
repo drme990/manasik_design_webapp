@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import FileUpload from '@/components/ui/FileUpload';
@@ -9,6 +9,7 @@ import { useToast } from '@/components/providers/ToastProvider';
 import { uploadImageWithProgress } from '@/lib/storage/upload';
 import { LuX } from 'react-icons/lu';
 import type { CollageCell } from '@/types/collage';
+import Image from 'next/image';
 
 export interface CollageCellEditorModalProps {
   isOpen: boolean;
@@ -30,9 +31,14 @@ export default function CollageCellEditorModal({
   const toast = useToast();
   const [uri, setUri] = useState(cell?.uri || '');
 
-  useEffect(() => {
+  // Sync uri when cell or isOpen changes
+  const [prevCell, setPrevCell] = useState(cell);
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (cell !== prevCell || isOpen !== prevIsOpen) {
+    setPrevCell(cell);
+    setPrevIsOpen(isOpen);
     setUri(cell?.uri || '');
-  }, [cell, isOpen]);
+  }
 
   const handleFilesSelected = async (files: File[]) => {
     const file = files[0];
@@ -80,7 +86,7 @@ export default function CollageCellEditorModal({
       <div className="space-y-4">
         {uri ? (
           <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-stroke bg-muted">
-            <img src={uri} alt={t('selectedImageAlt')} className="h-full w-full object-contain" />
+            <Image src={uri} alt={t('selectedImageAlt')} className="h-full w-full object-contain" width={100} height={100} />
             <button
               onClick={() => setUri('')}
               className="absolute top-2 right-2 rounded-full bg-error p-1 text-white"

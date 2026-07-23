@@ -7,6 +7,15 @@ const nextConfig: NextConfig = {
     // caused by an extra package-lock.json in the parent directory.
     root: path.resolve(process.cwd()),
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'storage.manasik.net',
+        pathname: '/**',
+      },
+    ],
+  },
   allowedDevOrigins: ['dayana-nondepressing-probingly.ngrok-free.dev', '192.168.1.16'],
 };
 

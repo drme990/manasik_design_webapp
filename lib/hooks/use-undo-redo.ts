@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export interface HistoryState<T> {
   past: T[];
@@ -16,7 +16,9 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = MAX_HISTORY
   });
 
   const historyRef = useRef(history);
-  historyRef.current = history;
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   const canUndo = history.past.length > 0;
   const canRedo = history.future.length > 0;

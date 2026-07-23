@@ -1,4 +1,4 @@
-import { fileToBase64, base64ToFile } from './file';
+import { fileToBase64 } from './file';
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

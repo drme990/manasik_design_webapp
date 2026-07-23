@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 export interface NumberFieldProps {
@@ -25,10 +25,11 @@ export default function NumberField({
   suffix,
 }: NumberFieldProps) {
   const [inputValue, setInputValue] = useState(String(value));
-
-  useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setInputValue(String(value));
-  }, [value]);
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;

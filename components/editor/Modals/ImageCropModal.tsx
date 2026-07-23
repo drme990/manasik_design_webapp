@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { useTranslations } from '@/lib/i18n/strings';
+import Image from 'next/image';
 
 export interface ImageCropModalProps {
   isOpen: boolean;
@@ -117,16 +118,23 @@ export default function ImageCropModal({
     setImgLoaded(true);
   }, [lastCropRect, naturalWidth, naturalHeight]);
 
-  // Reset state when modal opens
-  useEffect(() => {
+  // Reset state when modal opens (adjust during render to avoid setState in effect)
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       setImgLoaded(false);
       setDisplaySize({ width: 0, height: 0 });
       setCrop({ x: 0, y: 0, width: 0, height: 0 });
-      cropRef.current = { x: 0, y: 0, width: 0, height: 0 };
-      dragModeRef.current = null;
-      moveOffsetRef.current = null;
     }
+  }
+
+  // Reset refs when modal opens (refs cannot be touched during render)
+  useEffect(() => {
+    if (!isOpen) return;
+    cropRef.current = { x: 0, y: 0, width: 0, height: 0 };
+    dragModeRef.current = null;
+    moveOffsetRef.current = null;
   }, [isOpen]);
 
   // After the modal opens and the image element is rendered, check if the
@@ -328,7 +336,7 @@ export default function ImageCropModal({
           onPointerCancel={handleContainerPointerUp}
         >
           <div className="relative inline-block">
-            <img
+            <Image
               ref={imgRef}
               src={imageUri}
               alt="Crop preview"
@@ -339,6 +347,8 @@ export default function ImageCropModal({
               // Force the image to have a min size while loading so the
               // container doesn't collapse to 0×0 (which would prevent
               // onLoad from ever firing in some browsers).
+              width={100}
+              height={100}
               style={{ minHeight: imgLoaded ? 0 : 200 }}
             />
 

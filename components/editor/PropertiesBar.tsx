@@ -41,7 +41,6 @@ import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } f
 
 export function PropButton({
     label,
-    value,
     swatch,
     icon,
     active,

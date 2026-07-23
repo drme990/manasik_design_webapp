@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import NumberField from '@/components/ui/NumberField';
 import SliderField from '@/components/ui/SliderField';
 import ColorPicker from '@/components/ui/ColorPicker';
 import Switch from '@/components/ui/Switch';
@@ -38,6 +37,7 @@ const SHAPE_LABEL_KEYS: Record<ShapeLayer['shape'], string> = {
   star_6: 'star6',
   star_8: 'star8',
   line: 'line',
+  png: 'png',
 };
 
 export default function ShapeToolbar({ layer, onChange, onSliderStart, className }: ShapeToolbarProps) {

@@ -71,11 +71,6 @@ export default function Drawer({
   height = 'half',
   hideCloseButton = false,
   headerIcon,
-  onDone,
-  doneLabel,
-  doneIcon,
-  doneDisabled = false,
-  headerActions,
 }: DrawerProps) {
   const t = useTranslations('ui');
 
@@ -92,6 +87,7 @@ export default function Drawer({
         clearTimeout(closeTimer.current);
         closeTimer.current = null;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mount must happen synchronously so the panel is in the DOM before the transition starts
       setMounted(true);
       const raf = requestAnimationFrame(() => {
         // Double rAF ensures the browser paints the initial state first
@@ -99,7 +95,6 @@ export default function Drawer({
       });
       return () => cancelAnimationFrame(raf);
     } else {
-      // Closing: start exit transition, unmount after it finishes
       setVisible(false);
       closeTimer.current = setTimeout(() => setMounted(false), TRANSITION_DURATION);
     }

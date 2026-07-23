@@ -111,13 +111,18 @@ export function useUserFonts() {
   // Bump this counter whenever a font finishes loading — triggers re-render
   // so text layers pick up the newly available font face.
   const [fontsLoaded, setFontsLoaded] = useState(loadedCount);
+  // Sync with module cache if another hook instance populated it
+  const [prevCached, setPrevCached] = useState(cachedFonts);
+  if (cachedFonts !== prevCached) {
+    setPrevCached(cachedFonts);
+    setFonts(cachedFonts ?? []);
+    setLoading(false);
+  }
   const mountedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
     if (cachedFonts !== null) {
-      setFonts(cachedFonts);
-      setLoading(false);
       // Register any not-yet-loaded fonts
       cachedFonts.forEach((f) => {
         registerFontFace(f).then(() => {

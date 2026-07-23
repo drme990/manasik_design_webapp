@@ -13,7 +13,7 @@ import {
   LuMoveHorizontal,
   LuMoveVertical,
 } from 'react-icons/lu';
-import type { AnyLayer, TextLayer, ShapeLayer } from '@/types';
+import type { AnyLayer, TextLayer } from '@/types';
 
 export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 

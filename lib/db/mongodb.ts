@@ -1,4 +1,4 @@
-import { MongoClient, Db, Collection, Document, Filter, UpdateFilter, OptionalId, WithId, InsertOneResult, UpdateResult, DeleteResult, OptionalUnlessRequiredId } from 'mongodb';
+import { MongoClient, Db, Collection, Document, Filter, UpdateFilter, WithId, InsertOneResult, UpdateResult, DeleteResult, OptionalUnlessRequiredId } from 'mongodb';
 
 export class MongoDBClient {
   private client: MongoClient | null = null;

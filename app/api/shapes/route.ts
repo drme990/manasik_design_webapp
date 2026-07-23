@@ -48,7 +48,7 @@ export async function GET() {
 
     const collection = await getCollection();
     const docs = await collection.find({ userId: session.id }).toArray();
-    const shapes = docs.map(({ _id: _omit, ...rest }) => rest);
+    const shapes = docs.map(({ ...rest }) => rest);
     return NextResponse.json({ success: true, data: shapes });
   } catch (error) {
     console.error('[GET /api/shapes]', error);
@@ -116,7 +116,9 @@ export async function POST(request: NextRequest) {
     const collection = await getCollection();
     await collection.insertOne(doc);
 
-    const { _id: _omit, ...rest } = doc as UserShapeDoc & { _id?: unknown };
+    // Strip Mongo's _id before returning
+    const rest = { ...doc } as UserShapeDoc & { _id?: unknown };
+    delete rest._id;
     return NextResponse.json({ success: true, data: rest });
   } catch (error) {
     console.error('[POST /api/shapes]', error);

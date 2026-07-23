@@ -137,9 +137,6 @@ export default function EditorPage() {
     // When true, the rename modal is being used as part of the leave flow —
     // after the user confirms the name, we save and leave instead of just renaming.
     const renameThenLeaveRef = useRef(false);
-    // Tracks whether the user has saved at least once during this editor session.
-    // Used to decide whether to show the rename modal on the first leave save.
-    const hasSavedInSessionRef = useRef(false);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     // History snapshots include layers + background properties so undo/redo
@@ -231,6 +228,10 @@ export default function EditorPage() {
         projectRef.current = project;
     }, [project]);
 
+    // Tracks whether the project had been synced to the server before this session.
+    // If false, the project is "new" and leaving without saving means deleting it.
+    const [wasSyncedBefore, setWasSyncedBefore] = useState(false);
+
     // Load the project — always from the API (single source of truth).
     // No IndexedDB/localStorage — positions never drift because the DB is
     // the only place data is read from.
@@ -239,7 +240,7 @@ export default function EditorPage() {
             setProject(p);
             // Track if this project was ever synced to the server.
             // If not, it's a brand-new project and "No" on leave = delete it.
-            wasSyncedBeforeRef.current = !!(p && p.syncedAt);
+            setWasSyncedBefore(!!(p && p.syncedAt));
             setLoading(false);
         });
     }, [id]);
@@ -285,9 +286,6 @@ export default function EditorPage() {
     const pendingPersistRef = useRef<Project | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedRef = useRef(false);
-    // Tracks whether the project had been synced to the server before this session.
-    // If false, the project is "new" and leaving without saving means deleting it.
-    const wasSyncedBeforeRef = useRef(false);
 
     // Write working state to sessionStorage — survives page refresh / mobile
     // app kill, but does NOT touch the database. The DB is only written when
@@ -344,7 +342,6 @@ export default function EditorPage() {
             try { sessionStorage.removeItem(`manasik:project:${updated.id}`); } catch { /* ignore */ }
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
-            hasSavedInSessionRef.current = true;
         } catch (error) {
             console.error('Failed to save project to server:', error);
         } finally {
@@ -404,7 +401,7 @@ export default function EditorPage() {
             // Clear sessionStorage backup — discarding unsaved changes
             try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
             const isBlank = current.layers.length === 0 && !current.backgroundUri;
-            if (isBlank || !wasSyncedBeforeRef.current) {
+            if (isBlank || !wasSyncedBefore) {
                 // Blank project or new project that was never synced — delete it
                 deleteProject(current.id).catch(() => { });
             }
@@ -412,7 +409,7 @@ export default function EditorPage() {
         // For existing projects with content, just leave — the database still
         // has the last-saved version; unsaved session changes are discarded.
         router.replace('/projects');
-    }, [router]);
+    }, [router, wasSyncedBefore]);
 
     // Silently leave without asking — used when there are no changes at all.
     // Deletes the project if it's blank (no layers, no background) — whether
@@ -549,7 +546,6 @@ export default function EditorPage() {
         // --- Instant: create object URL and set as background immediately ---
         const tempUri = URL.createObjectURL(file);
         // Revoke the previous blob: background if there was one
-        const prevBg = projectRef.current?.backgroundUri;
         updateProjectState((prev) => ({
             ...prev,
             backgroundUri: tempUri,
@@ -708,7 +704,7 @@ export default function EditorPage() {
         // catch the popstate event and show our custom confirmation modal
         // instead of navigating away immediately.
         window.history.pushState({ editorGuard: true }, '');
-        const handlePopState = (e: PopStateEvent) => {
+        const handlePopState = () => {
             // Re-push the guard state so the next back press is also caught
             window.history.pushState({ editorGuard: true }, '');
             if (hasUnsavedRef.current) {
@@ -866,7 +862,7 @@ export default function EditorPage() {
     }, [selectedLayerId, handleLayerChange]);
 
     const handleLayerDragStart = useCallback(
-        (layerId: string) => {
+        () => {
             const current = projectRef.current;
             if (!current) return;
             inTransactionRef.current = true;
@@ -922,8 +918,10 @@ export default function EditorPage() {
     );
 
     // Keep refs in sync for the keyboard handler (declared earlier in the component)
-    selectedLayerIdRef.current = selectedLayerId;
-    deleteLayerRef.current = handleDeleteLayer;
+    useEffect(() => {
+        selectedLayerIdRef.current = selectedLayerId;
+        deleteLayerRef.current = handleDeleteLayer;
+    }, [selectedLayerId, handleDeleteLayer]);
 
     const handleDuplicateLayer = useCallback(
         (layerId: string) => {
@@ -1067,6 +1065,47 @@ export default function EditorPage() {
         setSelectedLayerId(newLayer.id);
         setAddDrawerOpen(false);
     }, [updateProjectState, project, t]);
+
+    /**
+     * Upload a single image file in the background and swap the layer's URI
+     * from the temporary object URL to the R2 URL when done.
+     * On failure, marks the layer with uploadStatus='error' so the re-upload
+     * button appears.
+     */
+    const startBackgroundUpload = useCallback(
+        (layerId: string, file: File, tempUri: string) => {
+            uploadImageInBackground(file)
+                .then((uploaded) => {
+                    // Revoke the temporary object URL
+                    try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
+                    // Swap the URI on the layer and clear upload status
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: prev.layers.map((l) => {
+                            if (l.id !== layerId || l.type !== 'image') return l;
+                            return {
+                                ...l,
+                                uri: uploaded.uri,
+                                thumbnailUri: uploaded.thumbnailUri ?? l.thumbnailUri,
+                                uploadStatus: undefined,
+                                pendingFile: undefined,
+                            } as ImageLayer;
+                        }),
+                    }));
+                })
+                .catch((err) => {
+                    console.error('Background image upload failed:', err);
+                    updateProjectState((prev) => ({
+                        ...prev,
+                        layers: prev.layers.map((l) => {
+                            if (l.id !== layerId || l.type !== 'image') return l;
+                            return { ...l, uploadStatus: 'error', pendingFile: file } as ImageLayer;
+                        }),
+                    }));
+                });
+        },
+        [updateProjectState]
+    );
 
     const handleFileSelect = useCallback(
         async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1217,48 +1256,7 @@ export default function EditorPage() {
                 });
             }
         },
-        [project, updateProjectState, toast, t]
-    );
-
-    /**
-     * Upload a single image file in the background and swap the layer's URI
-     * from the temporary object URL to the R2 URL when done.
-     * On failure, marks the layer with uploadStatus='error' so the re-upload
-     * button appears.
-     */
-    const startBackgroundUpload = useCallback(
-        (layerId: string, file: File, tempUri: string) => {
-            uploadImageInBackground(file)
-                .then((uploaded) => {
-                    // Revoke the temporary object URL
-                    try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
-                    // Swap the URI on the layer and clear upload status
-                    updateProjectState((prev) => ({
-                        ...prev,
-                        layers: prev.layers.map((l) => {
-                            if (l.id !== layerId || l.type !== 'image') return l;
-                            return {
-                                ...l,
-                                uri: uploaded.uri,
-                                thumbnailUri: uploaded.thumbnailUri ?? l.thumbnailUri,
-                                uploadStatus: undefined,
-                                pendingFile: undefined,
-                            } as ImageLayer;
-                        }),
-                    }));
-                })
-                .catch((err) => {
-                    console.error('Background image upload failed:', err);
-                    updateProjectState((prev) => ({
-                        ...prev,
-                        layers: prev.layers.map((l) => {
-                            if (l.id !== layerId || l.type !== 'image') return l;
-                            return { ...l, uploadStatus: 'error', pendingFile: file } as ImageLayer;
-                        }),
-                    }));
-                });
-        },
-        [updateProjectState]
+        [project, updateProjectState, toast, t, startBackgroundUpload]
     );
 
     /**
@@ -1325,15 +1323,14 @@ export default function EditorPage() {
     // Change collage layout (only between layouts with the same image count)
     const handleCollageLayoutChange = useCallback(
         (layerId: string, layoutId: string) => {
-            const current = projectRef.current;
-            if (!current) return;
-            const layer = current.layers.find(l => l.id === layerId);
+            if (!project) return;
+            const layer = project.layers.find(l => l.id === layerId);
             if (!layer || layer.type !== 'image' || !layer.collage) return;
             handleLayerChange(layerId, {
                 collage: { ...layer.collage, layout: layoutId },
             } as Partial<AnyLayer>);
         },
-        [handleLayerChange]
+        [handleLayerChange, project]
     );
 
     // --- Font upload handlers ---
@@ -1385,6 +1382,12 @@ export default function EditorPage() {
         [deleteFont, t, toast]
     );
 
+    // Keep selectedLayerRef in sync so the font upload callbacks (declared
+    // before the early returns above) can access the current selected layer.
+    useEffect(() => {
+        selectedLayerRef.current = project?.layers.find((l) => l.id === selectedLayerId) ?? null;
+    }, [project, selectedLayerId]);
+
     if (loading) {
         return (
             <div className="flex h-svh items-center justify-center">
@@ -1407,10 +1410,6 @@ export default function EditorPage() {
     }
 
     const selectedLayer = project.layers.find((l) => l.id === selectedLayerId) || null;
-
-    // Keep the ref in sync so the font upload callbacks (declared before the
-    // early returns above) can access the current selected layer.
-    selectedLayerRef.current = selectedLayer;
 
     // Capture the canvas as a snapshot image for the mobile eye dropper fallback
     const captureCanvasSnapshot = async (): Promise<string | null> => {
@@ -2494,10 +2493,10 @@ export default function EditorPage() {
                                 <LuX className="h-5 w-5" />
                             </button>
                             <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
-                                {wasSyncedBeforeRef.current ? t('saveChangesTitle') : t('saveProjectTitle')}
+                                {wasSyncedBefore ? t('saveChangesTitle') : t('saveProjectTitle')}
                             </h2>
                             <p className="mb-6 text-sm text-secondary">
-                                {wasSyncedBeforeRef.current ? t('saveChangesDescription') : t('saveProjectDescription')}
+                                {wasSyncedBefore ? t('saveChangesDescription') : t('saveProjectDescription')}
                             </p>
                             <div className="flex gap-3">
                                 <Button
@@ -2513,11 +2512,11 @@ export default function EditorPage() {
                                 <Button
                                     onClick={() => {
                                         setShowLeaveModal(false);
-                                        if (hasSavedInSessionRef.current) {
-                                            // Already saved during this session — just save and leave
+                                        if (wasSyncedBefore) {
+                                            // Project already exists in the DB — just save changes and leave
                                             doSaveAndLeave();
                                         } else {
-                                            // First-time save — open the existing rename modal,
+                                            // First-time save (brand-new project) — open the rename modal,
                                             // then save and leave after the user confirms the name
                                             renameThenLeaveRef.current = true;
                                             setRenameValue(projectRef.current?.name ?? '');

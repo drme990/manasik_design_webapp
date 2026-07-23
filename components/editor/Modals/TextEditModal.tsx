@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { TextArea } from '@/components/ui/TextArea';
@@ -40,13 +40,30 @@ export default function TextEditModal({
   const t = useTranslations('editor.modals.textEdit');
   const uiT = useTranslations('ui');
 
-  useEffect(() => {
+  // Sync state when modal opens or initial values change
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  const [prevText, setPrevText] = useState(initialText);
+  const [prevFontFamily, setPrevFontFamily] = useState(initialFontFamily);
+  const [prevFontSize, setPrevFontSize] = useState(initialFontSize);
+  const [prevColor, setPrevColor] = useState(initialColor);
+  if (
+    isOpen !== prevIsOpen ||
+    initialText !== prevText ||
+    initialFontFamily !== prevFontFamily ||
+    initialFontSize !== prevFontSize ||
+    initialColor !== prevColor
+  ) {
+    setPrevIsOpen(isOpen);
+    setPrevText(initialText);
+    setPrevFontFamily(initialFontFamily);
+    setPrevFontSize(initialFontSize);
+    setPrevColor(initialColor);
     setText(initialText);
     setFontFamily(initialFontFamily || ARABIC_SAFE_FONTS[0].family);
     setFontWeight(ARABIC_SAFE_FONTS[0].weight);
     setFontSize(initialFontSize);
     setColor(initialColor);
-  }, [isOpen, initialText, initialFontFamily, initialFontSize, initialColor]);
+  }
 
   const fontItems: DropdownItem[] = ARABIC_SAFE_FONTS.map((font) => ({
     id: font.id,

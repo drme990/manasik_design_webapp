@@ -95,7 +95,7 @@ export default function ProjectsPage() {
       canvasHeight: preset.height,
     });
     setDrawerOpen(false);
-    window.location.href = `/editor/${project.id}`;
+    window.location.assign(`/editor/${project.id}`);
   };
 
   const handleCreateCustom = async () => {
@@ -109,7 +109,7 @@ export default function ProjectsPage() {
       canvasHeight: height,
     });
     setDrawerOpen(false);
-    window.location.href = `/editor/${project.id}`;
+    window.location.assign(`/editor/${project.id}`);
   };
 
   const handleRename = async () => {

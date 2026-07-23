@@ -55,20 +55,23 @@ async function persistColors(colors: string[]): Promise<void> {
 export function useSavedColors() {
   const [savedColors, setSavedColors] = useState<string[]>(cachedColors ?? []);
   // Tracks the last persisted state so we can detect unsaved changes
-  const persistedRef = useRef<string[]>(cachedColors ?? []);
+  const [persistedColors, setPersistedColors] = useState<string[]>(cachedColors ?? []);
+  // Sync with module cache if another hook instance populated it
+  const [prevCached, setPrevCached] = useState(cachedColors);
+  if (cachedColors !== prevCached) {
+    setPrevCached(cachedColors);
+    setSavedColors(cachedColors ?? []);
+    setPersistedColors(cachedColors ?? []);
+  }
   const mountedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (cachedColors !== null) {
-      setSavedColors(cachedColors);
-      persistedRef.current = cachedColors;
-      return;
-    }
+    if (cachedColors !== null) return;
     fetchColors().then((colors) => {
       if (mountedRef.current) {
         setSavedColors(colors);
-        persistedRef.current = colors;
+        setPersistedColors(colors);
       }
     });
     return () => { mountedRef.current = false; };
@@ -97,25 +100,25 @@ export function useSavedColors() {
       if (prev.some((c) => c.toUpperCase() === normalized)) return prev;
       const next = [...prev, normalized];
       persistColors(next);
-      persistedRef.current = next;
+      return next;
+    });
+    setPersistedColors((prev) => {
+      if (prev.some((c) => c.toUpperCase() === normalized)) return prev;
+      const next = [...prev, normalized];
       return next;
     });
   }, []);
 
   // Persist the current local list to DB
   const saveColors = useCallback(() => {
-    setSavedColors((prev) => {
-      persistColors(prev);
-      persistedRef.current = prev;
-      return prev;
-    });
-  }, []);
+    persistColors(savedColors);
+    setPersistedColors(savedColors);
+  }, [savedColors]);
 
   // Check if local state differs from persisted state
   const hasUnsavedChanges = (() => {
-    const persisted = persistedRef.current;
-    if (savedColors.length !== persisted.length) return true;
-    const persistedSet = new Set(persisted.map((c) => c.toUpperCase()));
+    if (savedColors.length !== persistedColors.length) return true;
+    const persistedSet = new Set(persistedColors.map((c) => c.toUpperCase()));
     return savedColors.some((c) => !persistedSet.has(c.toUpperCase()));
   })();
 

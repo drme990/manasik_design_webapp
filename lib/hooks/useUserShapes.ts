@@ -61,15 +61,18 @@ export function useUserShapes() {
   const [shapes, setShapes] = useState<UserShape[]>(cachedShapes ?? []);
   const [loading, setLoading] = useState(cachedShapes === null);
   const [uploading, setUploading] = useState(false);
+  // Sync with module cache if another hook instance populated it
+  const [prevCached, setPrevCached] = useState(cachedShapes);
+  if (cachedShapes !== prevCached) {
+    setPrevCached(cachedShapes);
+    setShapes(cachedShapes ?? []);
+    setLoading(false);
+  }
   const mountedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (cachedShapes !== null) {
-      setShapes(cachedShapes);
-      setLoading(false);
-      return;
-    }
+    if (cachedShapes !== null) return;
     fetchShapes().then((list) => {
       if (!mountedRef.current) return;
       setShapes(list);

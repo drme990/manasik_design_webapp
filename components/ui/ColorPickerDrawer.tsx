@@ -86,11 +86,19 @@ export default function ColorPickerDrawer({
   const rafRef = useRef<number | null>(null);
   const pendingHexRef = useRef<string | null>(null);
 
-  // Sync everything when the drawer opens
-  useEffect(() => {
+  // Reset recent colors and custom picker state when drawer opens
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       setRecent(loadRecent());
       setShowCustomPicker(false);
+    }
+  }
+
+  // Sync everything when the drawer opens
+  useEffect(() => {
+    if (isOpen) {
       syncFromHex(value);
     }
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -98,7 +106,7 @@ export default function ColorPickerDrawer({
   // Keep inputs in sync when value changes externally (not during drag)
   useEffect(() => {
     if (isOpen && !draggingRef.current) syncInputsFromHex(value);
-  }, [value, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [value, isOpen]);
 
   function syncFromHex(hex: string) {
     const rgb = hexToRgb(hex) || { r: 0, g: 0, b: 0 };

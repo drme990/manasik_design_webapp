@@ -123,14 +123,20 @@ function PdfImageRow({
         collect: (monitor) => ({ isOver: monitor.isOver() }),
     });
 
-    drag(drop(ref));
-
+    // Connect drag + drop to the ref node (in effect to avoid reading ref during render)
     useEffect(() => {
+        drag(drop(ref));
+    }, [drag, drop]);
+
+    // Reset drop indicators when drag leaves
+    const [prevIsOver, setPrevIsOver] = useState(isOver);
+    if (isOver !== prevIsOver) {
+        setPrevIsOver(isOver);
         if (!isOver) {
             setDropAbove(false);
             setDropBelow(false);
         }
-    }, [isOver]);
+    }
 
     return (
         <div className="relative">
@@ -243,16 +249,26 @@ function PdfToolPage() {
     const [showLeaveModal, setShowLeaveModal] = useState(false);
     const hasUnsavedRef = useRef(false);
     const currentProjectRef = useRef<PdfProject | null>(null);
-    currentProjectRef.current = currentProject;
     const skipNextMarkRef = useRef(false);
     // Tracks whether the project had been saved to the server before this session.
     // If false, the project is "new" and leaving without saving means deleting it.
-    const wasSyncedBeforeRef = useRef(false);
+    const [wasSyncedBefore, setWasSyncedBefore] = useState(false);
+
+    // Keep currentProjectRef in sync for use in callbacks
+    useEffect(() => {
+        currentProjectRef.current = currentProject;
+    }, [currentProject]);
+
+    // Set loading when projectId changes (adjust during render to avoid setState in effect)
+    const [prevProjectId, setPrevProjectId] = useState(projectId);
+    if (projectId !== prevProjectId) {
+        setPrevProjectId(projectId);
+        if (projectId) setLoading(true);
+    }
 
     // Load existing project when ?id= is present
     useEffect(() => {
         if (!projectId) return;
-        setLoading(true);
         getPdfProject(projectId).then((found) => {
             if (found) {
                 currentProjectRef.current = found;
@@ -263,7 +279,7 @@ function PdfToolPage() {
                 // the data was just loaded from the DB, no changes yet.
                 skipNextMarkRef.current = true;
                 // This project was already saved to the server before
-                wasSyncedBeforeRef.current = true;
+                setWasSyncedBefore(true);
             }
             setLoading(false);
         });
@@ -434,7 +450,7 @@ function PdfToolPage() {
             const name = projectName || `PDF — ${new Date().toLocaleDateString()}`;
             const existing = currentProjectRef.current;
             // Strip transient upload fields before persisting
-            const cleanImages = persistable.map(({ uploadStatus, pendingFile, ...rest }) => rest);
+            const cleanImages = persistable.map(({ ...rest }) => rest);
             if (existing) {
                 const updated: PdfProject = { ...existing, name, images: cleanImages };
                 await savePdfProject(updated);
@@ -445,7 +461,7 @@ function PdfToolPage() {
                 currentProjectRef.current = created;
                 setCurrentProject(created);
                 setProjectName(created.name);
-                wasSyncedBeforeRef.current = true;
+                setWasSyncedBefore(true);
             }
             invalidatePdfListCache();
             hasUnsavedRef.current = false;
@@ -475,7 +491,7 @@ function PdfToolPage() {
         const proj = currentProjectRef.current;
         if (proj) {
             const isBlank = images.length === 0;
-            if (isBlank || !wasSyncedBeforeRef.current) {
+            if (isBlank || !wasSyncedBefore) {
                 // Blank project or new project that was never synced — delete it
                 deletePdfProject(proj.id).catch(() => { });
                 invalidatePdfListCache();
@@ -484,7 +500,7 @@ function PdfToolPage() {
         // For existing projects with content, just leave — the DB still has
         // the last-saved version; unsaved session changes are discarded.
         router.replace('/projects');
-    }, [router, images.length]);
+    }, [router, images.length, wasSyncedBefore]);
 
     // Silently leave without asking — used when there are no changes at all.
     // Deletes the project if it's blank (no images).
@@ -845,10 +861,10 @@ function PdfToolPage() {
                                 <LuX className="h-5 w-5" />
                             </button>
                             <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
-                                {wasSyncedBeforeRef.current ? editorT('saveChangesTitle') : editorT('saveProjectTitle')}
+                                {wasSyncedBefore ? editorT('saveChangesTitle') : editorT('saveProjectTitle')}
                             </h2>
                             <p className="mb-6 text-sm text-secondary">
-                                {wasSyncedBeforeRef.current ? editorT('saveChangesDescription') : editorT('saveProjectDescription')}
+                                {wasSyncedBefore ? editorT('saveChangesDescription') : editorT('saveProjectDescription')}
                             </p>
                             <div className="flex gap-3">
                                 <Button

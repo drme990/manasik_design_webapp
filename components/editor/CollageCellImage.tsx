@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils/cn';
 import type { ImageLayerCollageCell } from '@/types';
+import Image from 'next/image';
 
 export interface CollageCellImageProps {
   cell: ImageLayerCollageCell;
@@ -84,7 +85,7 @@ export default function CollageCellImage({
   const offY = cell.offsetY * displayScale;
 
   return (
-    <img
+    <Image
       ref={refCallback}
       src={cell.uri}
       alt=""
@@ -96,6 +97,8 @@ export default function CollageCellImage({
         transform: `translate(${offX}px, ${offY}px) scale(${transformScale}) rotate(${cell.rotation ?? 0}deg)`,
         transformOrigin: 'center',
       }}
+      width={cellWidth}
+      height={cellHeight}
     />
   );
 }

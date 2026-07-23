@@ -33,12 +33,13 @@ export default function ColorPicker({
 }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [localValue, setLocalValue] = useState(value);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setLocalValue(value);
+  }
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

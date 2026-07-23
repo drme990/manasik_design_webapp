@@ -2,10 +2,10 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } | nul
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
     ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16),
-      }
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16),
+    }
     : null;
 }
 
@@ -25,22 +25,22 @@ export function hsvToRgb(h: number, s: number, v: number): { r: number; g: numbe
 
   switch (i % 6) {
     case 0:
-      (r = v), (g = t), (b = p);
+      r = v; g = t; b = p;
       break;
     case 1:
-      (r = q), (g = v), (b = p);
+      r = q; g = v; b = p;
       break;
     case 2:
-      (r = p), (g = v), (b = t);
+      r = p; g = v; b = t;
       break;
     case 3:
-      (r = p), (g = q), (b = v);
+      r = p; g = q; b = v;
       break;
     case 4:
-      (r = t), (g = p), (b = v);
+      r = t; g = p; b = v;
       break;
     case 5:
-      (r = v), (g = p), (b = q);
+      r = v; g = p; b = q;
       break;
   }
 

@@ -31,10 +31,6 @@ export default function FullPageDrawer({
   footer,
   hideCloseButton = false,
   headerIcon,
-  onDone,
-  doneLabel,
-  doneIcon,
-  doneDisabled = false,
 }: FullPageProps) {
   const t = useTranslations('ui');
 
@@ -48,6 +44,7 @@ export default function FullPageDrawer({
         clearTimeout(closeTimer.current);
         closeTimer.current = null;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mount must happen synchronously so the panel is in the DOM before the transition starts
       setMounted(true);
       const raf = requestAnimationFrame(() => {
         requestAnimationFrame(() => setVisible(true));

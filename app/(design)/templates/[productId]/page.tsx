@@ -5,7 +5,6 @@ import { useRouter, useParams } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import Link from 'next/link';
 import { LuArrowLeft, LuPlus, LuPencil } from 'react-icons/lu';
-import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';

@@ -3,14 +3,14 @@ export interface EditorState {
   isDragging: boolean;
   isRotating: boolean;
   isScaling: boolean;
-  clipboard: any[] | null;
+  clipboard: unknown[] | null;
   history: HistoryState;
 }
 
 export interface HistoryState {
-  past: any[];
-  present: any;
-  future: any[];
+  past: unknown[];
+  present: unknown;
+  future: unknown[];
   maxHistory: number;
 }
 

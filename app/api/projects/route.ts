@@ -71,8 +71,7 @@ export async function POST(request: NextRequest) {
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,
-      syncStatus: 'synced',
-      syncedAt: now,
+      syncStatus: 'pending',
       userId: session.id,
     };
 
