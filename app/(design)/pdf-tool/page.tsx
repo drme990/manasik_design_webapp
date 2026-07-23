@@ -21,6 +21,7 @@ import {
     LuArrowLeft,
     LuSave,
     LuRefreshCw,
+    LuPrinter,
 } from 'react-icons/lu';
 import { PDFDocument } from 'pdf-lib';
 import Modal from '@/components/ui/Modal';
@@ -560,7 +561,62 @@ function PdfToolPage() {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, []);
 
-    const handleDownload = useCallback(async () => {
+    /** Generate PDF bytes from the current images list (shared by download + print).
+     *  Not memoized — it's only called inside event handlers, not passed as a prop. */
+    const generatePdfBytes = async (): Promise<Uint8Array> => {
+        const pdfDoc = await PDFDocument.create();
+
+        for (const img of images) {
+            let bytes: Uint8Array;
+            let isPng: boolean;
+
+            if (img.uri.startsWith('blob:')) {
+                // Local object URL — fetch directly (same origin/client-side)
+                const resp = await fetch(img.uri);
+                if (!resp.ok) throw new Error(`Failed to fetch blob: ${resp.status}`);
+                bytes = new Uint8Array(await resp.arrayBuffer());
+                isPng = img.pendingFile?.type === 'image/png';
+            } else if (img.uri.startsWith('data:')) {
+                // Legacy data URI
+                isPng = img.uri.startsWith('data:image/png');
+                const base64 = img.uri.split(',')[1];
+                const byteChars = atob(base64);
+                bytes = new Uint8Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) {
+                    bytes[i] = byteChars.charCodeAt(i);
+                }
+            } else {
+                // Remote URL — fetch through our same-origin proxy to avoid
+                // CORS errors when the R2/public host doesn't send CORS headers.
+                const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(img.uri)}`;
+                const resp = await fetch(proxyUrl);
+                if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
+                const buf = new Uint8Array(await resp.arrayBuffer());
+                bytes = buf;
+                isPng = img.uri.toLowerCase().endsWith('.png') || img.uri.toLowerCase().includes('.png');
+            }
+
+            let embedded;
+            if (isPng) {
+                embedded = await pdfDoc.embedPng(bytes);
+            } else {
+                embedded = await pdfDoc.embedJpg(bytes);
+            }
+
+            // Page size = exact image size, image fills the entire page
+            const page = pdfDoc.addPage([img.naturalWidth, img.naturalHeight]);
+            page.drawImage(embedded, {
+                x: 0,
+                y: 0,
+                width: img.naturalWidth,
+                height: img.naturalHeight,
+            });
+        }
+
+        return await pdfDoc.save();
+    };
+
+    const handleDownload = async () => {
         if (images.length === 0) return;
         // Block download if any image is still uploading or failed — the blob:
         // URLs can't be fetched server-side via the proxy, and failed uploads
@@ -576,56 +632,7 @@ function PdfToolPage() {
         setDownloading(true);
 
         try {
-            const pdfDoc = await PDFDocument.create();
-
-            for (const img of images) {
-                let bytes: Uint8Array;
-                let isPng: boolean;
-
-                if (img.uri.startsWith('blob:')) {
-                    // Local object URL — fetch directly (same origin/client-side)
-                    const resp = await fetch(img.uri);
-                    if (!resp.ok) throw new Error(`Failed to fetch blob: ${resp.status}`);
-                    bytes = new Uint8Array(await resp.arrayBuffer());
-                    isPng = img.pendingFile?.type === 'image/png';
-                } else if (img.uri.startsWith('data:')) {
-                    // Legacy data URI
-                    isPng = img.uri.startsWith('data:image/png');
-                    const base64 = img.uri.split(',')[1];
-                    const byteChars = atob(base64);
-                    bytes = new Uint8Array(byteChars.length);
-                    for (let i = 0; i < byteChars.length; i++) {
-                        bytes[i] = byteChars.charCodeAt(i);
-                    }
-                } else {
-                    // Remote URL — fetch through our same-origin proxy to avoid
-                    // CORS errors when the R2/public host doesn't send CORS headers.
-                    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(img.uri)}`;
-                    const resp = await fetch(proxyUrl);
-                    if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
-                    const buf = new Uint8Array(await resp.arrayBuffer());
-                    bytes = buf;
-                    isPng = img.uri.toLowerCase().endsWith('.png') || img.uri.toLowerCase().includes('.png');
-                }
-
-                let embedded;
-                if (isPng) {
-                    embedded = await pdfDoc.embedPng(bytes);
-                } else {
-                    embedded = await pdfDoc.embedJpg(bytes);
-                }
-
-                // Page size = exact image size, image fills the entire page
-                const page = pdfDoc.addPage([img.naturalWidth, img.naturalHeight]);
-                page.drawImage(embedded, {
-                    x: 0,
-                    y: 0,
-                    width: img.naturalWidth,
-                    height: img.naturalHeight,
-                });
-            }
-
-            const pdfBytes = await pdfDoc.save();
+            const pdfBytes = await generatePdfBytes();
             const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -640,7 +647,35 @@ function PdfToolPage() {
         } finally {
             setDownloading(false);
         }
-    }, [images, toast, t]);
+    };
+
+    /** Print the PDF — generates the PDF blob and opens it in a new tab for printing */
+    const handlePrint = async () => {
+        if (images.length === 0) return;
+        const pending = images.find((i) => i.uploadStatus === 'uploading' || i.uploadStatus === 'error');
+        if (pending) {
+            toast.showToast({
+                message: pending.uploadStatus === 'error' ? t('reupload') : t('generating'),
+                variant: 'error',
+            });
+            return;
+        }
+        setDownloading(true);
+        try {
+            const pdfBytes = await generatePdfBytes();
+            const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            // Open the PDF in a new tab — the browser's built-in PDF viewer
+            // has a print button, and this also works on mobile.
+            window.open(url, '_blank');
+            // Revoke after a delay to give the new tab time to load
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        } catch (err) {
+            console.error('PDF print failed:', err);
+        } finally {
+            setDownloading(false);
+        }
+    };
 
     return (
         <DndProvider backend={HTML5Backend}>
@@ -679,10 +714,11 @@ function PdfToolPage() {
                     ) : (
                         <>
 
-                            {/* Actions bar */}
+                            {/* Actions bar — all buttons use 'outline' variant except
+                            the primary action (Download) which uses 'primary'. */}
                             <div className="mb-6 flex flex-wrap items-center gap-3">
                                 <Button
-                                    variant="primary"
+                                    variant="outline"
                                     onClick={() => fileInputRef.current?.click()}
                                     className="gap-2"
                                 >
@@ -724,6 +760,20 @@ function PdfToolPage() {
                                         </Button>
 
                                         <Button
+                                            variant="outline"
+                                            onClick={handlePrint}
+                                            disabled={downloading}
+                                            className="gap-2"
+                                        >
+                                            {downloading ? (
+                                                <LuLoaderCircle className="h-5 w-5 animate-spin" />
+                                            ) : (
+                                                <LuPrinter className="h-5 w-5" />
+                                            )}
+                                            {t('print')}
+                                        </Button>
+
+                                        <Button
                                             variant="primary"
                                             onClick={handleDownload}
                                             disabled={downloading}
@@ -738,7 +788,7 @@ function PdfToolPage() {
                                         </Button>
 
                                         <Button
-                                            variant="ghost"
+                                            variant="outline"
                                             onClick={() => setConfirmClear(true)}
                                             className="gap-2 text-error hover:bg-error/10"
                                         >
@@ -790,7 +840,7 @@ function PdfToolPage() {
                     footer={
                         <div className="flex w-full justify-between gap-3">
                             <Button
-                                variant="ghost"
+                                variant="outline"
                                 onClick={() => setPreviewOpen(false)}
                             >
                                 {uiT('close')}
@@ -873,7 +923,7 @@ function PdfToolPage() {
                             </p>
                             <div className="flex gap-3">
                                 <Button
-                                    variant="ghost"
+                                    variant="outline"
                                     onClick={() => {
                                         setShowLeaveModal(false);
                                         doNoAndLeave();
@@ -883,6 +933,7 @@ function PdfToolPage() {
                                     {editorT('no')}
                                 </Button>
                                 <Button
+                                    variant="primary"
                                     onClick={() => {
                                         setShowLeaveModal(false);
                                         doSaveAndLeave();

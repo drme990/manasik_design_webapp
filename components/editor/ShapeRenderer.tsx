@@ -44,16 +44,29 @@ export default function ShapeRenderer({
   const innerHeight = Math.max(0, height - strokeWidth);
   const fill = filled ? fillColor : 'transparent';
 
-  // PNG shape — render as an <img> with objectFit: contain to preserve transparency
+  // PNG shape — render as a div with background-image instead of <img>
+  // to prevent native long-press / right-click context menus on all platforms.
+  // <img> elements trigger iOS callout, Android save-image, and desktop
+  // right-click menus that can't be fully suppressed. Background images
+  // are purely decorative CSS and never trigger these menus.
   if (shape === 'png' && uri) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={uri}
-        alt=""
+      <div
         className={className}
-        style={{ width, height, objectFit: 'contain', userSelect: 'none' }}
-        draggable={false}
+        style={{
+          width,
+          height,
+          backgroundImage: `url(${uri})`,
+          backgroundSize: 'contain',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          userSelect: 'none',
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
+          touchAction: 'manipulation',
+        }}
+        role="img"
+        aria-label=""
       />
     );
   }

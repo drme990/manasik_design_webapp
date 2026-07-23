@@ -363,6 +363,17 @@ export default function EditorPage() {
             pendingPersistRef.current = null;
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
+
+            // If the project is empty (no layers, no background), delete it
+            // instead of saving — there's no point keeping a blank project.
+            const isBlank = current.layers.length === 0 && !current.backgroundUri;
+            if (isBlank) {
+                try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
+                deleteProject(current.id).catch(() => { });
+                router.replace('/projects');
+                return;
+            }
+
             setSaving(true);
             // Apply rename if provided (first-time save flow)
             const toSave = nameOverride && nameOverride.trim()
@@ -1942,27 +1953,52 @@ export default function EditorPage() {
                                     </button>
                                 ))}
 
-                                {/* User-uploaded PNG shapes — directly after built-in shapes */}
+                                {/* User-uploaded PNG shapes — directly after built-in shapes.
+                                    Uses background-image instead of <img> to prevent the
+                                    native long-press / right-click context menu on both
+                                    mobile (iOS callout, Android save-image) and desktop. */}
                                 {userShapes.map((shape) => (
                                     <div
                                         key={shape.id}
                                         className="group relative flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                        onContextMenu={(e) => e.preventDefault()}
+                                        style={{
+                                            WebkitTouchCallout: 'none',
+                                            userSelect: 'none',
+                                            touchAction: 'manipulation',
+                                        }}
                                     >
                                         <button
                                             onClick={() => {
                                                 if (editShapesMode) return; // don't add while editing
                                                 handleAddPngShape(shape);
                                             }}
+                                            onContextMenu={(e) => e.preventDefault()}
+                                            style={{
+                                                WebkitTouchCallout: 'none',
+                                                userSelect: 'none',
+                                                touchAction: 'manipulation',
+                                            }}
                                             className="flex flex-col items-center gap-2"
                                         >
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={shape.url}
-                                                alt={shape.name}
-                                                className="h-10 w-10 object-contain"
-                                                draggable={false}
+                                            <div
+                                                className="h-10 w-10 bg-contain bg-center bg-no-repeat"
+                                                style={{
+                                                    backgroundImage: `url(${shape.url})`,
+                                                    WebkitTouchCallout: 'none',
+                                                    WebkitUserSelect: 'none',
+                                                    userSelect: 'none',
+                                                    touchAction: 'manipulation',
+                                                }}
+                                                role="img"
+                                                aria-label={shape.name}
                                             />
-                                            <span className="w-full truncate text-center text-xs text-secondary">{shape.name}</span>
+                                            <span
+                                                className="w-full truncate text-center text-xs text-secondary"
+                                                style={{ userSelect: 'none' }}
+                                            >
+                                                {shape.name}
+                                            </span>
                                         </button>
                                         {/* Delete button — only shown in edit mode */}
                                         {editShapesMode && (

@@ -430,6 +430,7 @@
     "moveUp": "تحريك لأعلى",
     "moveDown": "تحريك لأسفل",
     "download": "تحميل PDF",
+    "print": "طباعة",
     "clear": "مسح الكل",
     "confirmClear": "هل تريد مسح جميع الصور؟",
     "imageCount": "{count} صورة",
