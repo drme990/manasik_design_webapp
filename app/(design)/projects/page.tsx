@@ -11,16 +11,20 @@ import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listProjects, createProject, deleteProject, renameProject, duplicateProject } from '@/lib/store/projects';
-import { listPdfProjects, deletePdfProject, invalidatePdfListCache } from '@/lib/store/pdf-projects';
+import { listProjects, createProject, deleteProject, renameProject, duplicateProject, getStaleProjects } from '@/lib/store/projects';
+import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project, PdfProject } from '@/types';
 
 export default function ProjectsPage() {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Lazy-init from stale cache so returning to this page is instant (no spinner)
+  const [projects, setProjects] = useState<Project[]>(() => {
+    const stale = getStaleProjects();
+    return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
+  });
+  const [loading, setLoading] = useState(() => !getStaleProjects());
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -28,7 +32,10 @@ export default function ProjectsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
-  const [pdfProjects, setPdfProjects] = useState<PdfProject[]>([]);
+  const [pdfProjects, setPdfProjects] = useState<PdfProject[]>(() => {
+    const stale = getStalePdfProjects();
+    return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
+  });
   const [deletePdfProjectId, setDeletePdfProjectId] = useState<string | null>(null);
   const [deletePdfLoading, setDeletePdfLoading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -70,8 +77,8 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // Fetch projects from the API (single source of truth — no IndexedDB).
-    // The in-memory cache in lib/store/projects.ts makes re-visits instant.
+
+    // Always refresh from the API in the background
     listProjects().then((data) => {
       if (cancelled) return;
       const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -142,7 +149,6 @@ export default function ProjectsPage() {
     setDeletePdfLoading(true);
     await deletePdfProject(deletePdfProjectId);
     setPdfProjects((prev) => prev.filter((p) => p.id !== deletePdfProjectId));
-    invalidatePdfListCache();
     setDeletePdfLoading(false);
     setDeletePdfProjectId(null);
   };

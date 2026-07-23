@@ -19,6 +19,11 @@ export function invalidatePdfListCache(): void {
   cache.invalidateList();
 }
 
+/** Get stale list for instant UI rendering (may be expired). */
+export function getStalePdfProjects(): PdfProject[] | null {
+  return cache.getStaleList();
+}
+
 export async function listPdfProjects(): Promise<PdfProject[]> {
   const cached = cache.getList();
   if (cached) return cached;
@@ -50,8 +55,7 @@ export async function createPdfProject(name: string, images: PdfImage[]): Promis
     body: JSON.stringify({ name, images } as PdfProjectCreateInput),
   });
   const created = result.data as PdfProject;
-  cache.setItem(created);
-  cache.invalidateList();
+  cache.upsertItemInList(created);
   return created;
 }
 
@@ -61,8 +65,7 @@ export async function savePdfProject(project: PdfProject): Promise<PdfProject> {
     body: JSON.stringify(project),
   });
   const saved = result.data as PdfProject;
-  cache.setItem(saved);
-  cache.invalidateList();
+  cache.upsertItemInList(saved);
   return saved;
 }
 
@@ -72,8 +75,7 @@ export async function updatePdfProject(id: string, updates: PdfProjectUpdateInpu
     body: JSON.stringify(updates),
   });
   const updated = result.data as PdfProject;
-  cache.setItem(updated);
-  cache.invalidateList();
+  cache.upsertItemInList(updated);
   return updated;
 }
 
@@ -86,5 +88,4 @@ export async function renamePdfProject(id: string, newName: string): Promise<voi
 export async function deletePdfProject(id: string): Promise<void> {
   await fetchWithAuth(`/api/pdf-projects/${id}`, { method: 'DELETE' });
   cache.removeItem(id);
-  cache.invalidateList();
 }

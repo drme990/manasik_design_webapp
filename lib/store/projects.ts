@@ -25,6 +25,11 @@ export function invalidateListCache(): void {
   cache.invalidateList();
 }
 
+/** Get stale list for instant UI rendering (may be expired). */
+export function getStaleProjects(): Project[] | null {
+  return cache.getStaleList();
+}
+
 /** Invalidate a single project from cache (call after saving). */
 export function invalidateProjectCache(id: string): void {
   cache.removeItem(id);
@@ -102,8 +107,7 @@ export async function saveProject(project: Project): Promise<Project> {
     body: JSON.stringify(clean),
   });
   const saved = result.data as Project;
-  cache.setItem(saved);
-  cache.invalidateList();
+  cache.upsertItemInList(saved);
   return saved;
 }
 
@@ -113,8 +117,7 @@ export async function createProject(input: ProjectCreateInput): Promise<Project>
     body: JSON.stringify(input),
   });
   const project = result.data as Project;
-  cache.setItem(project);
-  cache.invalidateList();
+  cache.upsertItemInList(project);
   return project;
 }
 
@@ -127,15 +130,13 @@ export async function updateProjectRemote(id: string, updates: ProjectUpdateInpu
     body: JSON.stringify(updates),
   });
   const updated = result.data as Project;
-  cache.setItem(updated);
-  cache.invalidateList();
+  cache.upsertItemInList(updated);
   return updated;
 }
 
 export async function deleteProject(id: string): Promise<void> {
   await fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' });
   cache.removeItem(id);
-  cache.invalidateList();
 }
 
 export async function duplicateProject(id: string): Promise<Project | null> {
@@ -156,8 +157,7 @@ export async function duplicateProject(id: string): Promise<Project | null> {
     } as ProjectCreateInput),
   });
   const created = result.data as Project;
-  cache.setItem(created);
-  cache.invalidateList();
+  cache.upsertItemInList(created);
   return created;
 }
 

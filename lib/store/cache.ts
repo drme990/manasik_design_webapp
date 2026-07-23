@@ -17,6 +17,8 @@
 export interface ResourceCache<T extends { id: string }> {
   /** Fresh (non-stale) cached list, or null if missing/expired. */
   getList(): T[] | null;
+  /** Stale cached list (may be expired) — for instant UI while refreshing. */
+  getStaleList(): T[] | null;
   /** Store a freshly-fetched list and refresh the per-item cache too. */
   setList(items: T[]): void;
   /** Fresh (non-stale) cached item by id, or null if missing/expired. */
@@ -25,6 +27,8 @@ export interface ResourceCache<T extends { id: string }> {
   getStaleItem(id: string): T | null;
   /** Store/update a single cached item. */
   setItem(item: T): void;
+  /** Update or insert an item in the list cache (keeps list fresh). */
+  upsertItemInList(item: T): void;
   /** Remove a single item from the cache. */
   removeItem(id: string): void;
   /** Invalidate just the list cache (item cache stays intact). */
@@ -43,6 +47,9 @@ export function createResourceCache<T extends { id: string }>(ttlMs: number): Re
     getList() {
       return list && isFresh(list.cachedAt) ? list.values : null;
     },
+    getStaleList() {
+      return list?.values ?? null;
+    },
     setList(values) {
       list = { values, cachedAt: Date.now() };
       const now = Date.now();
@@ -60,8 +67,25 @@ export function createResourceCache<T extends { id: string }>(ttlMs: number): Re
     setItem(value) {
       items.set(value.id, { value, cachedAt: Date.now() });
     },
+    upsertItemInList(item) {
+      // Update the per-item cache
+      items.set(item.id, { value: item, cachedAt: Date.now() });
+      // Update the list cache in-place if it exists (keep it fresh)
+      if (list) {
+        const idx = list.values.findIndex((v) => v.id === item.id);
+        if (idx >= 0) {
+          list.values[idx] = item;
+        } else {
+          list.values.unshift(item);
+        }
+        list.cachedAt = Date.now(); // keep fresh
+      }
+    },
     removeItem(id) {
       items.delete(id);
+      if (list) {
+        list.values = list.values.filter((v) => v.id !== id);
+      }
     },
     invalidateList() {
       list = null;
