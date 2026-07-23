@@ -46,7 +46,7 @@
   },
   "templates": {
     "title": "قوالب الحجز",
-    "subtitle": "إدارة منتجات القوالب وستة تخطيطات لكل منتج.",
+    "subtitle": "اختر منتجاً لإنشاء أو تعديل قالبه. المنتجات تُحمّل من النظام.",
     "newProduct": "منتج جديد",
     "createProductTitle": "إنشاء منتج قوالب",
     "productName": "اسم المنتج",
@@ -58,26 +58,17 @@
     "delete": "حذف",
     "deleteTitle": "حذف المنتج",
     "deleteDescription": "هل أنت متأكد أنك تريد حذف هذا المنتج؟ سيتم حذف جميع قوالبه.",
-    "emptyTitle": "لا توجد منتجات بعد",
-    "emptyDescription": "أنشئ أول منتج قوالب للحجز للبدء.",
+    "emptyTitle": "لا توجد منتجات",
+    "emptyDescription": "لا توجد منتجات في النظام. تأكد من إضافة منتجات في لوحة التحكم.",
     "createFirst": "إنشاء منتج",
-    "noTemplates": "لم يتم إنشاء قوالب بعد",
-    "templatesCount": "{count} قوالب تم إنشاؤها",
-    "manageTemplates": "إدارة القوالب",
-    "backToTemplates": "العودة للمنتجات",
-    "productNotFound": "المنتج غير موجود",
-    "productNotFoundDesc": "المنتج الذي تبحث عنه غير موجود.",
+    "noTemplate": "لم يتم إنشاء قالب بعد",
+    "templateReady": "القالب جاهز",
+    "openTemplate": "فتح القالب",
     "createTemplate": "إنشاء قالب",
     "editTemplate": "تعديل القالب",
-    "model": {
-      "withImage": "مع صورة",
-      "withoutImage": "بدون صورة"
-    },
-    "variant": {
-      "single": "قطعة واحدة",
-      "double": "قطعتين",
-      "multiple": "أكثر من قطعتين"
-    }
+    "backToTemplates": "العودة للمنتجات",
+    "productNotFound": "المنتج غير موجود",
+    "productNotFoundDesc": "المنتج الذي تبحث عنه غير موجود."
   },
   "home": {
     "hero": {
@@ -210,8 +201,8 @@
     "shapeOutline": "فراغي",
     "canvasBackground": "لون الخلفية",
     "setBgImage": "تعيين الخلفية",
-    "changeBgImage": "تغيير الصورة",
-    "removeBgImage": "إزالة الصورة",
+    "changeBgImage": "تغيير الخلفية",
+    "removeBgImage": "إزالة الخلفية ",
     "safeAreaEditOff": "تعديل منطقة الأمان",
     "safeAreaEditOn": "إنهاء تعديل منطقة الأمان",
     "safeAreaReset": "إعادة التعيين",
@@ -342,7 +333,10 @@
         "height": "الارتفاع",
         "strokeWidth": "سمك الإطار",
         "strokeColor": "لون الإطار",
-        "opacity": "الشفافية"
+        "opacity": "الشفافية",
+        "collageLayout": "تخطيط الكولاج",
+        "singleImage": "صورة واحدة",
+        "collageGap": "مسافة الكولاج"
       }
     },
     "modals": {

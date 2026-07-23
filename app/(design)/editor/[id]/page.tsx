@@ -58,6 +58,7 @@ import { cn } from '@/lib/utils/cn';
 import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
+import { ORDER_FIELDS } from '@/lib/constants/order-fields';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
 import { useUserFonts } from '@/lib/hooks/useUserFonts';
 import { useUserShapes } from '@/lib/hooks/useUserShapes';
@@ -74,15 +75,6 @@ const SHAPES: { shape: ShapeLayer['shape']; labelKey: string }[] = [
     { shape: 'star_8', labelKey: 'star8' },
     { shape: 'line', labelKey: 'line' },
 ];
-
-function generateFieldId(project: Project): string {
-    const existing = project.layers
-        .filter((l) => l.type === 'dynamic_field')
-        .map((l) => parseInt((l as DynamicFieldLayer).variableId.replace(/^field_/, ''), 10))
-        .filter((n) => !isNaN(n));
-    const max = existing.length > 0 ? Math.max(...existing) : 0;
-    return `field_${max + 1}`;
-}
 
 /* --- Color picker helpers --- */
 
@@ -193,11 +185,17 @@ export default function EditorPage() {
     const [isCropOpen, setIsCropOpen] = useState(false);
     const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
+    const [dynamicFieldDrawerOpen, setDynamicFieldDrawerOpen] = useState(false);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     // When true, delete buttons are shown above each uploaded user shape
     const [editShapesMode, setEditShapesMode] = useState(false);
     // Shape fill mode for fast-add from the shapes drawer: true=filled, false=outline
     const [shapeFilled, setShapeFilled] = useState(true);
+    // Brief flash feedback when undo/redo is clicked (500ms)
+    const [undoFlash, setUndoFlash] = useState(false);
+    const [redoFlash, setRedoFlash] = useState(false);
+    // Tip text shown briefly at the top center of the canvas on undo/redo
+    const [historyTip, setHistoryTip] = useState<string | null>(null);
     const [activeProp, setActiveProp] = useState<string | null>(null);
     const [colorPickerProp, setColorPickerProp] = useState<string | null>(null);
     const [fontDrawerOpen, setFontDrawerOpen] = useState(false);
@@ -1051,14 +1049,18 @@ export default function EditorPage() {
         }
     }, [deleteShape, toast, t]);
 
-    const handleAddDynamicField = useCallback(() => {
+    const handleAddDynamicField = useCallback((field: { id: string; label: string; type: 'text' | 'image'; placeholder: string }) => {
         const w = project?.canvasWidth ?? 1080;
         const h = project?.canvasHeight ?? 1080;
+        // reservation.photo supports multiple photos → default to a 2-image collage layout
+        const isMultiPhoto = field.id === 'reservation.photo';
         const newLayer = buildDynamicFieldLayer({
-            variableId: generateFieldId(project!),
-            variableName: t('newField') || 'حقل جديد',
-            fieldType: 'text',
+            variableId: field.id,
+            variableName: field.label,
+            fieldType: field.type,
+            placeholder: field.placeholder,
             fontSize: 50,
+            collageLayout: isMultiPhoto ? '2h' : undefined,
         });
         // Center on canvas
         newLayer.x = (w - newLayer.width) / 2;
@@ -1069,8 +1071,8 @@ export default function EditorPage() {
             layers: [...prev.layers, newLayer],
         }));
         setSelectedLayerId(newLayer.id);
-        setAddDrawerOpen(false);
-    }, [updateProjectState, project, t]);
+        setDynamicFieldDrawerOpen(false);
+    }, [updateProjectState, project]);
 
     /**
      * Upload a single image file in the background and swap the layer's URI
@@ -1562,18 +1564,32 @@ export default function EditorPage() {
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={handleRedo}
+                                onClick={() => {
+                                    handleRedo();
+                                    setRedoFlash(true);
+                                    setHistoryTip(t('redo'));
+                                    setTimeout(() => setRedoFlash(false), 500);
+                                    setTimeout(() => setHistoryTip(null), 800);
+                                }}
                                 disabled={history.future.length === 0}
                                 aria-label={t('redo')}
+                                className={cn('transition-colors', redoFlash && 'bg-brand-primary/20 text-brand-primary')}
                             >
                                 <LuRedo2 className="h-4 w-4 rtl:-scale-x-100" />
                             </Button>
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={handleUndo}
+                                onClick={() => {
+                                    handleUndo();
+                                    setUndoFlash(true);
+                                    setHistoryTip(t('undo'));
+                                    setTimeout(() => setUndoFlash(false), 500);
+                                    setTimeout(() => setHistoryTip(null), 800);
+                                }}
                                 disabled={history.past.length === 0}
                                 aria-label={t('undo')}
+                                className={cn('transition-colors', undoFlash && 'bg-brand-primary/20 text-brand-primary')}
                             >
                                 <LuUndo2 className="h-4 w-4 rtl:-scale-x-100" />
                             </Button>
@@ -1631,6 +1647,15 @@ export default function EditorPage() {
                         className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none transition-[padding] duration-200 ease-out"
                         style={{ paddingBottom: bottomBarHeight }}
                     >
+                        {/* Undo/redo tip — briefly shown at top center of the canvas */}
+                        {historyTip && (
+                            <div
+                                className="pointer-events-none absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-foreground/90 px-4 py-1.5 text-sm font-medium text-background shadow-lg"
+                                style={{ animation: 'fadeInOut 0.8s ease-out' }}
+                            >
+                                {historyTip}
+                            </div>
+                        )}
                         {zoom > 0 && (
                             <div
                                 className="shadow-2xl transition-[width,height] duration-150 ease-out"
@@ -1693,8 +1718,8 @@ export default function EditorPage() {
                                     <PropToggle
                                         label={t('addField')}
                                         icon={<LuText className="h-5 w-5" />}
-                                        active={false}
-                                        onClick={handleAddDynamicField}
+                                        active={dynamicFieldDrawerOpen}
+                                        onClick={() => setDynamicFieldDrawerOpen(true)}
                                     />
                                 )}
                                 {/* 2 — Text */}
@@ -1739,14 +1764,6 @@ export default function EditorPage() {
                                         }
                                     }}
                                 />
-                                {project.backgroundUri && project.bgUploadStatus !== 'uploading' && (
-                                    <PropToggle
-                                        label={t('removeBgImage')}
-                                        icon={<LuTrash2 className="h-5 w-5 text-error" />}
-                                        active={false}
-                                        onClick={handleRemoveBackgroundImage}
-                                    />
-                                )}
                                 {/* 6 — BG color */}
                                 <PropButton
                                     label={t('canvasBackground')}
@@ -1755,6 +1772,14 @@ export default function EditorPage() {
                                     active={colorPickerProp === 'canvas.bg'}
                                     onClick={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
                                 />
+                                {project.backgroundUri && project.bgUploadStatus !== 'uploading' && (
+                                    <PropToggle
+                                        label={t('removeBgImage')}
+                                        icon={<LuTrash2 className="h-5 w-5 text-error" />}
+                                        active={false}
+                                        onClick={handleRemoveBackgroundImage}
+                                    />
+                                )}
                                 {/* 7 — Safe zone controller */}
                                 <PropToggle
                                     label={safeAreaEditMode ? t('safeAreaEditOn') : t('safeAreaEditOff')}
@@ -1889,7 +1914,15 @@ export default function EditorPage() {
                                     </button>
                                 )}
                             </div>
-                            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+                            <div
+                                className="grid grid-cols-3 gap-3 sm:grid-cols-5"
+                                onContextMenu={(e) => e.preventDefault()}
+                                style={{
+                                    WebkitTouchCallout: 'none',
+                                    userSelect: 'none',
+                                    touchAction: 'manipulation',
+                                }}
+                            >
                                 {SHAPES.map(({ shape, labelKey }) => (
                                     <button
                                         key={shape}
@@ -1959,6 +1992,31 @@ export default function EditorPage() {
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </Drawer>
+
+                {/* Dynamic fields drawer — order fields picker (booking templates only) */}
+                <Drawer
+                    isOpen={dynamicFieldDrawerOpen}
+                    onClose={() => setDynamicFieldDrawerOpen(false)}
+                    title={t('addField')}
+                    height="twoThirds"
+                >
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        {ORDER_FIELDS.map((field) => (
+                            <button
+                                key={field.id}
+                                onClick={() => handleAddDynamicField(field)}
+                                className="flex items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                            >
+                                {field.type === 'image' ? (
+                                    <LuImage className="h-5 w-5 shrink-0 text-brand-primary" />
+                                ) : (
+                                    <LuType className="h-5 w-5 shrink-0 text-brand-primary" />
+                                )}
+                                <span className="truncate text-sm font-medium text-foreground">{field.label}</span>
+                            </button>
+                        ))}
                     </div>
                 </Drawer>
 
@@ -2426,6 +2484,7 @@ export default function EditorPage() {
                     }}
                     title={t('toolbars.text.text')}
                     height="auto"
+                    closeIcon={<LuCheck className="h-5 w-5 text-brand-primary" />}
                 >
                     {selectedLayer && selectedLayer.type === 'text' && (
                         <textarea

@@ -316,6 +316,8 @@ export function buildDynamicFieldLayer(options: {
   placeholder?: string;
   imageWidth?: number;
   imageHeight?: number;
+  /** Image fields only — collage layout ID for multi-photo fields */
+  collageLayout?: string;
 }): DynamicFieldLayer {
   const {
     variableId,
@@ -327,7 +329,8 @@ export function buildDynamicFieldLayer(options: {
     color = DEFAULT_COLOR,
     placeholder = 'اسم العميل',
     imageWidth = DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE,
-    imageHeight = DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE
+    imageHeight = DYNAMIC_FIELD_IMAGE_DEFAULT_SIZE,
+    collageLayout,
   } = options;
 
   return {
@@ -351,6 +354,8 @@ export function buildDynamicFieldLayer(options: {
     fieldType,
     imageWidth: fieldType === 'image' ? imageWidth : undefined,
     imageHeight: fieldType === 'image' ? imageHeight : undefined,
+    collageLayout: fieldType === 'image' ? collageLayout : undefined,
+    collageGap: fieldType === 'image' && collageLayout ? 4 : undefined,
     backgroundColor: fieldType === 'text' ? '#f0f0f0' : undefined,
     borderColor: '#cccccc',
     borderWidth: 1,

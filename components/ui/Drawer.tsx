@@ -20,6 +20,8 @@ export interface DrawerProps {
   hideCloseButton?: boolean;
   /** Optional leading icon shown in the header (left side, before title). */
   headerIcon?: ReactNode;
+  /** Optional custom close icon (defaults to X). */
+  closeIcon?: ReactNode;
   /** Optional "Done" button — rendered in the footer, not the header. */
   onDone?: () => void;
   doneLabel?: string;
@@ -71,6 +73,7 @@ export default function Drawer({
   height = 'half',
   hideCloseButton = false,
   headerIcon,
+  closeIcon,
 }: DrawerProps) {
   const t = useTranslations('ui');
 
@@ -187,7 +190,7 @@ export default function Drawer({
                 className="shrink-0 rounded-full p-2 hover:bg-error/10"
                 aria-label={t('close')}
               >
-                <LuX className="h-5 w-5 text-error" />
+                {closeIcon ?? <LuX className="h-5 w-5 text-error" />}
               </Button>
             )}
             {/* Spacer to balance layout when close button is hidden */}

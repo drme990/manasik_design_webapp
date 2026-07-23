@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useLayoutEffect } from 'react';
-import { LuRefreshCw, LuLoaderCircle } from 'react-icons/lu';
+import { useRef, useLayoutEffect, useState, useMemo } from 'react';
+import { LuRefreshCw, LuLoaderCircle, LuImage } from 'react-icons/lu';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
@@ -418,25 +418,162 @@ function ShapeLayerComponent({ layer, className, style, onPointerDown }: LayerCo
 }
 
 function DynamicFieldLayerComponent({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
+  const containerStyle: React.CSSProperties = {
+    ...style,
+    backgroundColor: layer.backgroundColor || 'transparent',
+    border: `${layer.borderWidth ?? 0}px solid ${layer.borderColor ?? 'transparent'}`,
+    borderRadius: layer.borderRadius ?? 0,
+    overflow: 'hidden',
+  };
+
+  if (layer.fieldType === 'image') {
+    return <DynamicFieldImage layer={layer} className={className} style={containerStyle} onPointerDown={onPointerDown} />;
+  }
+
+  return <DynamicFieldText layer={layer} className={className} style={containerStyle} onPointerDown={onPointerDown} />;
+}
+
+/**
+ * Text dynamic field — auto-shrinks the font size so the placeholder
+ * text always fits inside the box. The user can resize the box freely;
+ * the text scales down (never up beyond the set fontSize) to fit.
+ */
+function DynamicFieldText({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [adjustedFontSize, setAdjustedFontSize] = useState(layer.fontSize);
+
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+
+    const boxW = el.clientWidth;
+    const boxH = el.clientHeight;
+    if (boxW <= 0 || boxH <= 0) return;
+
+    // Binary search for the largest font size that fits
+    let lo = 4;
+    let hi = layer.fontSize;
+    let best = lo;
+
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      el.style.fontSize = `${mid}px`;
+      const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
+      if (fits) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    el.style.fontSize = ''; // reset — we set it via state
+    setAdjustedFontSize(best);
+  }, [layer.fontSize, layer.placeholder, layer.width, layer.height]);
+
   return (
     <div
       className={className}
       style={{
         ...style,
-        backgroundColor: layer.backgroundColor || 'transparent',
-        border: `${layer.borderWidth ?? 0}px solid ${layer.borderColor ?? 'transparent'}`,
-        borderRadius: layer.borderRadius ?? 0,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         color: layer.color,
-        fontSize: layer.fontSize,
+        fontSize: adjustedFontSize,
         direction: 'rtl',
+        textAlign: 'center',
+        wordBreak: 'break-word',
+        padding: '2px 4px',
       }}
       onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
-      {layer.placeholder}
+      <div ref={measureRef} style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', overflow: 'hidden' }}>
+        {layer.placeholder}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Image dynamic field — shows an image placeholder that fills the box
+ * with object-fit: cover. If the field supports multiple photos
+ * (collageLayout is set), shows a collage preview of the layout.
+ */
+function DynamicFieldImage({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
+  // Find the collage layout if one is set
+  const layout = useMemo(
+    () => COLLAGE_LAYOUTS.find((l) => l.id === layer.collageLayout),
+    [layer.collageLayout],
+  );
+
+  // Single image placeholder
+  if (!layout) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        onPointerDown={onPointerDown}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex h-full w-full items-center justify-center"
+          style={{
+            background: 'repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 8px, #f3f4f6 8px, #f3f4f6 16px)',
+          }}
+        >
+          <div className="flex flex-col items-center gap-1 opacity-50">
+            <LuImage className="h-1/3 w-1/3" style={{ maxHeight: 40, maxWidth: 40 }} />
+            <span className="text-[10px] text-secondary">{layer.placeholder}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Collage preview — show the layout cells with placeholder backgrounds
+  const gap = layer.collageGap ?? 4;
+  return (
+    <div
+      className={className}
+      style={{
+        ...style,
+        display: 'flex',
+        padding: 0,
+      }}
+      onPointerDown={onPointerDown}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="relative h-full w-full" style={{ padding: gap / 2 }}>
+        {layout.cells.map((cell, i) => (
+          <div
+            key={i}
+            className="absolute flex items-center justify-center"
+            style={{
+              left: `calc(${cell.x * 100}% + ${gap / 2}px)`,
+              top: `calc(${cell.y * 100}% + ${gap / 2}px)`,
+              width: `calc(${cell.w * 100}% - ${gap}px)`,
+              height: `calc(${cell.h * 100}% - ${gap}px)`,
+              background: 'repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 8px, #f3f4f6 8px, #f3f4f6 16px)',
+              borderRadius: 4,
+              overflow: 'hidden',
+            }}
+          >
+            {i === 0 && (
+              <div className="flex flex-col items-center gap-0.5 opacity-50">
+                <LuImage className="h-5 w-5" />
+                <span className="text-[8px] text-secondary">{layer.placeholder}</span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

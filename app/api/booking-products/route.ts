@@ -53,13 +53,12 @@ export async function POST(request: NextRequest) {
 
     const product: BookingProduct = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      backendProductId: body.backendProductId,
+      backendSlug: body.backendSlug,
       name: body.name,
       imageUri: body.imageUri,
       defaultCanvas: body.defaultCanvas,
-      templates: {
-        withImage: { single: null, double: null, multiple: null },
-        withoutImage: { single: null, double: null, multiple: null },
-      },
+      templateId: null,
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,

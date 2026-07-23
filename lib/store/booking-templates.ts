@@ -2,6 +2,7 @@ import type { BookingProduct, BookingProductCreateInput, BookingProductUpdateInp
 import { fetchWithAuth } from './fetch-with-auth';
 import { createResourceCache } from './cache';
 import { createProject, getProject } from './projects';
+import type { BackendProduct } from './backend-products';
 
 /**
  * Booking product store — API-first architecture (same pattern as
@@ -68,26 +69,50 @@ export async function deleteBookingProduct(id: string): Promise<void> {
   cache.invalidateList();
 }
 
-export async function getOrCreateTemplateProject(
-  productId: string,
-  model: 'withImage' | 'withoutImage',
-  variant: 'single' | 'double' | 'multiple'
-): Promise<Project> {
+/**
+ * Find an existing booking product linked to a backend product, or
+ * create one if it doesn't exist yet. The booking product acts as the
+ * bridge between the backend product and a template project.
+ */
+export async function getOrCreateBookingProduct(
+  backendProduct: BackendProduct,
+  defaultCanvas = { width: 1080, height: 1080 },
+): Promise<BookingProduct> {
+  // Check if a booking product already exists for this backend product
+  const all = await listBookingProducts();
+  const existing = all.find((bp) => bp.backendProductId === backendProduct.id);
+  if (existing) return existing;
+
+  // Create a new booking product linked to the backend product
+  return createBookingProduct({
+    backendProductId: backendProduct.id,
+    backendSlug: backendProduct.slug,
+    name: backendProduct.name,
+    imageUri: backendProduct.imageUri,
+    defaultCanvas,
+  });
+}
+
+/**
+ * Get or create the single template project for a booking product.
+ * If the booking product already has a `templateId`, load that project.
+ * Otherwise, create a new booking_template project, link it to the
+ * booking product via `templateId`, and return it.
+ */
+export async function getOrCreateTemplateProject(productId: string): Promise<Project> {
   const product = await getBookingProduct(productId);
   if (!product) {
     throw new Error('Product not found');
   }
 
-  const templateId = product.templates[model][variant];
-
-  if (templateId) {
-    const project = await getProject(templateId);
+  if (product.templateId) {
+    const project = await getProject(product.templateId);
     if (project) {
       return project;
     }
   }
 
-  const projectName = `${product.name} — ${model === 'withImage' ? 'بصورة' : 'بدون صورة'} — ${getVariantLabel(variant)}`;
+  const projectName = `${product.name} — قالب`;
 
   const project = await createProject({
     name: projectName,
@@ -97,37 +122,18 @@ export async function getOrCreateTemplateProject(
     backgroundUri: product.defaultCanvas.backgroundUri,
     bookingMeta: {
       productId,
-      model,
-      variant,
     },
   });
 
-  const updatedTemplates = {
-    ...product.templates,
-    [model]: {
-      ...product.templates[model],
-      [variant]: project.id,
-    },
-  };
-
-  await updateBookingProduct(productId, { templates: updatedTemplates });
+  await updateBookingProduct(productId, { templateId: project.id });
 
   return project;
 }
 
-function getVariantLabel(variant: 'single' | 'double' | 'multiple'): string {
-  const labels = {
-    single: 'قطعة واحدة',
-    double: 'قطعتين',
-    multiple: 'أكثر من قطعتين',
-  };
-  return labels[variant];
-}
-
+/**
+ * Seed default products — deprecated, now a no-op. Products are loaded
+ * from the backend's `products` collection directly.
+ */
 export async function seedDefaultProducts(): Promise<void> {
-  try {
-    await fetchWithAuth('/api/booking-products/seed', { method: 'POST' });
-  } catch (error) {
-    console.warn('Failed to seed booking products via API:', error);
-  }
+  // No-op — products come from the backend now
 }

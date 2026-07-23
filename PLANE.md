@@ -5,7 +5,7 @@
 > **Language**: Arabic (RTL) UI
 > **Stack**: Next.js 16 · React 19 · TypeScript · Tailwind CSS · IndexedDB · MongoDB · Framer Motion
 > **Target**: Modern web browsers (Chrome, Edge, Safari, Firefox)
-> **Last updated**: July 9, 2026
+> **Last updated**: July 23, 2026
 
 ---
 
@@ -93,7 +93,7 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 │   │   └── templates/
 │   │       ├── page.tsx         # Product list (Booking Templates)
 │   │       └── [productId]/
-│   │           └── page.tsx     # 6 templates per product
+│   │           └── page.tsx     # Single template per product
 ├── components/
 │   ├── ui/                      # Reusable UI components (buttons, inputs, etc.)
 │   ├── editor/                  # Editor-specific components
@@ -386,28 +386,48 @@ Each document includes:
 
 **Implementation:**
 - Product management (CRUD)
-- 2 models × 3 variants = 6 templates per product
-- Dynamic field layers with variable binding
-- Template provisioning system
+- Each product has exactly one template project
+- Dynamic field layers with variable binding (text + image types)
+- Template provisioning system (lazy create-on-open)
 
 **Web Adaptations:**
-- Same data structure as React Native
-- IndexedDB for local persistence
-- MongoDB for cloud sync
+- MongoDB as single source of truth (no IndexedDB)
+- In-memory cache for session navigation
 - Web-based editor interface
 
 ### 11. Dynamic Field Layers
 
 **Implementation:**
-- Placeholder text with variable binding
-- Variable picker (predefined + custom)
-- Image field sizing
-- Future render engine integration
+- Predefined order fields from `lib/constants/order-fields.ts`
+- Two field types: `text` and `image`
+- Text fields render as styled text placeholders
+- Image fields render as image placeholders with fit options
+- Field picker drawer in the editor (text fields + image fields sections)
+- Future render engine will inflate fields from order data at generation time
 
-**Web Adaptations:**
-- CSS-based placeholder styling
-- Form input for variable names
-- Template literal substitution
+**Order Fields (the "order shape"):**
+Fields mirror the backend Order model (`backend/lib/models/Order.ts`) and
+reservation field presets (`backend/lib/reservation-fields.ts`). Field IDs
+match the backend's data paths so the future inflation engine can resolve
+them without a lookup table.
+
+- **Billing data**: `billing.fullName` (text), `billing.email` (text),
+  `billing.phone` (text), `billing.country` (text)
+- **Order-level**: `order.orderNumber` (text), `order.totalAmount` (text),
+  `order.paidAmount` (text), `order.remainingAmount` (text),
+  `order.currency` (text), `order.status` (text)
+- **First item**: `item.productName` (text), `item.quantity` (text)
+- **Reservation data**: `reservation.intention` (text),
+  `reservation.sacrificeFor` (text), `reservation.gender` (text),
+  `reservation.isAlive` (text), `reservation.shortDuaa` (text),
+  `reservation.photo` (image), `reservation.executionDate` (text)
+
+**Backend Product Integration:**
+- Products are loaded from the backend's `products` MongoDB collection
+  via `/api/backend/products` (reads directly from the shared database)
+- Each `BookingProduct` in the design app links to a backend product via
+  `backendProductId` (the backend product's `_id` as string)
+- The templates page shows real backend products with their template status
 
 ### 12. Sync Service
 
@@ -519,15 +539,15 @@ interface Project {
   syncedAt?: number;
   bookingMeta?: {
     productId: string;
-    model: "withImage" | "withoutImage";
-    variant: "single" | "double" | "multiple";
   };
 }
 
-// Booking Products (with sync metadata)
+// Booking Products — link between backend product and template
 interface BookingProduct {
   id: string;
   _id?: string; // MongoDB ObjectId
+  backendProductId: string; // backend product's _id (as string)
+  backendSlug?: string; // backend product slug (for debugging)
   name: string;
   imageUri?: string;
   createdAt: number;
@@ -540,18 +560,7 @@ interface BookingProduct {
     height: number;
     backgroundUri?: string;
   };
-  templates: {
-    withImage: {
-      single: string | null;
-      double: string | null;
-      multiple: string | null;
-    };
-    withoutImage: {
-      single: string | null;
-      double: string | null;
-      multiple: string | null;
-    };
-  };
+  templateId: string | null; // single template project per product
 }
 
 // PDF Projects (with sync metadata)
@@ -724,11 +733,12 @@ db.users_admin_panel {
 - [ ] PDF assembly tool
 
 ### Phase 5: Booking Templates (Week 9-10)
-- [ ] Product management
-- [ ] Template provisioning
-- [ ] Dynamic field layers
-- [ ] Variable binding system
-- [ ] Template editor integration
+- [x] Product management (CRUD)
+- [x] Single template per product (lazy provisioning)
+- [x] Dynamic field layers (text + image types)
+- [x] Order field picker from predefined list
+- [x] Template editor integration
+- [ ] Order data inflation (future: fill template from order data)
 
 ### Phase 6: Sync Service (Week 11-12)
 - [ ] MongoDB integration and setup

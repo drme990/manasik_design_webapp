@@ -3,13 +3,8 @@ import type { SyncableDocument } from './storage';
 
 export type ProjectKind = 'design' | 'booking_template';
 
-export type BookingModel = 'withImage' | 'withoutImage';
-export type BookingVariant = 'single' | 'double' | 'multiple';
-
 export interface BookingMeta {
   productId: string;
-  model: BookingModel;
-  variant: BookingVariant;
 }
 
 export interface CanvasSize {

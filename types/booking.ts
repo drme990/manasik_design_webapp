@@ -1,20 +1,23 @@
-import type { CanvasSize, BookingModel, BookingVariant } from './project';
+import type { CanvasSize } from './project';
 import type { SyncableDocument } from './storage';
 
-export interface TemplateMap {
-  single: string | null;
-  double: string | null;
-  multiple: string | null;
-}
-
-export interface Templates {
-  withImage: TemplateMap;
-  withoutImage: TemplateMap;
-}
-
+/**
+ * A booking product — the design app's link between a real backend
+ * product (from the `products` MongoDB collection) and a template
+ * project. Each booking product has exactly one template project
+ * (referenced by `templateId`).
+ *
+ * `backendProductId` references the backend product's `_id` (as a
+ * string). This is what connects the design app's template system to
+ * the real product catalog.
+ */
 export interface BookingProduct extends SyncableDocument {
   id: string;
   _id?: string; // MongoDB ObjectId
+  /** Backend product ID (the `_id` from the `products` collection, as string) */
+  backendProductId: string;
+  /** Product slug from the backend (for readability/debugging) */
+  backendSlug?: string;
   name: string;
   imageUri?: string;
   createdAt: number;
@@ -23,11 +26,14 @@ export interface BookingProduct extends SyncableDocument {
   syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
   syncedAt?: number;
   defaultCanvas: CanvasSize;
-  templates: Templates;
+  /** ID of the single template project linked to this product (null = not created yet) */
+  templateId: string | null;
   userId?: string;
 }
 
 export interface BookingProductCreateInput {
+  backendProductId: string;
+  backendSlug?: string;
   name: string;
   imageUri?: string;
   defaultCanvas: CanvasSize;
@@ -38,12 +44,7 @@ export interface BookingProductUpdateInput {
   name?: string;
   imageUri?: string;
   defaultCanvas?: CanvasSize;
-  templates?: Templates;
+  templateId?: string | null;
   updatedAt?: number;
   localModifiedAt?: number;
-}
-
-export interface TemplateKey {
-  model: BookingModel;
-  variant: BookingVariant;
 }

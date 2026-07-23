@@ -4,82 +4,74 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import Link from 'next/link';
-import { LuArrowLeft, LuPlus, LuPencil } from 'react-icons/lu';
+import { LuArrowRight, LuFilePen, LuFilePlus, LuTrash2 } from 'react-icons/lu';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { getBookingProduct, getOrCreateTemplateProject } from '@/lib/store/booking-templates';
+import { getBookingProduct, getOrCreateTemplateProject, deleteBookingProduct } from '@/lib/store/booking-templates';
 import { getProject } from '@/lib/store/projects';
-import type { BookingProduct, BookingModel, BookingVariant, Project } from '@/types';
-
-const MODELS: BookingModel[] = ['withImage', 'withoutImage'];
-const VARIANTS: BookingVariant[] = ['single', 'double', 'multiple'];
+import type { BookingProduct, Project } from '@/types';
 
 export default function ProductTemplatesPage() {
     const t = useTranslations('templates');
     const router = useRouter();
     const { productId } = useParams<{ productId: string }>();
     const [product, setProduct] = useState<BookingProduct | null>(null);
-    const [projects, setProjects] = useState<Record<string, Project | null>>({});
+    const [templateProject, setTemplateProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(true);
+    const [opening, setOpening] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     useEffect(() => {
         const load = async () => {
             const p = await getBookingProduct(productId);
             setProduct(p);
-            if (p) {
-                const map: Record<string, Project | null> = {};
-                for (const model of MODELS) {
-                    for (const variant of VARIANTS) {
-                        const id = p.templates[model][variant];
-                        if (id) {
-                            map[`${model}-${variant}`] = await getProject(id);
-                        }
-                    }
-                }
-                setProjects(map);
+            if (p?.templateId) {
+                const proj = await getProject(p.templateId);
+                setTemplateProject(proj);
             }
             setLoading(false);
         };
         load();
     }, [productId]);
 
-    const handleOpenSlot = async (model: BookingModel, variant: BookingVariant) => {
-        const project = await getOrCreateTemplateProject(productId, model, variant);
-        router.push(`/editor/${project.id}`);
+    const handleOpenTemplate = async () => {
+        setOpening(true);
+        try {
+            const project = await getOrCreateTemplateProject(productId);
+            router.push(`/editor/${project.id}`);
+        } catch (err) {
+            console.error('Failed to open template:', err);
+            setOpening(false);
+        }
+    };
+
+    const handleDeleteProduct = async () => {
+        setDeleteLoading(true);
+        await deleteBookingProduct(productId);
+        setDeleteLoading(false);
+        setDeleteOpen(false);
+        router.push('/templates');
     };
 
     if (loading) {
         return (
             <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
-                <div className="mx-auto max-w-6xl">
+                <div className="mx-auto max-w-4xl">
                     <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <div className="mb-2 h-4 w-32 animate-pulse rounded bg-muted" />
                             <div className="h-8 w-64 animate-pulse rounded bg-muted" />
-                            <div className="mt-2 h-4 w-32 animate-pulse rounded bg-muted" />
                         </div>
                     </div>
-                    <div className="space-y-8">
-                        <div>
-                            <div className="mb-4 h-7 w-40 animate-pulse rounded bg-muted" />
-                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                                {[...Array(3)].map((_, i) => (
-                                    <Card
-                                        key={i}
-                                        className="group relative overflow-hidden border-stroke bg-card-bg p-0"
-                                        style={{ aspectRatio: 1 }}
-                                    >
-                                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-stroke p-4">
-                                            <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
-                                            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-                                            <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-                                        </div>
-                                    </Card>
-                                ))}
-                            </div>
+                    <Card className="overflow-hidden border-stroke bg-card-bg p-0" style={{ aspectRatio: 1 }}>
+                        <div className="flex h-full w-full items-center justify-center">
+                            <div className="h-12 w-12 animate-pulse rounded-full bg-muted" />
                         </div>
-                    </div>
+                    </Card>
                 </div>
             </main>
         );
@@ -88,16 +80,13 @@ export default function ProductTemplatesPage() {
     if (!product) {
         return (
             <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
-                <div className="mx-auto max-w-6xl">
+                <div className="mx-auto max-w-4xl">
                     <EmptyState
                         title={t('productNotFound')}
                         description={t('productNotFoundDesc')}
                         action={
-                            <Link
-                                href="/templates"
-                                className="inline-flex items-center justify-center rounded-lg bg-brand-primary px-4 py-2 text-base font-medium text-primary-text transition-all duration-200 hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
-                            >
-                                {t('backToTemplates')}
+                            <Link href="/templates">
+                                <Button>{t('backToTemplates')}</Button>
                             </Link>
                         }
                     />
@@ -108,14 +97,15 @@ export default function ProductTemplatesPage() {
 
     return (
         <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-4xl">
+                {/* Header */}
                 <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <Link
                             href="/templates"
-                            className="mb-2 -ms-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            className="mb-2 inline-flex items-center gap-1 text-sm text-secondary transition-colors hover:text-foreground"
                         >
-                            <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
+                            <LuArrowRight className="h-4 w-4 rtl:rotate-180" />
                             {t('backToTemplates')}
                         </Link>
                         <h1 className="text-3xl font-bold text-foreground">{product.name}</h1>
@@ -123,65 +113,80 @@ export default function ProductTemplatesPage() {
                             {product.defaultCanvas.width} × {product.defaultCanvas.height}
                         </p>
                     </div>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setDeleteOpen(true)}
+                            className="gap-2 text-error hover:bg-error/10"
+                        >
+                            <LuTrash2 className="h-4 w-4" />
+                            {t('delete')}
+                        </Button>
+                    </div>
                 </div>
 
-                <div className="space-y-8">
-                    {MODELS.map((model) => (
-                        <section key={model}>
-                            <h2 className="mb-4 text-xl font-semibold text-foreground">
-                                {t(`model.${model}`)}
-                            </h2>
-                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                                {VARIANTS.map((variant) => {
-                                    const key = `${model}-${variant}`;
-                                    const project = projects[key];
-                                    return (
-                                        <Card
-                                            key={variant}
-                                            className="group relative overflow-hidden border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
-                                            style={{
-                                                aspectRatio: product.defaultCanvas.width / product.defaultCanvas.height,
-                                            }}
-                                        >
-                                            {project ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleOpenSlot(model, variant)}
-                                                    className="relative block h-full w-full"
-                                                >
-                                                    <ProjectCardPreview
-                                                        project={project}
-                                                        className="h-full w-full"
-                                                    />
-                                                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-4">
-                                                        <p className="truncate font-medium text-white">
-                                                            {t(`variant.${variant}`)}
-                                                        </p>
-                                                        <p className="text-xs text-white/80">{t('editTemplate')}</p>
-                                                    </div>
-                                                    <div className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100 rtl:right-auto rtl:left-2">
-                                                        <LuPencil className="h-4 w-4" />
-                                                    </div>
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleOpenSlot(model, variant)}
-                                                    className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-stroke p-4 text-secondary transition-colors hover:border-brand-primary hover:text-brand-primary"
-                                                >
-                                                    <LuPlus className="h-8 w-8" />
-                                                    <span className="font-medium">{t(`variant.${variant}`)}</span>
-                                                    <span className="text-sm">{t('createTemplate')}</span>
-                                                </button>
-                                            )}
-                                        </Card>
-                                    );
-                                })}
+                {/* Single template card */}
+                <div className="grid gap-6 md:grid-cols-2">
+                    {/* Preview / empty state */}
+                    <Card className="overflow-hidden border-stroke bg-card-bg p-0" style={{ aspectRatio: product.defaultCanvas.width / product.defaultCanvas.height }}>
+                        {templateProject ? (
+                            <ProjectCardPreview project={templateProject} />
+                        ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-3 border-2 border-dashed border-stroke p-6">
+                                <LuFilePlus className="h-12 w-12 text-secondary" />
+                                <p className="text-center text-sm text-secondary">{t('noTemplate')}</p>
                             </div>
-                        </section>
-                    ))}
+                        )}
+                    </Card>
+
+                    {/* Action panel */}
+                    <div className="flex flex-col justify-center gap-4">
+                        <div className="flex items-center gap-3">
+                            {templateProject ? (
+                                <LuFilePen className="h-8 w-8 text-brand-primary" />
+                            ) : (
+                                <LuFilePlus className="h-8 w-8 text-brand-primary" />
+                            )}
+                            <div>
+                                <h2 className="text-xl font-semibold text-foreground">
+                                    {templateProject ? t('templateReady') : t('noTemplate')}
+                                </h2>
+                                <p className="text-sm text-secondary">
+                                    {templateProject ? t('editTemplate') : t('createTemplate')}
+                                </p>
+                            </div>
+                        </div>
+
+                        <Button
+                            onClick={handleOpenTemplate}
+                            disabled={opening}
+                            className="w-full gap-2"
+                            size="lg"
+                        >
+                            {opening ? (
+                                <span className="animate-pulse">...</span>
+                            ) : (
+                                <>
+                                    {templateProject ? <LuFilePen className="h-5 w-5" /> : <LuFilePlus className="h-5 w-5" />}
+                                    {templateProject ? t('editTemplate') : t('createTemplate')}
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </div>
             </div>
+
+            <AlertDialog
+                isOpen={deleteOpen}
+                onClose={() => setDeleteOpen(false)}
+                title={t('deleteTitle')}
+                description={t('deleteDescription')}
+                confirmLabel={t('delete')}
+                cancelLabel={t('cancel')}
+                onConfirm={handleDeleteProduct}
+                loading={deleteLoading}
+                variant="danger"
+            />
         </main>
     );
 }

@@ -134,6 +134,11 @@ export interface DynamicFieldLayer extends BaseLayer {
   fieldType: 'text' | 'image';
   imageWidth?: number;
   imageHeight?: number;
+  /** Image fields only — collage layout ID when the field can receive
+   *  multiple photos (e.g. reservation.photo). Undefined = single image. */
+  collageLayout?: string;
+  /** Image fields only — gap between collage cells in px */
+  collageGap?: number;
 }
 
 export type AnyLayer = TextLayer | ImageLayer | ShapeLayer | DynamicFieldLayer;

@@ -8,6 +8,7 @@ import ColorPicker from '@/components/ui/ColorPicker';
 import { cn } from '@/lib/utils/cn';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuChevronDown, LuCheck } from 'react-icons/lu';
+import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import type { DynamicFieldLayer } from '@/types';
 
 export interface DynamicFieldToolbarProps {
@@ -127,22 +128,48 @@ export default function DynamicFieldToolbar({ layer, onChange, className }: Dyna
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <NumberField
-              label={t('width')}
-              value={layer.imageWidth || 200}
-              min={10}
-              max={2000}
-              onChange={(v) => onChange({ imageWidth: v })}
-            />
-            <NumberField
-              label={t('height')}
-              value={layer.imageHeight || 200}
-              min={10}
-              max={2000}
-              onChange={(v) => onChange({ imageHeight: v })}
+
+          {/* Collage layout dropdown — for multi-photo fields */}
+          <div className="w-full">
+            <label className="mb-1.5 block text-sm font-medium text-foreground">{t('collageLayout')}</label>
+            <Dropdown
+              align="left"
+              className="w-full"
+              trigger={
+                <button type="button" className={TRIGGER_BTN}>
+                  <span className="truncate text-start">
+                    {layer.collageLayout
+                      ? COLLAGE_LAYOUTS.find((l) => l.id === layer.collageLayout)?.name ?? layer.collageLayout
+                      : t('singleImage')}
+                  </span>
+                  <LuChevronDown className="ms-2 h-5 w-5 shrink-0 text-secondary" />
+                </button>
+              }
+              items={[
+                { id: 'single', label: t('singleImage'), onClick: () => onChange({ collageLayout: undefined }) },
+                ...COLLAGE_LAYOUTS.map((l) => ({
+                  id: l.id,
+                  label: l.name,
+                  onClick: () => onChange({ collageLayout: l.id }),
+                })),
+              ].map((item) => ({
+                ...item,
+                label: undefined as unknown as string,
+                icon: renderItem(item, item.id === (layer.collageLayout ?? 'single')),
+              }))}
             />
           </div>
+
+          {/* Collage gap — only when a collage layout is selected */}
+          {layer.collageLayout && (
+            <SliderField
+              label={t('collageGap')}
+              value={layer.collageGap ?? 4}
+              min={0}
+              max={20}
+              onChange={(v) => onChange({ collageGap: v })}
+            />
+          )}
         </>
       )}
 
