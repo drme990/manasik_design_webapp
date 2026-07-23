@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import ShapeRenderer from './ShapeRenderer';
+import CollageCellImage from './CollageCellImage';
 
 export interface LayerRendererProps {
   layer: AnyLayer;
@@ -290,14 +291,10 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
               }}
             >
               {cellUri ? (
-                <img
-                  src={cellUri}
-                  alt={`collage ${i + 1}`}
-                  draggable={false}
-                  className="pointer-events-none h-full w-full select-none object-cover"
-                  style={{
-                    transform: `scale(${cell?.scale ?? 1}) translate(${cell?.offsetX ?? 0}px, ${cell?.offsetY ?? 0}px) rotate(${cell?.rotation ?? 0}deg)`,
-                  }}
+                <CollageCellImage
+                  cell={cell}
+                  cellWidth={cellW}
+                  cellHeight={cellH}
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-muted" />

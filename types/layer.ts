@@ -43,6 +43,10 @@ export interface ImageLayerCollageCell {
   offsetY: number;
   scale: number;
   rotation?: number;
+  /** Natural dimensions of this cell's source image. Populated at upload/replace
+   * time so renderers can compute clamp bounds without re-measuring via onLoad. */
+  naturalWidth?: number;
+  naturalHeight?: number;
 }
 
 export interface ImageLayerCollage {

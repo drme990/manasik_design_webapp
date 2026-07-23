@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils/cn';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { LuReplace, LuRotateCcw, LuPlus, LuTrash2 } from 'react-icons/lu';
 import type { ImageLayer, ImageLayerCollageCell } from '@/types';
+import CollageCellImage, { getCellClampBounds, clampCellOffset } from '../CollageCellImage';
 
 export interface CollageEditModalProps {
   isOpen: boolean;
@@ -71,16 +72,41 @@ export default function CollageEditModal({
   const collage = layer?.collage;
   const layout = collage ? COLLAGE_LAYOUTS.find(l => l.id === collage.layout) || COLLAGE_LAYOUTS[0] : null;
 
+  // Preview scale — ratio between on-screen preview size and real canvas size.
+  // Drag deltas in screen px are divided by this to convert to canvas px.
+  const previewScale = layer ? Math.min(layer.width, 280) / layer.width : 1;
+
   const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || selectedCell === null || !collage) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       const uri = event.target?.result as string;
-      const cells = [...collage.cells];
-      cells[selectedCell] = { ...cells[selectedCell], uri };
-      const uris = cells.map(c => c.uri);
-      onUpdate({ collage: { ...collage, cells, uris } });
+      // Load image to capture natural dimensions
+      const probe = new Image();
+      probe.onload = () => {
+        setImageDimensions(prev => {
+          const next = new Map(prev);
+          next.set(selectedCell, { w: probe.naturalWidth, h: probe.naturalHeight });
+          return next;
+        });
+        const cells = [...collage.cells];
+        cells[selectedCell] = {
+          ...cells[selectedCell],
+          uri,
+          naturalWidth: probe.naturalWidth,
+          naturalHeight: probe.naturalHeight,
+          // scale=1 means "100% = fills the box" (cover).
+          // CollageCellImage internally applies fillScale to go contain→cover.
+          offsetX: 0,
+          offsetY: 0,
+          scale: 1,
+          rotation: 0,
+        };
+        const uris = cells.map(c => c.uri);
+        onUpdate({ collage: { ...collage, cells, uris } });
+      };
+      probe.src = uri;
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -100,17 +126,35 @@ export default function CollageEditModal({
     const reader = new FileReader();
     reader.onload = (event) => {
       const uri = event.target?.result as string;
-      const newCells = [...collage.cells, { uri, offsetX: 0, offsetY: 0, scale: 1 }];
-      const newUris = newCells.map(c => c.uri);
-      const newLayout = COLLAGE_LAYOUTS.find(l => l.count === newCells.length);
-      onUpdate({
-        collage: {
-          ...collage,
-          cells: newCells,
-          uris: newUris,
-          layout: newLayout?.id ?? collage.layout,
-        },
-      });
+      const probe = new Image();
+      probe.onload = () => {
+        const newIdx = collage.cells.length;
+        setImageDimensions(prev => {
+          const next = new Map(prev);
+          next.set(newIdx, { w: probe.naturalWidth, h: probe.naturalHeight });
+          return next;
+        });
+        const newLayoutId = COLLAGE_LAYOUTS.find(l => l.count === collage.cells.length + 1)?.id ?? collage.layout;
+
+        const newCells = [...collage.cells, {
+          uri,
+          offsetX: 0,
+          offsetY: 0,
+          scale: 1, // 1.0 = 100% = fills the cell
+          naturalWidth: probe.naturalWidth,
+          naturalHeight: probe.naturalHeight,
+        }];
+        const newUris = newCells.map(c => c.uri);
+        onUpdate({
+          collage: {
+            ...collage,
+            cells: newCells,
+            uris: newUris,
+            layout: newLayoutId,
+          },
+        });
+      };
+      probe.src = uri;
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -244,13 +288,35 @@ export default function CollageEditModal({
     }
 
     // Single-finger drag
-    if (!dragState) return;
+    if (!dragState || !layout) return;
     e.preventDefault();
-    const dx = e.clientX - dragState.startX;
-    const dy = e.clientY - dragState.startY;
+    // Convert screen-pixel delta to full-canvas-pixel space so offsetX/Y
+    // are stored in the same coordinate space LayerRenderer uses.
+    const dx = (e.clientX - dragState.startX) / previewScale;
+    const dy = (e.clientY - dragState.startY) / previewScale;
+    let newOffsetX = dragState.startOffsetX + dx;
+    let newOffsetY = dragState.startOffsetY + dy;
+
+    // Clamp offsets so the image can't be dragged into empty space.
+    const cellDef = layout.cells[selectedCell];
+    const gap = collage.gap ?? 4;
+    const realCellW = cellDef.w * layer.width - gap;
+    const realCellH = cellDef.h * layer.height - gap;
+    const cell = collage.cells[selectedCell];
+    const nat = imageDimensionsRef.current.get(selectedCell)
+      ?? (cell.naturalWidth && cell.naturalHeight
+        ? { w: cell.naturalWidth, h: cell.naturalHeight }
+        : null);
+    if (nat) {
+      const { maxX, maxY } = getCellClampBounds(nat.w, nat.h, realCellW, realCellH, cell.scale ?? 1);
+      const clamped = clampCellOffset(newOffsetX, newOffsetY, maxX, maxY);
+      newOffsetX = clamped.offsetX;
+      newOffsetY = clamped.offsetY;
+    }
+
     handleCellUpdate(selectedCell, {
-      offsetX: dragState.startOffsetX + dx,
-      offsetY: dragState.startOffsetY + dy,
+      offsetX: newOffsetX,
+      offsetY: newOffsetY,
     });
   };
 
@@ -286,7 +352,6 @@ export default function CollageEditModal({
   // Preview — smaller to fit mobile screens without breaking layout
   const previewW = Math.min(layer.width, 280);
   const previewH = previewW * (layer.height / layer.width);
-  const previewScale = previewW / layer.width;
   // Layouts available for the current image count
   const availableLayouts = COLLAGE_LAYOUTS.filter(l => l.count === collage.cells.length);
   // Mini-preview dimensions for layout thumbnails
@@ -360,17 +425,21 @@ export default function CollageEditModal({
                   onPointerCancel={isSelected ? handleImagePointerUp : undefined}
                 >
                   {cell?.uri ? (
-                    <img
-                      src={cell.uri}
-                      alt={`cell ${i + 1}`}
-                      draggable={false}
-                      className={cn(
-                        'h-full w-full select-none object-cover pointer-events-none',
-                        isSelected && 'cursor-move'
-                      )}
-                      style={{
-                        transform: `scale(${cell.scale}) translate(${cell.offsetX}px, ${cell.offsetY}px) rotate(${cell.rotation ?? 0}deg)`,
+                    <CollageCellImage
+                      cell={cell}
+                      cellWidth={cellDef.w * layer.width - gap}
+                      cellHeight={cellDef.h * layer.height - gap}
+                      displayScale={previewScale}
+                      index={i}
+                      onDimensionsLoaded={(idx, w, h) => {
+                        setImageDimensions(prev => {
+                          if (prev.get(idx)?.w === w) return prev;
+                          const next = new Map(prev);
+                          next.set(idx, { w, h });
+                          return next;
+                        });
                       }}
+                      className={isSelected ? 'cursor-move' : undefined}
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-muted text-secondary text-xs">
@@ -495,7 +564,7 @@ export default function CollageEditModal({
               </div>
               <input
                 type="range"
-                min={1}
+                min={0.1}
                 max={3}
                 step={0.05}
                 value={selectedCellData.scale}
