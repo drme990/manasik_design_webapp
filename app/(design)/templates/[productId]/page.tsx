@@ -1,60 +1,97 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import Link from 'next/link';
-import { LuArrowRight, LuFilePen, LuFilePlus, LuTrash2 } from 'react-icons/lu';
+import { LuArrowRight, LuPencil, LuBoxes, LuCheck, LuImage } from 'react-icons/lu';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { getBookingProduct, getOrCreateTemplateProject, deleteBookingProduct } from '@/lib/store/booking-templates';
 import { getProject } from '@/lib/store/projects';
-import type { BookingProduct, Project } from '@/types';
+import { listBookingProducts, updateBookingProduct, createBookingProduct } from '@/lib/store/booking-templates';
+import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
+import type { Project, BookingProduct } from '@/types';
 
-export default function ProductTemplatesPage() {
+export default function TemplateDetailPage() {
     const t = useTranslations('templates');
-    const router = useRouter();
-    const { productId } = useParams<{ productId: string }>();
-    const [product, setProduct] = useState<BookingProduct | null>(null);
-    const [templateProject, setTemplateProject] = useState<Project | null>(null);
+    const { productId: templateId } = useParams<{ productId: string }>();
+    const [template, setTemplate] = useState<Project | null>(null);
+    const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
+    const [backendProducts, setBackendProducts] = useState<BackendProduct[]>([]);
     const [loading, setLoading] = useState(true);
-    const [opening, setOpening] = useState(false);
-    const [deleteOpen, setDeleteOpen] = useState(false);
-    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [togglingId, setTogglingId] = useState<string | null>(null);
 
     useEffect(() => {
         const load = async () => {
-            const p = await getBookingProduct(productId);
-            setProduct(p);
-            if (p?.templateId) {
-                const proj = await getProject(p.templateId);
-                setTemplateProject(proj);
-            }
+            const [proj, products, backend] = await Promise.all([
+                getProject(templateId),
+                listBookingProducts(),
+                listBackendProducts(),
+            ]);
+            setTemplate(proj);
+            setBookingProducts(products);
+            setBackendProducts(backend);
             setLoading(false);
         };
         load();
-    }, [productId]);
+    }, [templateId]);
 
-    const handleOpenTemplate = async () => {
-        setOpening(true);
-        try {
-            const project = await getOrCreateTemplateProject(productId);
-            router.push(`/editor/${project.id}`);
-        } catch (err) {
-            console.error('Failed to open template:', err);
-            setOpening(false);
-        }
+    // Find the booking product for a given backend product
+    const getBookingForBackend = (backendId: string): BookingProduct | undefined =>
+        bookingProducts.find((bp) => bp.backendProductId === backendId);
+
+    // Is this backend product assigned to THIS template?
+    const isAssignedToThis = (backendId: string): boolean => {
+        const bp = getBookingForBackend(backendId);
+        return bp?.templateId === templateId;
     };
 
-    const handleDeleteProduct = async () => {
-        setDeleteLoading(true);
-        await deleteBookingProduct(productId);
-        setDeleteLoading(false);
-        setDeleteOpen(false);
-        router.push('/templates');
+    // Is this backend product assigned to a DIFFERENT template?
+    const isAssignedToOther = (backendId: string): boolean => {
+        const bp = getBookingForBackend(backendId);
+        return !!bp?.templateId && bp.templateId !== templateId;
+    };
+
+    const handleToggleProduct = async (backendProduct: BackendProduct) => {
+        let bp = getBookingForBackend(backendProduct.id);
+        setTogglingId(backendProduct.id);
+        try {
+            // Auto-create the booking product if it doesn't exist yet
+            if (!bp) {
+                bp = await createBookingProduct({
+                    backendProductId: backendProduct.id,
+                    backendSlug: backendProduct.slug,
+                    name: backendProduct.name,
+                    imageUri: backendProduct.imageUri,
+                    defaultCanvas: { width: 1080, height: 1080 },
+                });
+                setBookingProducts((prev) => [...prev, bp!]);
+            }
+
+            const currentlyAssigned = bp.templateId === templateId;
+            if (currentlyAssigned) {
+                // Unassign — set templateId to null
+                const updated = await updateBookingProduct(bp.id, { templateId: null });
+                if (updated) {
+                    setBookingProducts((prev) =>
+                        prev.map((p) => (p.id === bp!.id ? updated : p)),
+                    );
+                }
+            } else {
+                // Assign to this template
+                const updated = await updateBookingProduct(bp.id, { templateId });
+                if (updated) {
+                    setBookingProducts((prev) =>
+                        prev.map((p) => (p.id === bp!.id ? updated : p)),
+                    );
+                }
+            }
+        } catch (err) {
+            console.error('Failed to toggle product assignment:', err);
+        }
+        setTogglingId(null);
     };
 
     if (loading) {
@@ -77,13 +114,13 @@ export default function ProductTemplatesPage() {
         );
     }
 
-    if (!product) {
+    if (!template) {
         return (
             <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-4xl">
                     <EmptyState
-                        title={t('productNotFound')}
-                        description={t('productNotFoundDesc')}
+                        title={t('templateNotFound')}
+                        description={t('templateNotFoundDesc')}
                         action={
                             <Link href="/templates">
                                 <Button>{t('backToTemplates')}</Button>
@@ -94,6 +131,8 @@ export default function ProductTemplatesPage() {
             </main>
         );
     }
+
+    const assignedCount = bookingProducts.filter((bp) => bp.templateId === templateId).length;
 
     return (
         <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
@@ -108,85 +147,110 @@ export default function ProductTemplatesPage() {
                             <LuArrowRight className="h-4 w-4 rtl:rotate-180" />
                             {t('backToTemplates')}
                         </Link>
-                        <h1 className="text-3xl font-bold text-foreground">{product.name}</h1>
+                        <h1 className="text-3xl font-bold text-foreground">{template.name}</h1>
                         <p className="mt-1 text-secondary">
-                            {product.defaultCanvas.width} × {product.defaultCanvas.height}
+                            {template.canvasWidth} × {template.canvasHeight}
+                            {' · '}
+                            {assignedCount > 0
+                                ? t('assignedProductsCount').replace('{count}', String(assignedCount))
+                                : t('noProductsAssigned')}
                         </p>
                     </div>
                     <div className="flex gap-2">
-                        <Button
-                            variant="ghost"
-                            onClick={() => setDeleteOpen(true)}
-                            className="gap-2 text-error hover:bg-error/10"
-                        >
-                            <LuTrash2 className="h-4 w-4" />
-                            {t('delete')}
-                        </Button>
+                        <a href={`/editor/${template.id}`}>
+                            <Button variant="outline" className="gap-2">
+                                <LuPencil className="h-4 w-4" />
+                                {t('editTemplate')}
+                            </Button>
+                        </a>
                     </div>
                 </div>
 
-                {/* Single template card */}
-                <div className="grid gap-6 md:grid-cols-2">
-                    {/* Preview / empty state */}
-                    <Card className="overflow-hidden border-stroke bg-card-bg p-0" style={{ aspectRatio: product.defaultCanvas.width / product.defaultCanvas.height }}>
-                        {templateProject ? (
-                            <ProjectCardPreview project={templateProject} />
-                        ) : (
-                            <div className="flex h-full w-full flex-col items-center justify-center gap-3 border-2 border-dashed border-stroke p-6">
-                                <LuFilePlus className="h-12 w-12 text-secondary" />
-                                <p className="text-center text-sm text-secondary">{t('noTemplate')}</p>
-                            </div>
-                        )}
-                    </Card>
+                {/* Template preview */}
+                <Card
+                    className="mb-8 overflow-hidden border-stroke bg-card-bg p-0"
+                    style={{ aspectRatio: template.canvasWidth / template.canvasHeight }}
+                >
+                    <ProjectCardPreview project={template} />
+                </Card>
 
-                    {/* Action panel */}
-                    <div className="flex flex-col justify-center gap-4">
-                        <div className="flex items-center gap-3">
-                            {templateProject ? (
-                                <LuFilePen className="h-8 w-8 text-brand-primary" />
-                            ) : (
-                                <LuFilePlus className="h-8 w-8 text-brand-primary" />
-                            )}
-                            <div>
-                                <h2 className="text-xl font-semibold text-foreground">
-                                    {templateProject ? t('templateReady') : t('noTemplate')}
-                                </h2>
-                                <p className="text-sm text-secondary">
-                                    {templateProject ? t('editTemplate') : t('createTemplate')}
-                                </p>
-                            </div>
-                        </div>
-
-                        <Button
-                            onClick={handleOpenTemplate}
-                            disabled={opening}
-                            className="w-full gap-2"
-                            size="lg"
-                        >
-                            {opening ? (
-                                <span className="animate-pulse">...</span>
-                            ) : (
-                                <>
-                                    {templateProject ? <LuFilePen className="h-5 w-5" /> : <LuFilePlus className="h-5 w-5" />}
-                                    {templateProject ? t('editTemplate') : t('createTemplate')}
-                                </>
-                            )}
-                        </Button>
-                    </div>
+                {/* Product assignment section */}
+                <div className="mb-4 flex items-center gap-2">
+                    <LuBoxes className="h-5 w-5 text-brand-primary" />
+                    <h2 className="text-xl font-semibold text-foreground">{t('assignedProducts')}</h2>
                 </div>
+                <p className="mb-4 text-sm text-secondary">{t('assignProductsHint')}</p>
+
+                {backendProducts.length === 0 ? (
+                    <EmptyState
+                        title={t('emptyTitle')}
+                        description={t('emptyDescription')}
+                    />
+                ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        {backendProducts.map((backend) => {
+                            const assigned = isAssignedToThis(backend.id);
+                            const assignedToOther = isAssignedToOther(backend.id);
+                            const isToggling = togglingId === backend.id;
+                            return (
+                                <button
+                                    key={backend.id}
+                                    type="button"
+                                    onClick={() => handleToggleProduct(backend)}
+                                    disabled={isToggling}
+                                    className={`flex items-center gap-3 rounded-xl border-2 p-3 text-start transition-colors ${assigned
+                                        ? 'border-brand-primary bg-brand-primary-light/10'
+                                        : assignedToOther
+                                            ? 'border-stroke bg-card-bg opacity-60'
+                                            : 'border-stroke bg-card-bg hover:border-brand-primary hover:bg-brand-primary-light/5'
+                                        }`}
+                                >
+                                    {/* Product image */}
+                                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted">
+                                        {backend.imageUri ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                                src={backend.imageUri}
+                                                alt={backend.name}
+                                                className="h-full w-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="flex h-full w-full items-center justify-center">
+                                                <LuImage className="h-6 w-6 text-secondary/40" />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Product name + status */}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate font-medium text-foreground">
+                                            {backend.name}
+                                        </p>
+                                        {assignedToOther && (
+                                            <p className="text-xs text-secondary">
+                                                {t('productAlreadyAssigned')}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Check / toggle indicator */}
+                                    <div
+                                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors ${assigned
+                                            ? 'bg-brand-primary text-primary-text'
+                                            : 'border-2 border-stroke'
+                                            }`}
+                                    >
+                                        {assigned && <LuCheck className="h-4 w-4" />}
+                                        {isToggling && (
+                                            <div className="h-3 w-3 animate-pulse rounded-full bg-current" />
+                                        )}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
-
-            <AlertDialog
-                isOpen={deleteOpen}
-                onClose={() => setDeleteOpen(false)}
-                title={t('deleteTitle')}
-                description={t('deleteDescription')}
-                confirmLabel={t('delete')}
-                cancelLabel={t('cancel')}
-                onConfirm={handleDeleteProduct}
-                loading={deleteLoading}
-                variant="danger"
-            />
         </main>
     );
 }

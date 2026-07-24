@@ -91,9 +91,9 @@ A single-user, offline-first design editor with cloud sync tailored for the من
 │   │   │   └── [id]/
 │   │   │       └── page.tsx     # Design editor
 │   │   └── templates/
-│   │       ├── page.tsx         # Product list (Booking Templates)
+│   │       ├── page.tsx         # Templates list (booking_template projects)
 │   │       └── [productId]/
-│   │           └── page.tsx     # Single template per product
+│   │           └── page.tsx     # Single template detail + product assignment
 ├── components/
 │   ├── ui/                      # Reusable UI components (buttons, inputs, etc.)
 │   ├── editor/                  # Editor-specific components
@@ -385,15 +385,25 @@ Each document includes:
 ### 10. Product Booking Templates
 
 **Implementation:**
-- Product management (CRUD)
-- Each product has exactly one template project
+- Templates are standalone design projects (`kind: "booking_template"`)
+- Each template can be assigned to one or more backend products (many-to-one)
+- A single template can handle one product, two products, or all products
 - Dynamic field layers with variable binding (text + image types)
-- Template provisioning system (lazy create-on-open)
+- Template creation via FAB + drawer (same UX as projects page)
 
 **Web Adaptations:**
 - MongoDB as single source of truth (no IndexedDB)
 - In-memory cache for session navigation
 - Web-based editor interface
+
+**Template ↔ Product Linkage:**
+- The `/templates` page lists templates (not products)
+- Each template card shows a preview and the number of assigned products
+- Products are assigned to a template from the template detail page
+- A `BookingProduct`'s `templateId` points to the template project it uses
+- Multiple `BookingProduct` records can point to the same `templateId`
+- Creating a template: FAB → drawer (canvas size picker) → editor
+- Assigning products: template detail page → product picker
 
 ### 11. Dynamic Field Layers
 
@@ -427,7 +437,9 @@ them without a lookup table.
   via `/api/backend/products` (reads directly from the shared database)
 - Each `BookingProduct` in the design app links to a backend product via
   `backendProductId` (the backend product's `_id` as string)
-- The templates page shows real backend products with their template status
+- The `/templates` page shows templates (booking_template projects), not products
+- Each template can be assigned to one or more products via `BookingProduct.templateId`
+- Multiple products can share the same template
 
 ### 12. Sync Service
 
@@ -560,7 +572,7 @@ interface BookingProduct {
     height: number;
     backgroundUri?: string;
   };
-  templateId: string | null; // single template project per product
+  templateId: string | null; // points to a template project (shared across products)
 }
 
 // PDF Projects (with sync metadata)
@@ -734,10 +746,11 @@ db.users_admin_panel {
 
 ### Phase 5: Booking Templates (Week 9-10)
 - [x] Product management (CRUD)
-- [x] Single template per product (lazy provisioning)
+- [x] Template-per-product (original approach, now refactored)
 - [x] Dynamic field layers (text + image types)
 - [x] Order field picker from predefined list
 - [x] Template editor integration
+- [x] Refactored: templates are standalone, assignable to multiple products
 - [ ] Order data inflation (future: fill template from order data)
 
 ### Phase 6: Sync Service (Week 11-12)

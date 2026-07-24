@@ -19,10 +19,12 @@ import { createResourceCache } from './cache';
 
 const CACHE_TTL_MS = 60_000; // 60 seconds
 const cache = createResourceCache<Project>(CACHE_TTL_MS);
+const templateCache = createResourceCache<Project>(CACHE_TTL_MS);
 
 /** Invalidate the list cache (call after creating/deleting/renaming). */
 export function invalidateListCache(): void {
   cache.invalidateList();
+  templateCache.invalidateList();
 }
 
 /** Get stale list for instant UI rendering (may be expired). */
@@ -30,9 +32,15 @@ export function getStaleProjects(): Project[] | null {
   return cache.getStaleList();
 }
 
+/** Get stale template list for instant UI rendering. */
+export function getStaleTemplates(): Project[] | null {
+  return templateCache.getStaleList();
+}
+
 /** Invalidate a single project from cache (call after saving). */
 export function invalidateProjectCache(id: string): void {
   cache.removeItem(id);
+  templateCache.removeItem(id);
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -43,6 +51,17 @@ export async function listProjects(): Promise<Project[]> {
   const projects = (result.data || []) as Project[];
   cache.setList(projects);
   return projects;
+}
+
+/** List all booking_template projects (templates). */
+export async function listTemplates(): Promise<Project[]> {
+  const cached = templateCache.getList();
+  if (cached) return cached;
+
+  const result = await fetchWithAuth('/api/projects?kind=booking_template');
+  const templates = (result.data || []) as Project[];
+  templateCache.setList(templates);
+  return templates;
 }
 
 /**
@@ -118,6 +137,9 @@ export async function createProject(input: ProjectCreateInput): Promise<Project>
   });
   const project = result.data as Project;
   cache.upsertItemInList(project);
+  if (project.kind === 'booking_template') {
+    templateCache.upsertItemInList(project);
+  }
   return project;
 }
 
@@ -137,6 +159,7 @@ export async function updateProjectRemote(id: string, updates: ProjectUpdateInpu
 export async function deleteProject(id: string): Promise<void> {
   await fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' });
   cache.removeItem(id);
+  templateCache.removeItem(id);
 }
 
 export async function duplicateProject(id: string): Promise<Project | null> {

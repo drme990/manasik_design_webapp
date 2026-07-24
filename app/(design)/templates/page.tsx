@@ -1,62 +1,89 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuArrowRight, LuFilePen, LuFilePlus, LuImage } from 'react-icons/lu';
-import { Card } from '@/components/ui/Card';
+import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes } from 'react-icons/lu';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
-import { listBookingProducts, getOrCreateBookingProduct } from '@/lib/store/booking-templates';
-import type { BookingProduct } from '@/types';
-
-/** Merged view model: a backend product with its linked booking product (if any) */
-interface ProductWithTemplate {
-    backend: BackendProduct;
-    booking: BookingProduct | null;
-}
+import Drawer from '@/components/ui/Drawer';
+import AlertDialog from '@/components/ui/AlertDialog';
+import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
+import { listTemplates, createProject, deleteProject, getStaleTemplates, invalidateListCache } from '@/lib/store/projects';
+import { listBookingProducts } from '@/lib/store/booking-templates';
+import { ASPECT_RATIOS } from '@/lib/constants/presets';
+import type { Project, BookingProduct } from '@/types';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
-    const router = useRouter();
-    const [products, setProducts] = useState<ProductWithTemplate[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [openingId, setOpeningId] = useState<string | null>(null);
+    // Lazy-init from stale cache so returning to this page is instant
+    const [templates, setTemplates] = useState<Project[]>(() => {
+        const stale = getStaleTemplates();
+        return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
+    });
+    const [loading, setLoading] = useState(() => !getStaleTemplates());
+    const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [customWidth, setCustomWidth] = useState('1080');
+    const [customHeight, setCustomHeight] = useState('1080');
+    const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const galleryInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         const load = async () => {
-            const [backendProducts, bookingProducts] = await Promise.all([
-                listBackendProducts(),
+            const [tmpls, products] = await Promise.all([
+                listTemplates(),
                 listBookingProducts(),
             ]);
-
-            // Match booking products to backend products by backendProductId
-            const bookingByBackendId = new Map(
-                bookingProducts.map((bp) => [bp.backendProductId, bp]),
-            );
-
-            const merged: ProductWithTemplate[] = backendProducts.map((bp) => ({
-                backend: bp,
-                booking: bookingByBackendId.get(bp.id) ?? null,
-            }));
-
-            setProducts(merged);
+            setTemplates([...tmpls].sort((a, b) => b.updatedAt - a.updatedAt));
+            setBookingProducts(products);
             setLoading(false);
         };
         load();
     }, []);
 
-    const handleOpenProduct = async (item: ProductWithTemplate) => {
-        setOpeningId(item.backend.id);
+    // Count how many products are assigned to a template
+    const getProductCount = (templateId: string): number =>
+        bookingProducts.filter((bp) => bp.templateId === templateId).length;
+
+    const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
+        const project = await createProject({
+            name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
+            kind: 'booking_template',
+            canvasWidth: preset.width,
+            canvasHeight: preset.height,
+        });
+        setDrawerOpen(false);
+        window.location.assign(`/editor/${project.id}`);
+    };
+
+    const handleCreateCustom = async () => {
+        const width = Number(customWidth);
+        const height = Number(customHeight);
+        if (width <= 0 || height <= 0) return;
+        const project = await createProject({
+            name: `${t('newTemplate')} — ${width}×${height}`,
+            kind: 'booking_template',
+            canvasWidth: width,
+            canvasHeight: height,
+        });
+        setDrawerOpen(false);
+        window.location.assign(`/editor/${project.id}`);
+    };
+
+    const handleDelete = async () => {
+        if (!deleteTemplateId) return;
+        setDeleteLoading(true);
         try {
-            // Find or create the booking product that links to this backend product
-            const booking = await getOrCreateBookingProduct(item.backend);
-            // Navigate to the product detail page using the booking product's ID
-            router.push(`/templates/${booking.id}`);
+            await deleteProject(deleteTemplateId);
+            setTemplates((prev) => prev.filter((p) => p.id !== deleteTemplateId));
+            invalidateListCache();
         } catch (err) {
-            console.error('Failed to open product:', err);
-            setOpeningId(null);
+            console.error('Failed to delete template:', err);
         }
+        setDeleteLoading(false);
+        setDeleteTemplateId(null);
     };
 
     return (
@@ -70,91 +97,194 @@ export default function TemplatesPage() {
                 {loading ? (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {[...Array(6)].map((_, i) => (
-                            <Card
+                            <div
                                 key={i}
-                                className="flex flex-col border-stroke bg-card-bg p-5"
+                                className="flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0"
                             >
-                                <div className="mb-4 h-32 w-full animate-pulse rounded-xl bg-muted" />
-                                <div className="mb-1 h-5 w-2/3 animate-pulse rounded bg-muted" />
-                                <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
-                                <div className="mt-auto h-4 w-1/3 animate-pulse rounded bg-muted" />
-                            </Card>
+                                <div className="aspect-square w-full animate-pulse bg-muted" />
+                                <div className="p-4">
+                                    <div className="mb-2 h-5 w-2/3 animate-pulse rounded bg-muted" />
+                                    <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                                </div>
+                            </div>
                         ))}
                     </div>
-                ) : products.length === 0 ? (
+                ) : templates.length === 0 ? (
                     <EmptyState
                         title={t('emptyTitle')}
                         description={t('emptyDescription')}
                     />
                 ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {products.map((item) => {
-                            const hasTemplate = !!item.booking?.templateId;
-                            const isOpening = openingId === item.backend.id;
+                        {templates.map((template) => {
+                            const productCount = getProductCount(template.id);
                             return (
-                                <Card
-                                    key={item.backend.id}
-                                    className="group relative flex flex-col overflow-hidden border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
+                                <div
+                                    key={template.id}
+                                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => handleOpenProduct(item)}
-                                        disabled={isOpening}
-                                        className="flex flex-1 flex-col text-start"
+                                    {/* Preview — click opens editor */}
+                                    <a
+                                        href={`/editor/${template.id}`}
+                                        className="block"
                                     >
-                                        {/* Product image */}
-                                        <div className="relative aspect-square w-full overflow-hidden bg-muted">
-                                            {item.backend.imageUri ? (
-                                                // eslint-disable-next-line @next/next/no-img-element
-                                                <img
-                                                    src={item.backend.imageUri}
-                                                    alt={item.backend.name}
-                                                    className="h-full w-full object-cover"
-                                                />
-                                            ) : (
-                                                <div className="flex h-full w-full items-center justify-center">
-                                                    <LuImage className="h-12 w-12 text-secondary/40" />
-                                                </div>
-                                            )}
-                                            {/* Template status badge */}
-                                            <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-card-bg/90 px-2.5 py-1 text-xs font-medium shadow-sm backdrop-blur">
-                                                {hasTemplate ? (
-                                                    <>
-                                                        <LuFilePen className="h-3.5 w-3.5 text-brand-primary" />
-                                                        <span className="text-brand-primary">{t('templateReady')}</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <LuFilePlus className="h-3.5 w-3.5 text-secondary" />
-                                                        <span className="text-secondary">{t('noTemplate')}</span>
-                                                    </>
-                                                )}
-                                            </div>
+                                        <div
+                                            className="relative aspect-square w-full overflow-hidden bg-muted"
+                                            style={{
+                                                backgroundColor: template.backgroundColor ?? '#ffffff',
+                                            }}
+                                        >
+                                            <ProjectCardPreview project={template} />
+                                        </div>
+                                    </a>
+
+                                    {/* Info + actions */}
+                                    <div className="flex flex-1 flex-col p-4">
+                                        <h3 className="mb-1 line-clamp-1 text-lg font-semibold text-foreground">
+                                            {template.name}
+                                        </h3>
+                                        <div className="mb-3 flex items-center gap-1.5 text-sm text-secondary">
+                                            <LuBoxes className="h-4 w-4" />
+                                            {productCount > 0
+                                                ? t('assignedProductsCount').replace('{count}', String(productCount))
+                                                : t('noProductsAssigned')}
                                         </div>
 
-                                        {/* Product info */}
-                                        <div className="flex flex-1 flex-col p-4">
-                                            <h3 className="mb-1 text-lg font-semibold text-foreground">
-                                                {item.backend.name}
-                                            </h3>
-                                            <div className="mt-auto flex items-center gap-1 text-sm font-medium text-brand-primary">
-                                                {isOpening ? (
-                                                    <span className="animate-pulse">...</span>
-                                                ) : (
-                                                    <>
-                                                        {hasTemplate ? t('editTemplate') : t('createTemplate')}
-                                                        <LuArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" />
-                                                    </>
-                                                )}
-                                            </div>
+                                        <div className="mt-auto flex items-center gap-2">
+                                            <a
+                                                href={`/templates/${template.id}`}
+                                                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                            >
+                                                <LuBoxes className="h-4 w-4" />
+                                                {t('assignProducts')}
+                                            </a>
+                                            <a
+                                                href={`/editor/${template.id}`}
+                                                className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                                aria-label={t('editTemplate')}
+                                            >
+                                                <LuPencil className="h-4 w-4" />
+                                            </a>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeleteTemplateId(template.id)}
+                                                className="flex items-center justify-center rounded-lg border border-stroke p-2 text-error transition-colors hover:border-error hover:bg-error/10"
+                                                aria-label={t('delete')}
+                                            >
+                                                <LuTrash2 className="h-4 w-4" />
+                                            </button>
                                         </div>
-                                    </button>
-                                </Card>
+                                    </div>
+                                </div>
                             );
                         })}
                     </div>
                 )}
             </div>
+
+            {/* Floating + button — same as projects page */}
+            <button
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-transform hover:scale-105 active:scale-95"
+                aria-label={t('newTemplate')}
+            >
+                <LuPlus className="h-7 w-7" />
+            </button>
+
+            {/* New template drawer — same size/structure as projects page */}
+            <Drawer
+                isOpen={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                title={t('newTemplate')}
+                height="twoThirds"
+                footer={
+                    <Button variant="primary" onClick={handleCreateCustom} className="w-full">
+                        <LuPlus className="ms-2 h-5 w-5" />
+                        {t('create')}
+                    </Button>
+                }
+            >
+                {/* Pick from gallery — creates a template with the image's aspect ratio */}
+                <div className="mb-6">
+                    <input
+                        ref={galleryInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => galleryInputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-stroke bg-card-bg px-4 py-4 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                    >
+                        <LuImage className="h-5 w-5 text-brand-primary" />
+                        {t('pickFromGallery')}
+                    </button>
+                </div>
+
+                {/* Preset sizes — horizontal scroll */}
+                <div className="mb-6">
+                    <h3 className="mb-3 text-sm font-medium text-secondary">{t('newTemplate')}</h3>
+                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                        {ASPECT_RATIOS.map((preset) => {
+                            const ratio = preset.width / preset.height;
+                            const boxW = ratio >= 1 ? 48 : Math.round(48 * ratio);
+                            const boxH = ratio >= 1 ? Math.round(48 / ratio) : 48;
+                            return (
+                                <button
+                                    key={preset.label}
+                                    onClick={() => handleCreate(preset)}
+                                    className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 text-center transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                >
+                                    <div className="flex h-12 items-center justify-center">
+                                        <div
+                                            className="rounded border-2 border-foreground/40 bg-foreground/5"
+                                            style={{ width: boxW, height: boxH }}
+                                        />
+                                    </div>
+                                    <p className="text-xs font-semibold text-foreground">{preset.label}</p>
+                                    <p className="text-xs text-secondary">{preset.name}</p>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Custom size */}
+                <div>
+                    <h3 className="mb-3 text-sm font-medium text-secondary">{t('customSize')}</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <Input
+                            label={t('width')}
+                            type="text"
+                            inputMode="numeric"
+                            value={customWidth}
+                            onChange={(e) => setCustomWidth(e.target.value)}
+                        />
+                        <Input
+                            label={t('height')}
+                            type="text"
+                            inputMode="numeric"
+                            value={customHeight}
+                            onChange={(e) => setCustomHeight(e.target.value)}
+                        />
+                    </div>
+                </div>
+            </Drawer>
+
+            {/* Delete confirmation */}
+            <AlertDialog
+                isOpen={!!deleteTemplateId}
+                onClose={() => setDeleteTemplateId(null)}
+                title={t('deleteTitle')}
+                description={t('deleteDescription')}
+                confirmLabel={t('delete')}
+                cancelLabel={t('cancel')}
+                onConfirm={handleDelete}
+                loading={deleteLoading}
+                variant="danger"
+            />
         </main>
     );
 }

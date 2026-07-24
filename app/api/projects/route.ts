@@ -21,19 +21,25 @@ async function getCollection() {
   return collection;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await verifySession();
     if (!session) {
       return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 });
     }
 
+    // Optional ?kind= filter — e.g. /api/projects?kind=booking_template
+    const kindFilter = request.nextUrl.searchParams.get('kind');
+
     const collection = await getCollection();
+    const query: Record<string, unknown> = { userId: session.id };
+    if (kindFilter) {
+      query.kind = kindFilter;
+    } else {
+      query.kind = { $ne: 'booking_template' };
+    }
     const projects = await collection
-      .find({
-        userId: session.id,
-        kind: { $ne: 'booking_template' },
-      })
+      .find(query)
       .sort({ updatedAt: -1 })
       .toArray();
 
