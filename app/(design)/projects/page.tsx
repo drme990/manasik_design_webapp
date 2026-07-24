@@ -14,7 +14,7 @@ import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { Project, PdfProject } from '@/types';
+import type { PdfProject } from '@/types';
 
 export default function ProjectsPage() {
   const t = useTranslations('projects');
@@ -377,7 +377,6 @@ export default function ProjectsPage() {
         </section>
 
         <section>
-          <h2 className="mb-4 text-lg font-semibold text-foreground">{navT('templates')}</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <Link
               href="/templates"

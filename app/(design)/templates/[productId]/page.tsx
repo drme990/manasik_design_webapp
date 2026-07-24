@@ -158,12 +158,12 @@ export default function TemplateDetailPage() {
                         </p>
                     </div>
                     <div className="flex gap-2">
-                        <a href={`/editor/${template.id}`}>
+                        <Link href={`/editor/${template.id}`}>
                             <Button variant="outline" className="gap-2">
                                 <LuPencil className="h-4 w-4" />
                                 {t('editTemplate')}
                             </Button>
-                        </a>
+                        </Link>
                     </div>
                 </div>
 

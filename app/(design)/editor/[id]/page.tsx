@@ -114,6 +114,11 @@ export default function EditorPage() {
     const bgFileInputRef = useRef<HTMLInputElement>(null);
     const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
+    // Set to true when we're intentionally navigating away (via history.go).
+    // The popstate handler checks this to avoid re-entering the leave logic
+    // when our intentional back navigation fires popstate.
+    const isLeavingRef = useRef(false);
+
     const [project, setProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -438,17 +443,45 @@ export default function EditorPage() {
         }
     }, [storeSaveProject, captureThumbnailBlob, uploadThumbnailInBackground, cancelThumbnailUpdate, toast, t]);
 
-    // Navigate to /projects using client-side routing (no full page reload).
-    // When `fromPopstate` is true (hardware back button), we defer the
-    // router.replace call with setTimeout(0) so it runs AFTER the browser
-    // finishes processing the popstate event. Calling router.replace
-    // synchronously inside a popstate handler can conflict with Next.js's
-    // own popstate processing and silently fail — the user gets stuck on
-    // the editor and has to press back again (the "double back-press" bug).
-    // The deferred call avoids this entirely while keeping the navigation
-    // client-side (no full reload, zustand store survives).
-    const navigateToProjects = useCallback((fromPopstate: boolean) => {
-        const go = () => router.replace('/projects');
+    // Navigate back using the browser's history stack — no hardcoded target
+    // page. The browser knows where the user came from, so this always
+    // returns to the correct page (e.g. /templates if they came from
+    // templates, /projects if from projects).
+    //
+    // The editor pushes a dummy history entry on mount to intercept the
+    // hardware back button. So the history stack looks like:
+    //   [referrer] → [editor] → [dummy]
+    //
+    // - UI back button (fromPopstate=false): we're at [dummy]. Go back 2
+    //   steps to land on [referrer].
+    // - Hardware back (fromPopstate=true): the dummy was just popped by the
+    //   browser's popstate, so we're at [editor]. Go back 1 step to land
+    //   on [referrer].
+    //
+    // If there isn't enough history (e.g. user opened the editor by direct
+    // URL), history.go() does nothing — we fall back to router.back().
+    //
+    // isLeavingRef prevents the popstate handler from re-entering attemptLeave
+    // when our intentional history.go() fires its own popstate event.
+    const navigateBack = useCallback((fromPopstate: boolean) => {
+        isLeavingRef.current = true;
+
+        const steps = fromPopstate ? -1 : -2;
+        const go = () => {
+            const beforeUrl = window.location.href;
+            window.history.go(steps);
+            // Fallback: if history.go() didn't change the URL (not enough
+            // history — e.g. direct URL entry), use router.back() after
+            // a short delay.
+            setTimeout(() => {
+                if (window.location.href === beforeUrl) {
+                    router.back();
+                }
+            }, 100);
+        };
+
+        // Defer when fromPopstate so the call runs AFTER the browser
+        // finishes processing the current popstate event.
         if (fromPopstate) {
             setTimeout(go, 0);
         } else {
@@ -456,15 +489,16 @@ export default function EditorPage() {
         }
     }, [router]);
 
-    // Leave the editor and land on /projects. Used whenever there's nothing
-    // to save or delete (project already synced and untouched this session).
+    // Leave the editor and return to the page the user came from. Used
+    // whenever there's nothing to save or delete (project already synced
+    // and untouched this session).
     const leaveToProjects = useCallback((fromPopstate: boolean) => {
         const current = projectRef.current;
         if (current) {
             try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
         }
-        navigateToProjects(fromPopstate);
-    }, [navigateToProjects]);
+        navigateBack(fromPopstate);
+    }, [navigateBack]);
 
     // Discard a blank project (no layers, no background) and leave.
     // Optimistic UI: the project disappears from the store immediately and
@@ -481,18 +515,18 @@ export default function EditorPage() {
         setHasUnsavedChanges(false);
         try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
         storeDeleteProjectOptimistic(current.id);
-        navigateToProjects(fromPopstate);
-    }, [navigateToProjects, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
+        navigateBack(fromPopstate);
+    }, [navigateBack, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
 
     // Save and navigate away — used by the "Yes" button in the leave modal.
     // Optimistic UI: the thumbnail MUST be captured while the canvas is
     // still mounted (it's a DOM snapshot), so we briefly await that step —
-    // then we navigate to /projects immediately without waiting for the
+    // then we navigate back immediately without waiting for the
     // actual save or the thumbnail upload, which both run in the background.
     const doSaveAndLeave = useCallback(async (nameOverride?: string) => {
         const current = pendingPersistRef.current || projectRef.current;
         if (!current) {
-            navigateToProjects(false);
+            navigateBack(false);
             return;
         }
         if (saveDebounceRef.current) {
@@ -523,7 +557,7 @@ export default function EditorPage() {
 
         // Optimistic UI — leave immediately; persist to the server and
         // upload the thumbnail in the background without blocking on them.
-        navigateToProjects(false);
+        navigateBack(false);
 
         storeSaveProject(toSave)
             .then(() => {
@@ -534,7 +568,7 @@ export default function EditorPage() {
                 console.error('Failed to save project in background:', err);
                 toast.showToast({ message: t('saveFailedMessage'), variant: 'error' });
             });
-    }, [navigateToProjects, leaveAndDeleteBlank, captureThumbnailBlob, uploadThumbnailInBackground, storeSaveProject, cancelThumbnailUpdate, toast, t]);
+    }, [navigateBack, leaveAndDeleteBlank, captureThumbnailBlob, uploadThumbnailInBackground, storeSaveProject, cancelThumbnailUpdate, toast, t]);
 
     // "No" button in the leave modal — only reachable for non-blank projects
     // (blank projects are handled by leaveAndDeleteBlank before the modal
@@ -560,8 +594,8 @@ export default function EditorPage() {
                 storeDeleteProjectOptimistic(current.id);
             }
         }
-        navigateToProjects(false);
-    }, [navigateToProjects, wasSyncedBefore, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
+        navigateBack(false);
+    }, [navigateBack, wasSyncedBefore, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
 
     // Central "leave" decision, shared by the UI back button and the
     // browser/phone back button (popstate).
@@ -865,6 +899,9 @@ export default function EditorPage() {
         // a single press instead of getting trapped behind an extra entry.
         window.history.pushState({ editorGuard: true }, '');
         const handlePopState = () => {
+            // Ignore popstate from our intentional history.back()/go()
+            // when leaving — isLeavingRef is set by navigateBack.
+            if (isLeavingRef.current) return;
             attemptLeave(true);
         };
         window.addEventListener('popstate', handlePopState);

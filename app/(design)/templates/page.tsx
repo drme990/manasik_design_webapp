@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
@@ -12,7 +13,7 @@ import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { Project, BookingProduct } from '@/types';
+import type { BookingProduct } from '@/types';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
@@ -121,7 +122,7 @@ export default function TemplatesPage() {
                                     className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm transition-shadow hover:shadow-md hover:border-brand-primary"
                                 >
                                     {/* Preview — click opens editor */}
-                                    <a
+                                    <Link
                                         href={`/editor/${template.id}`}
                                         className="block"
                                     >
@@ -134,7 +135,7 @@ export default function TemplatesPage() {
                                         >
                                             <ProjectCardPreview project={template} className="h-full w-full" />
                                         </div>
-                                    </a>
+                                    </Link>
 
                                     {/* Info + actions */}
                                     <div className="flex flex-1 flex-col p-4">
@@ -149,20 +150,20 @@ export default function TemplatesPage() {
                                         </div>
 
                                         <div className="mt-auto flex items-center gap-2">
-                                            <a
+                                            <Link
                                                 href={`/templates/${template.id}`}
                                                 className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                                             >
                                                 <LuBoxes className="h-4 w-4" />
                                                 {t('assignProducts')}
-                                            </a>
-                                            <a
+                                            </Link>
+                                            <Link
                                                 href={`/editor/${template.id}`}
                                                 className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                                                 aria-label={t('editTemplate')}
                                             >
                                                 <LuPencil className="h-4 w-4" />
-                                            </a>
+                                            </Link>
                                             <button
                                                 type="button"
                                                 onClick={() => setDeleteTemplateId(template.id)}

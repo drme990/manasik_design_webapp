@@ -13,6 +13,10 @@ export default function SmoothScrollProvider({
   const lenisRef = useRef<Lenis | null>(null);
 
   useEffect(() => {
+    // Skip Lenis on editor pages — they use overflow-hidden and handle
+    // their own scrolling/zooming internally.
+    if (pathname.startsWith('/editor/')) return;
+
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return;
     }
@@ -90,7 +94,7 @@ export default function SmoothScrollProvider({
       lenis.destroy();
       lenisRef.current = null;
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
