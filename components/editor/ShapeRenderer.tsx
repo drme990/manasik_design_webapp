@@ -45,20 +45,31 @@ export default function ShapeRenderer({
   const fill = filled ? fillColor : 'transparent';
 
   // PNG shape — render as an <img> so that html-to-image (toJpeg/toPng)
-  // can properly fetch and inline the external R2 URL during export.
-  // CSS background-image URLs from external origins are NOT inlined by
-  // html-to-image, so PNG shapes would be silently dropped from exports
-  // when rendered as a <div> with background-image.
+  // can properly fetch and inline the image during export.
   //
-  // Context menu / long-press suppression (the original reason for using
-  // a <div>) is handled via draggable={false}, onContextMenu prevention,
-  // and CSS -webkit-touch-callout: none. pointer-events:none is safe
-  // because the parent ShapeLayerComponent div handles all pointer events.
+  // The R2 URL is routed through the same-origin /api/image-proxy to avoid
+  // CORS errors when html-to-image tries to fetch it. R2 doesn't send
+  // Access-Control-Allow-Origin headers, so a direct fetch from the hosting
+  // domain fails. The proxy adds the CORS headers and streams the image
+  // back same-origin. On localhost this happens to work without the proxy
+  // (browsers are more permissive with localhost), but on the hosted domain
+  // it fails with "Failed to fetch" + an img error event.
+  //
+  // Context menu / long-press suppression is handled via draggable={false},
+  // onContextMenu prevention, and CSS -webkit-touch-callout: none.
+  // pointer-events:none is safe because the parent ShapeLayerComponent div
+  // handles all pointer events.
   if (shape === 'png' && uri) {
+    const isExternal = uri.startsWith('http') &&
+      typeof window !== 'undefined' &&
+      !uri.startsWith(window.location.origin);
+    const safeSrc = isExternal
+      ? `/api/image-proxy?url=${encodeURIComponent(uri)}`
+      : uri;
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={uri}
+        src={safeSrc}
         alt=""
         draggable={false}
         onContextMenu={(e) => e.preventDefault()}
