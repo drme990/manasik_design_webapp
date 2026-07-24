@@ -202,6 +202,9 @@ export default function EditorPage() {
     const [textEditDrawerOpen, setTextEditDrawerOpen] = useState(false);
     const [safeAreaEditMode, setSafeAreaEditMode] = useState(false);
     const eyeDropperReopenRef = useRef<string | null>(null);
+    // When true, reopening the color picker drawer shows the custom picker
+    // (set after an eye-dropper pick so the user sees the picked color)
+    const [reopenWithCustomPicker, setReopenWithCustomPicker] = useState(false);
     // Mobile eye dropper fallback — shows a canvas snapshot overlay for tapping a color
     const [mobileEyeDropper, setMobileEyeDropper] = useState<{
         dataUrl: string;
@@ -1480,6 +1483,7 @@ export default function EditorPage() {
         const EyeDropperAPI = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
 
         eyeDropperReopenRef.current = colorPickerProp;
+        setReopenWithCustomPicker(false);
         setColorPickerProp(null);
 
         const applyColor = (pickedColor: string) => {
@@ -1501,6 +1505,7 @@ export default function EditorPage() {
                 }
             }
             setColorPickerProp(eyeDropperReopenRef.current);
+            setReopenWithCustomPicker(true);
             eyeDropperReopenRef.current = null;
         };
 
@@ -2367,9 +2372,10 @@ export default function EditorPage() {
                 {/* Color picker drawer — handles all color properties (layers + canvas bg) */}
                 <ColorPickerDrawer
                     isOpen={!!colorPickerProp}
-                    onClose={() => setColorPickerProp(null)}
+                    onClose={() => { setColorPickerProp(null); setReopenWithCustomPicker(false); }}
                     onDragStart={startChangeTransaction}
                     onEyeDropper={handleEyeDropper}
+                    forceCustomPickerOnOpen={reopenWithCustomPicker}
                     savedColors={savedColors}
                     onSaveColor={addSavedColor}
                     onRemoveSavedColor={removeSavedColor}

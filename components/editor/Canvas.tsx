@@ -1086,59 +1086,70 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
               <>
                 {/* Reset button — positioned above the safe area top-right corner */}
                 <Button
-                  size="sm"
+                  size="md"
                   onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                   onClick={(e) => { e.stopPropagation(); onSafeAreaChangeRef.current?.({ ...DEFAULT_SAFE_AREA }); }}
-                  className="absolute -top-10 right-0 gap-1.5 shadow-lg"
+                  className="absolute -top-12 right-0 gap-2 text-base shadow-lg"
                 >
-                  <LuRotateCcw className="h-4 w-4" />
+                  <LuRotateCcw className="h-5 w-5" />
                   {resetLabel}
                 </Button>
-                {/* Edge drag buttons — visible, labeled with the current inset
-                    percentage, draggable to resize each side. Each button only
-                    modifies its own inset. Dragging toward the canvas center
-                    shrinks the safe area from that side; dragging away from
-                    center grows it. */}
+                {/* Edge drag buttons — only arrows, positioned outside the box.
+                    Number labels are rendered separately inside the safe area. */}
                 {/* TOP — centered on top edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top')}
-                  className="absolute -top-9 left-1/2 flex h-16 w-36 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-xl font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -top-9 left-1/2 flex h-16 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center rounded-xl border-2 border-brand-primary bg-card-bg text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Top"
                 >
-                  <LuArrowUp className="h-6 w-6" />
-                  {area.top.toFixed(1)}%
+                  <LuArrowUp className="h-8 w-8" />
                 </button>
                 {/* BOTTOM — centered on bottom edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'bottom')}
-                  className="absolute -bottom-9 left-1/2 flex h-16 w-36 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-xl font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -bottom-9 left-1/2 flex h-16 w-28 -translate-x-1/2 cursor-ns-resize touch-none items-center justify-center rounded-xl border-2 border-brand-primary bg-card-bg text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Bottom"
                 >
-                  <LuArrowDown className="h-6 w-6" />
-                  {area.bottom.toFixed(1)}%
+                  <LuArrowDown className="h-8 w-8" />
                 </button>
                 {/* LEFT — centered on left edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'left')}
-                  className="absolute -left-10 top-1/2 flex h-36 w-16 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-lg font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -left-12 top-1/2 flex h-28 w-16 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-xl border-2 border-brand-primary bg-card-bg text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Left"
                 >
-                  <LuArrowLeft className="h-6 w-6" />
-                  {area.left.toFixed(1)}%
+                  <LuArrowLeft className="h-8 w-8" />
                 </button>
                 {/* RIGHT — centered on right edge */}
                 <button
                   type="button"
                   onPointerDown={(e) => handleSafeAreaPointerDown(e, 'right')}
-                  className="absolute -right-10 top-1/2 flex h-36 w-16 -translate-y-1/2 cursor-ew-resize touch-none flex-col items-center justify-center gap-2 rounded-lg border-2 border-brand-primary bg-card-bg text-lg font-bold text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
+                  className="absolute -right-12 top-1/2 flex h-28 w-16 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-xl border-2 border-brand-primary bg-card-bg text-brand-primary shadow-lg transition-colors hover:bg-brand-primary hover:text-primary-text"
                   aria-label="Right"
                 >
-                  <LuArrowRight className="h-6 w-6" />
-                  {area.right.toFixed(1)}%
+                  <LuArrowRight className="h-8 w-8" />
                 </button>
+
+                {/* Number labels — inside the safe area, just behind each edge.
+                    Non-interactive (pointer-events-none) so they don't block
+                    layer dragging. */}
+                <div className="pointer-events-none absolute inset-0 select-none">
+                  <span className="absolute left-1/2 top-6 -translate-x-1/2 text-3xl font-bold text-brand-primary/40">
+                    {area.top.toFixed(1)}%
+                  </span>
+                  <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-3xl font-bold text-brand-primary/40">
+                    {area.bottom.toFixed(1)}%
+                  </span>
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-3xl font-bold text-brand-primary/40">
+                    {area.left.toFixed(1)}%
+                  </span>
+                  <span className="absolute right-6 top-1/2 -translate-y-1/2 text-3xl font-bold text-brand-primary/40">
+                    {area.right.toFixed(1)}%
+                  </span>
+                </div>
                 {/* Corner handles — large transparent touch area with visible dot */}
                 <div onPointerDown={(e) => handleSafeAreaPointerDown(e, 'top-left')} className="absolute -top-4 -left-4 h-8 w-8 cursor-nwse-resize touch-none">
                   <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-primary" />

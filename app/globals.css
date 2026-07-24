@@ -346,19 +346,3 @@ input[type='number'] {
     transform: translate(-50%, -8px);
   }
 }
-
-/* ─── Lenis smooth scrolling ─────────────────────────────────── */
-/* Prevent the browser from doing its own smooth scrolling when
-   Lenis is active, avoiding double-smoothing jitter. */
-html.lenis,
-html.lenis body {
-  height: auto;
-}
-
-.lenis.lenis-smooth {
-  scroll-behavior: auto !important;
-}
-
-.lenis.lenis-stopped {
-  overflow: hidden;
-}

@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { useTranslations } from '@/lib/i18n/strings';
-import Image from 'next/image';
 
 export interface ImageCropModalProps {
   isOpen: boolean;
@@ -309,10 +308,10 @@ export default function ImageCropModal({
       size="xl"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{uiT('cancel')}</Button>
-          <Button variant="ghost" onClick={handleReset}>{t('reset')}</Button>
+          <Button variant="outline" onClick={onClose}>{uiT('cancel')}</Button>
+          <Button variant="outline" onClick={handleReset}>{t('reset')}</Button>
           {hasCrop && onUndoCrop && (
-            <Button variant="ghost" onClick={onUndoCrop} className="text-error hover:bg-error/10">
+            <Button variant="outline" onClick={onUndoCrop} className="text-error hover:bg-error/10">
               {t('undoCrop')}
             </Button>
           )}
@@ -329,27 +328,21 @@ export default function ImageCropModal({
       <div className="space-y-4">
         <div
           className="relative flex select-none items-center justify-center overflow-hidden rounded-lg bg-black/90 touch-none"
-          style={{ minHeight: '300px' }}
           onPointerDown={handleContainerPointerDown}
           onPointerMove={handleContainerPointerMove}
           onPointerUp={handleContainerPointerUp}
           onPointerCancel={handleContainerPointerUp}
         >
           <div className="relative inline-block">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               ref={imgRef}
               src={imageUri}
               alt="Crop preview"
               draggable={false}
               onLoad={handleImageLoad}
               onError={() => setImgLoaded(false)}
-              className="max-h-[60vh] max-w-full select-none"
-              // Force the image to have a min size while loading so the
-              // container doesn't collapse to 0×0 (which would prevent
-              // onLoad from ever firing in some browsers).
-              width={100}
-              height={100}
-              style={{ minHeight: imgLoaded ? 0 : 200 }}
+              className="block max-h-[60vh] w-auto max-w-full select-none"
             />
 
             {imgLoaded && crop.width > 0 && crop.height > 0 && (

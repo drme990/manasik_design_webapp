@@ -16,6 +16,12 @@ export interface ColorPickerDrawerProps {
   onDragStart?: () => void;
   /** Called when the eye dropper is clicked. Parent should close drawer, pick color, then reopen. */
   onEyeDropper?: () => void;
+  /**
+   * When true, the drawer opens with the custom color picker already expanded
+   * (instead of the palette). Used to reopen after an eye-dropper pick so the
+   * user sees the picked color in the custom picker.
+   */
+  forceCustomPickerOnOpen?: boolean;
   /** Saved colors from DB (session-cached by parent). */
   savedColors?: string[];
   /** Add the current color to saved colors. */
@@ -54,6 +60,7 @@ export default function ColorPickerDrawer({
   title,
   onDragStart,
   onEyeDropper,
+  forceCustomPickerOnOpen = false,
   savedColors = [],
   onSaveColor,
   onRemoveSavedColor,
@@ -92,7 +99,7 @@ export default function ColorPickerDrawer({
     setPrevIsOpen(isOpen);
     if (isOpen) {
       setRecent(loadRecent());
-      setShowCustomPicker(false);
+      setShowCustomPicker(forceCustomPickerOnOpen);
     }
   }
 
@@ -331,25 +338,10 @@ export default function ColorPickerDrawer({
       isOpen={isOpen}
       onClose={handleClose}
       title={title || t('pickColor')}
-      height='auto'
+      height={showCustomPicker ? 'twoThirds' : 'auto'}
       headerIcon={eyeDropperIcon}
     >
       <div className="space-y-5">
-        {/* Custom color toggle */}
-        <button
-          type="button"
-          onClick={() => setShowCustomPicker((v) => !v)}
-          className={cn(
-            'flex w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors',
-            showCustomPicker
-              ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-              : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary/50'
-          )}
-        >
-          <LuPipette className="h-5 w-5" />
-          {showCustomPicker ? t('hideCustomColor') : t('customColor')}
-        </button>
-
         {/* Custom color picker — color field, hue slider, hex/RGB inputs */}
         {showCustomPicker && (
           <>
@@ -400,19 +392,25 @@ export default function ColorPickerDrawer({
               />
             </div>
 
-            {/* Hex input */}
+            {/* Hex input with color preview */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-secondary">HEX</label>
-              <input
-                ref={hexInputRef}
-                type="text"
-                value={hexInput}
-                onChange={(e) => handleHexChange(e.target.value)}
-                onBlur={handleHexCommit}
-                className="w-full rounded-lg border border-stroke bg-background px-3 py-2.5 text-center text-sm font-mono uppercase text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                placeholder="#000000"
-                maxLength={7}
-              />
+              <div className="relative">
+                <input
+                  ref={hexInputRef}
+                  type="text"
+                  value={hexInput}
+                  onChange={(e) => handleHexChange(e.target.value)}
+                  onBlur={handleHexCommit}
+                  className="w-full rounded-lg border border-stroke bg-background py-2.5 ps-12 pe-3 text-center text-sm font-mono uppercase text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  placeholder="#000000"
+                  maxLength={7}
+                />
+                <div
+                  className="pointer-events-none absolute left-2 top-1/2 h-7 w-7 -translate-y-1/2 rounded-md border border-stroke"
+                  style={{ backgroundColor: value }}
+                />
+              </div>
             </div>
 
             {/* RGB inputs */}
@@ -497,34 +495,70 @@ export default function ColorPickerDrawer({
             </div>
           </div>
           {savedColors.length > 0 ? (
-            <div className="flex flex-wrap gap-2.5">
-              {savedColors.map((color, index) => (
-                <div key={`${color}-${index}`} className="relative">
-                  <button
-                    onClick={() => !editSavedColors && handleRecentSelect(color)}
-                    className={cn(
-                      'h-9 w-9 rounded-full border-2 transition-transform active:scale-90',
-                      value.toLowerCase() === color.toLowerCase()
-                        ? 'border-foreground'
-                        : 'border-stroke',
-                    )}
-                    style={{ backgroundColor: color }}
-                    aria-label={color}
-                  />
-                  {editSavedColors && onRemoveSavedColor && (
+            <div className="flex items-center gap-4">
+              <div className="flex min-w-0 w-2/3 items-center gap-2.5 overflow-x-auto scrollbar-none [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
+                {savedColors.map((color, index) => (
+                  <div key={`${color}-${index}`} className="relative shrink-0">
                     <button
-                      onClick={() => onRemoveSavedColor(color)}
-                      className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
-                      aria-label={t('removeColor')}
-                    >
-                      <LuX className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                      onClick={() => !editSavedColors && handleRecentSelect(color)}
+                      className={cn(
+                        'h-9 w-9 rounded-full border-2 transition-transform active:scale-90',
+                        value.toLowerCase() === color.toLowerCase()
+                          ? 'border-foreground'
+                          : 'border-stroke',
+                      )}
+                      style={{ backgroundColor: color }}
+                      aria-label={color}
+                    />
+                    {editSavedColors && onRemoveSavedColor && (
+                      <button
+                        onClick={() => onRemoveSavedColor(color)}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
+                        aria-label={t('removeColor')}
+                      >
+                        <LuX className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* Custom color button — normal button on the right, 1/3 width */}
+              <button
+                type="button"
+                onClick={() => setShowCustomPicker((v) => !v)}
+                className={cn(
+                  'flex h-9 w-1/3 shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-xs font-medium transition-colors',
+                  showCustomPicker
+                    ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                    : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary/50'
+                )}
+                aria-label={showCustomPicker ? t('hideCustomColor') : t('customColor')}
+                title={showCustomPicker ? t('hideCustomColor') : t('customColor')}
+              >
+                <LuPipette className="h-4 w-4" />
+                <span className="truncate">{showCustomPicker ? t('hideCustomColor') : t('customColor')}</span>
+              </button>
             </div>
           ) : (
-            <p className="text-sm text-secondary">{t('savedColorsEmpty')}</p>
+            <div className="flex items-center gap-4">
+              {/* Custom color button — shown even when no saved colors, 1/3 width */}
+              <button
+                type="button"
+                onClick={() => setShowCustomPicker((v) => !v)}
+                className={cn(
+                  'flex h-9 w-1/3 shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-xs font-medium transition-colors',
+                  showCustomPicker
+                    ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                    : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary/50'
+                )}
+                aria-label={showCustomPicker ? t('hideCustomColor') : t('customColor')}
+                title={showCustomPicker ? t('hideCustomColor') : t('customColor')}
+              >
+                <LuPipette className="h-4 w-4" />
+                <span className="truncate">{showCustomPicker ? t('hideCustomColor') : t('customColor')}</span>
+              </button>
+              <p className="flex h-9 w-2/3 items-center truncate text-sm text-secondary">{t('savedColorsEmpty')}</p>
+            </div>
           )}
         </div>
 
@@ -532,13 +566,13 @@ export default function ColorPickerDrawer({
         {recent.length > 0 && (
           <div>
             <label className="mb-2 block text-xs font-medium text-secondary">{t('recent')}</label>
-            <div className="flex flex-wrap gap-2.5">
+            <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
               {recent.map((color, index) => (
                 <button
                   key={`${color}-${index}`}
                   onClick={() => handleRecentSelect(color)}
                   className={cn(
-                    'h-9 w-9 rounded-full border-2 transition-transform active:scale-90',
+                    'h-9 w-9 shrink-0 rounded-full border-2 transition-transform active:scale-90',
                     value.toLowerCase() === color.toLowerCase()
                       ? 'border-foreground'
                       : 'border-stroke',

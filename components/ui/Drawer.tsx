@@ -35,7 +35,7 @@ const HEIGHT_CLASSES = {
   auto: 'max-h-[90svh]',
   half: 'h-[50svh]',
   full: 'h-[90svh]',
-  twoThirds: 'h-[65svh]',
+  twoThirds: 'h-[70svh]',
 };
 
 const SIDE_CLASSES = {

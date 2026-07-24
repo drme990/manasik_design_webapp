@@ -66,7 +66,6 @@ function UploadStatusOverlay({ layer, onRetryUpload }: { layer: ImageLayer; onRe
 export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick, onRetryUpload }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
-    !layer.visible && 'hidden',
     layer.locked && 'cursor-not-allowed',
     isSelected && 'ring-2 ring-layer-selected',
     dangerZone && 'ring-2 ring-error shadow-[0_0_12px_2px_rgba(239,68,68,0.5)] animate-pulse'
@@ -84,6 +83,10 @@ export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbn
       opacity: layer.opacity,
       zIndex: layer.zIndex,
       willChange: 'transform',
+      // Use inline display:none instead of Tailwind 'hidden' class —
+      // child components set display:flex in inline styles which would
+      // override the class-based display:none.
+      display: layer.visible ? undefined : 'none',
     },
     onPointerDown,
     onLayerChange,
@@ -204,7 +207,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
         textAlign: layer.align,
         lineHeight: layer.lineHeight,
         direction: layer.direction as React.CSSProperties['direction'],
-        display: 'flex',
+        display: style.display === 'none' ? 'none' : 'flex',
         alignItems: layer.verticalAlign === 'top' ? 'flex-start' : layer.verticalAlign === 'bottom' ? 'flex-end' : 'center',
         justifyContent: layer.align,
         whiteSpace: hasBoxWidth ? 'pre-wrap' : 'pre',
@@ -476,7 +479,7 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
       className={className}
       style={{
         ...style,
-        display: 'flex',
+        display: style.display === 'none' ? 'none' : 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         color: layer.color,
@@ -515,7 +518,7 @@ function DynamicFieldImage({ layer, className, style, onPointerDown }: LayerComp
         className={className}
         style={{
           ...style,
-          display: 'flex',
+          display: style.display === 'none' ? 'none' : 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -544,7 +547,7 @@ function DynamicFieldImage({ layer, className, style, onPointerDown }: LayerComp
       className={className}
       style={{
         ...style,
-        display: 'flex',
+        display: style.display === 'none' ? 'none' : 'flex',
         padding: 0,
       }}
       onPointerDown={onPointerDown}
