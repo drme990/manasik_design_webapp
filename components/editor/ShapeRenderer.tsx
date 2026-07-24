@@ -44,29 +44,35 @@ export default function ShapeRenderer({
   const innerHeight = Math.max(0, height - strokeWidth);
   const fill = filled ? fillColor : 'transparent';
 
-  // PNG shape — render as a div with background-image instead of <img>
-  // to prevent native long-press / right-click context menus on all platforms.
-  // <img> elements trigger iOS callout, Android save-image, and desktop
-  // right-click menus that can't be fully suppressed. Background images
-  // are purely decorative CSS and never trigger these menus.
+  // PNG shape — render as an <img> so that html-to-image (toJpeg/toPng)
+  // can properly fetch and inline the external R2 URL during export.
+  // CSS background-image URLs from external origins are NOT inlined by
+  // html-to-image, so PNG shapes would be silently dropped from exports
+  // when rendered as a <div> with background-image.
+  //
+  // Context menu / long-press suppression (the original reason for using
+  // a <div>) is handled via draggable={false}, onContextMenu prevention,
+  // and CSS -webkit-touch-callout: none. pointer-events:none is safe
+  // because the parent ShapeLayerComponent div handles all pointer events.
   if (shape === 'png' && uri) {
     return (
-      <div
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={uri}
+        alt=""
+        draggable={false}
+        onContextMenu={(e) => e.preventDefault()}
         className={className}
         style={{
           width,
           height,
-          backgroundImage: `url(${uri})`,
-          backgroundSize: 'contain',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
+          objectFit: 'contain',
           userSelect: 'none',
           WebkitTouchCallout: 'none',
           WebkitUserSelect: 'none',
+          pointerEvents: 'none',
           touchAction: 'manipulation',
         }}
-        role="img"
-        aria-label=""
       />
     );
   }
