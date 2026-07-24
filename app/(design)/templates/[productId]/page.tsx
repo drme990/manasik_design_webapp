@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { getProject } from '@/lib/store/projects';
+import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts, updateBookingProduct, createBookingProduct } from '@/lib/store/booking-templates';
 import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
 import type { Project, BookingProduct } from '@/types';
@@ -17,6 +17,7 @@ import type { Project, BookingProduct } from '@/types';
 export default function TemplateDetailPage() {
     const t = useTranslations('templates');
     const { productId: templateId } = useParams<{ productId: string }>();
+    const storeGetProject = useProjectStore((s) => s.getProject);
     const [template, setTemplate] = useState<Project | null>(null);
     const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
     const [backendProducts, setBackendProducts] = useState<BackendProduct[]>([]);
@@ -26,7 +27,7 @@ export default function TemplateDetailPage() {
     useEffect(() => {
         const load = async () => {
             const [proj, products, backend] = await Promise.all([
-                getProject(templateId),
+                storeGetProject(templateId),
                 listBookingProducts(),
                 listBackendProducts(),
             ]);
@@ -36,7 +37,7 @@ export default function TemplateDetailPage() {
             setLoading(false);
         };
         load();
-    }, [templateId]);
+    }, [templateId, storeGetProject]);
 
     // Find the booking product for a given backend product
     const getBookingForBackend = (backendId: string): BookingProduct | undefined =>

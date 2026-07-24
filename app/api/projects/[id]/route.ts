@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
-import type { Project, ProjectUpdateInput } from '@/types';
+import { deleteMultipleFromR2, extractKeyFromUrl, generateThumbnailKey } from '@/lib/storage/r2';
+import type { Project, ProjectUpdateInput, ImageLayer, ShapeLayer } from '@/types';
 
 const COLLECTION = 'projects';
 
@@ -98,6 +99,70 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+/**
+ * Collect all R2 URLs from a project that should be deleted when the
+ * project is deleted: background, thumbnail, image layer URIs, shape URIs,
+ * and collage cell URIs.
+ */
+function collectProjectR2Keys(project: Project): string[] {
+  const keys: string[] = [];
+
+  // Thumbnail (stored at a predictable key)
+  keys.push(generateThumbnailKey(project.id));
+
+  // Background image
+  if (project.backgroundUri) {
+    const key = extractKeyFromUrl(project.backgroundUri);
+    if (key) keys.push(key);
+  }
+  if (project.backgroundThumbnailUri) {
+    const key = extractKeyFromUrl(project.backgroundThumbnailUri);
+    if (key) keys.push(key);
+  }
+
+  // Layer URIs
+  for (const layer of project.layers) {
+    if (layer.type === 'image') {
+      const img = layer as ImageLayer;
+      if (img.uri) {
+        const key = extractKeyFromUrl(img.uri);
+        if (key) keys.push(key);
+      }
+      if (img.originalUri) {
+        const key = extractKeyFromUrl(img.originalUri);
+        if (key) keys.push(key);
+      }
+      if (img.thumbnailUri) {
+        const key = extractKeyFromUrl(img.thumbnailUri);
+        if (key) keys.push(key);
+      }
+      // Collage cell URIs
+      if (img.collage?.cells) {
+        for (const cell of img.collage.cells) {
+          if (cell.uri) {
+            const key = extractKeyFromUrl(cell.uri);
+            if (key) keys.push(key);
+          }
+        }
+      }
+    }
+    if (layer.type === 'shape') {
+      const shape = layer as ShapeLayer;
+      if (shape.uri) {
+        const key = extractKeyFromUrl(shape.uri);
+        if (key) keys.push(key);
+      }
+      if (shape.thumbnailUri) {
+        const key = extractKeyFromUrl(shape.thumbnailUri);
+        if (key) keys.push(key);
+      }
+    }
+  }
+
+  // Deduplicate (a single image might be used multiple times)
+  return [...new Set(keys)];
+}
+
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const session = await verifySession();
@@ -115,8 +180,18 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
     }
 
+    // Collect all R2 keys to delete (images, thumbnail, etc.)
+    const r2Keys = collectProjectR2Keys(existing);
+
     const collection = await getCollection();
     await collection.deleteOne({ id });
+
+    // Delete all R2 assets in the background (best-effort, non-blocking)
+    if (r2Keys.length > 0) {
+      deleteMultipleFromR2(r2Keys).catch((err) => {
+        console.error(`[DELETE /api/projects/[id]] R2 cleanup failed for ${id}:`, err);
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

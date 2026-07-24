@@ -4,28 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import { toJpeg } from 'html-to-image';
-import { ImageColorPicker } from 'react-image-color-picker';
 import {
     LuArrowLeft,
-    LuType,
-    LuImage,
-    LuTrash2,
-    LuSave,
-    LuLayers,
-    LuUndo2,
-    LuRedo2,
-    LuPencil,
-    LuText,
-    LuDownload,
-    LuShapes,
-    LuPalette,
-    LuScanLine,
-    LuUpload,
-    LuLoaderCircle,
-    LuX,
-    LuRefreshCw,
-    LuCheck,
-    LuSquare,
 } from 'react-icons/lu';
 
 import { Button } from '@/components/ui/Button';
@@ -35,16 +15,23 @@ import Drawer from '@/components/ui/Drawer';
 import ColorPickerDrawer from '@/components/ui/ColorPickerDrawer';
 import SliderField from '@/components/ui/SliderField';
 import Canvas from '@/components/editor/Canvas';
-import PropertiesBar, { PropButton, PropToggle } from '@/components/editor/PropertiesBar';
+import PropertiesBar from '@/components/editor/PropertiesBar';
 import DraggableLayerList from '@/components/common/DraggableLayerList';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import ShapeRenderer from '@/components/editor/ShapeRenderer';
 import ImageCropModal from '@/components/editor/Modals/ImageCropModal';
 import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
-import { getProject, saveProject, deleteProject, updateProjectRemote } from '@/lib/store/projects';
+import TopToolbar from '@/components/editor/EditorPage/TopToolbar';
+import BottomBar from '@/components/editor/EditorPage/BottomBar';
+import ShapesDrawer from '@/components/editor/EditorPage/ShapesDrawer';
+import DynamicFieldsDrawer from '@/components/editor/EditorPage/DynamicFieldsDrawer';
+import FontDrawer from '@/components/editor/EditorPage/FontDrawer';
+import TextEditDrawer from '@/components/editor/EditorPage/TextEditDrawer';
+import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
+import MobileEyeDropper from '@/components/editor/EditorPage/MobileEyeDropper';
+import { useProjectStore } from '@/lib/store/use-project-store';
 import { useToast } from '@/components/providers/ToastProvider';
-import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground } from '@/lib/storage/upload';
+import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground, captureProjectThumbnailBlob, uploadProjectThumbnailBlob } from '@/lib/storage/upload';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -54,9 +41,6 @@ import {
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
-import { cn } from '@/lib/utils/cn';
-import { ARABIC_SAFE_FONTS } from '@/lib/constants/arabic-fonts';
-import { resolveFontFamily } from '@/lib/constants/fonts';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { ORDER_FIELDS } from '@/lib/constants/order-fields';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
@@ -65,16 +49,16 @@ import { useUserShapes } from '@/lib/hooks/useUserShapes';
 import type { Project, AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer, SafeArea } from '@/types';
 import Input from '@/components/ui/Input';
 
-const SHAPES: { shape: ShapeLayer['shape']; labelKey: string }[] = [
-    { shape: 'rectangle', labelKey: 'rectangle' },
-    { shape: 'circle', labelKey: 'circle' },
-    { shape: 'triangle', labelKey: 'triangle' },
-    { shape: 'star_4', labelKey: 'star4' },
-    { shape: 'star_5', labelKey: 'star5' },
-    { shape: 'star_6', labelKey: 'star6' },
-    { shape: 'star_8', labelKey: 'star8' },
-    { shape: 'line', labelKey: 'line' },
-];
+/**
+ * A project is "blank" when it has no layers and no background image — i.e.
+ * there's nothing worth saving. Leaving a blank project (whether brand-new
+ * or emptied out during this session) always discards it without asking,
+ * regardless of whether `hasUnsavedChanges` happens to be true (e.g. the
+ * user added and then deleted a layer).
+ */
+function isProjectBlank(project: Pick<Project, 'layers' | 'backgroundUri'>): boolean {
+    return project.layers.length === 0 && !project.backgroundUri;
+}
 
 /* --- Color picker helpers --- */
 
@@ -119,6 +103,12 @@ export default function EditorPage() {
     const router = useRouter();
     const t = useTranslations('editor');
     const uiT = useTranslations('ui');
+    // Zustand store actions — stable references, no re-renders from calling them
+    const storeGetProject = useProjectStore((s) => s.getProject);
+    const storeSaveProject = useProjectStore((s) => s.saveProject);
+    const storeDeleteProjectOptimistic = useProjectStore((s) => s.deleteProjectOptimistic);
+    const storeUpdateProjectRemote = useProjectStore((s) => s.updateProjectRemote);
+    const storeInvalidateThumbnail = useProjectStore((s) => s.invalidateThumbnail);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const shapeFileInputRef = useRef<HTMLInputElement>(null);
     const bgFileInputRef = useRef<HTMLInputElement>(null);
@@ -241,14 +231,14 @@ export default function EditorPage() {
     // No IndexedDB/localStorage — positions never drift because the DB is
     // the only place data is read from.
     useEffect(() => {
-        getProject(id).then((p) => {
+        storeGetProject(id).then((p) => {
             setProject(p);
             // Track if this project was ever synced to the server.
             // If not, it's a brand-new project and "No" on leave = delete it.
             setWasSyncedBefore(!!(p && p.syncedAt));
             setLoading(false);
         });
-    }, [id]);
+    }, [id, storeGetProject]);
 
     // Compute zoom to fit the canvas fully inside the available container space
     // with breathing room (padding) on all sides. Reserves space for the
@@ -291,6 +281,15 @@ export default function EditorPage() {
     const pendingPersistRef = useRef<Project | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedRef = useRef(false);
+    // Debounced thumbnail regeneration — after the user stops making changes
+    // for a few seconds, we capture a new thumbnail and upload it in the
+    // background so the /projects card preview stays up-to-date without
+    // needing a full save. Cancelled on explicit save/leave (those handle
+    // thumbnails themselves).
+    const thumbnailDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Guards against overlapping thumbnail captures (don't start a new one
+    // while the previous capture is still running).
+    const thumbnailInFlightRef = useRef(false);
 
     // Write working state to sessionStorage — survives page refresh / mobile
     // app kill, but does NOT touch the database. The DB is only written when
@@ -303,11 +302,88 @@ export default function EditorPage() {
         }
     }, []);
 
+    // Capture the canvas as a compressed thumbnail blob. This is a local
+    // (non-network) operation, so it's safe to await briefly even when the
+    // caller is about to navigate away right after. Temporarily hides the
+    // layer selection outline so it doesn't appear in the captured image.
+    const captureThumbnailBlob = useCallback(async (bgColor: string): Promise<Blob | null> => {
+        if (!canvasRef.current) return null;
+        const prevSelection = selectedLayerIdRef.current;
+        setSelectedLayerId(null);
+        setIsExporting(true);
+        // Wait one tick so the selection outline is actually removed from
+        // the DOM before we capture the snapshot.
+        await new Promise((r) => setTimeout(r, 80));
+        try {
+            return await captureProjectThumbnailBlob(canvasRef.current, bgColor);
+        } catch {
+            return null;
+        } finally {
+            setIsExporting(false);
+            setSelectedLayerId(prevSelection);
+        }
+    }, []);
+
+    // Upload an already-captured thumbnail blob in the background.
+    // Fire-and-forget — safe to call after navigating away since it's just
+    // a network request with no DOM dependency.
+    const uploadThumbnailInBackground = useCallback((blob: Blob, projectId: string) => {
+        uploadProjectThumbnailBlob(blob, projectId)
+            .then((url) => {
+                if (url) storeInvalidateThumbnail(projectId);
+            })
+            .catch((err) => console.error('Failed to upload project thumbnail:', err));
+    }, [storeInvalidateThumbnail]);
+
+    // Schedule a debounced thumbnail regeneration. Called after every
+    // persistProject (i.e. every change). After the user stops editing for
+    // THUMBNAIL_DEBOUNCE_MS, we capture a fresh snapshot and upload it —
+    // the old thumbnail is overwritten in R2 (same key) and the new URL
+    // includes a cache-busting ?v= timestamp so the /projects card shows
+    // the updated preview. Skipped for blank projects (nothing to show)
+    // and cancelled on explicit save/leave.
+    const THUMBNAIL_DEBOUNCE_MS = 3000;
+    const scheduleThumbnailUpdate = useCallback((project: Project) => {
+        // Don't generate thumbnails for blank projects
+        if (isProjectBlank(project)) return;
+        // Cancel any pending debounce — we only care about the latest state
+        if (thumbnailDebounceRef.current) {
+            clearTimeout(thumbnailDebounceRef.current);
+        }
+        thumbnailDebounceRef.current = setTimeout(() => {
+            thumbnailDebounceRef.current = null;
+            // Skip if a capture is already running
+            if (thumbnailInFlightRef.current) return;
+            thumbnailInFlightRef.current = true;
+            captureThumbnailBlob(project.backgroundColor ?? '#ffffff')
+                .then((blob) => {
+                    if (blob) uploadThumbnailInBackground(blob, project.id);
+                })
+                .catch(() => { /* non-fatal */ })
+                .finally(() => {
+                    thumbnailInFlightRef.current = false;
+                });
+        }, THUMBNAIL_DEBOUNCE_MS);
+    }, [captureThumbnailBlob, uploadThumbnailInBackground]);
+
+    // Cancel any pending debounced thumbnail update. Called by flushPersist
+    // and doSaveAndLeave (they handle thumbnails explicitly) and on unmount.
+    const cancelThumbnailUpdate = useCallback(() => {
+        if (thumbnailDebounceRef.current) {
+            clearTimeout(thumbnailDebounceRef.current);
+            thumbnailDebounceRef.current = null;
+        }
+    }, []);
+
     const persistProject = useCallback(
         (updated: Project) => {
             pendingPersistRef.current = updated;
             hasUnsavedRef.current = true;
             setHasUnsavedChanges(true);
+
+            // Schedule a debounced thumbnail update so the /projects card
+            // preview stays current without needing a full save.
+            scheduleThumbnailUpdate(updated);
 
             // If inside a transaction (drag, slider, etc.), don't write intermediate
             // states — only write the final state when the transaction ends.
@@ -327,133 +403,196 @@ export default function EditorPage() {
                 }
             }, 300);
         },
-        [saveSession]
+        [saveSession, scheduleThumbnailUpdate]
     );
 
     // Force save to the database (MongoDB) immediately — used by the Save button.
-    // This is the ONLY path that writes to the server.
+    // This is the ONLY path (besides doSaveAndLeave) that writes to the server.
     const flushPersist = useCallback(async (updated: Project) => {
         pendingPersistRef.current = null;
         if (saveDebounceRef.current) {
             clearTimeout(saveDebounceRef.current);
             saveDebounceRef.current = null;
         }
+        // Cancel any pending debounced thumbnail — we capture a fresh one
+        // explicitly below after the save completes.
+        cancelThumbnailUpdate();
         setSaving(true);
         try {
-            const saved = await saveProject(updated);
+            const saved = await storeSaveProject(updated);
             // Update local state with the server's response (canonical positions)
             setProject(saved);
             // Clear the sessionStorage backup since the DB now has the latest
             try { sessionStorage.removeItem(`manasik:project:${updated.id}`); } catch { /* ignore */ }
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
+            // Capture + upload the thumbnail in the background (non-blocking)
+            captureThumbnailBlob(saved.backgroundColor ?? '#ffffff').then((blob) => {
+                if (blob) uploadThumbnailInBackground(blob, saved.id);
+            });
         } catch (error) {
             console.error('Failed to save project to server:', error);
+            toast.showToast({ message: t('saveFailedMessage'), variant: 'error' });
         } finally {
             setSaving(false);
         }
-    }, []);
+    }, [storeSaveProject, captureThumbnailBlob, uploadThumbnailInBackground, cancelThumbnailUpdate, toast, t]);
 
-    // Save and navigate away — used by the "Yes" button in the leave modal.
-    // Writes the project to the database (MongoDB), then navigates to /projects.
-    const doSaveAndLeave = useCallback(async (nameOverride?: string) => {
-        const current = pendingPersistRef.current || projectRef.current;
-        if (current) {
-            if (saveDebounceRef.current) {
-                clearTimeout(saveDebounceRef.current);
-                saveDebounceRef.current = null;
-            }
-            pendingPersistRef.current = null;
-            hasUnsavedRef.current = false;
-            setHasUnsavedChanges(false);
-
-            // If the project is empty (no layers, no background), delete it
-            // instead of saving — there's no point keeping a blank project.
-            const isBlank = current.layers.length === 0 && !current.backgroundUri;
-            if (isBlank) {
-                try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
-                deleteProject(current.id).catch(() => { });
-                router.replace('/projects');
-                return;
-            }
-
-            setSaving(true);
-            // Apply rename if provided (first-time save flow)
-            const toSave = nameOverride && nameOverride.trim()
-                ? { ...current, name: nameOverride.trim() }
-                : current;
-            // Save to the database (PATCH /api/projects/[id]) — await so the
-            // request completes before we navigate away.
-            try {
-                await saveProject(toSave);
-                // Clear sessionStorage backup
-                try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
-            } catch (err) {
-                console.error('Failed to save project on leave:', err);
-            } finally {
-                setSaving(false);
-            }
+    // Navigate to /projects using client-side routing (no full page reload).
+    // When `fromPopstate` is true (hardware back button), we defer the
+    // router.replace call with setTimeout(0) so it runs AFTER the browser
+    // finishes processing the popstate event. Calling router.replace
+    // synchronously inside a popstate handler can conflict with Next.js's
+    // own popstate processing and silently fail — the user gets stuck on
+    // the editor and has to press back again (the "double back-press" bug).
+    // The deferred call avoids this entirely while keeping the navigation
+    // client-side (no full reload, zustand store survives).
+    const navigateToProjects = useCallback((fromPopstate: boolean) => {
+        const go = () => router.replace('/projects');
+        if (fromPopstate) {
+            setTimeout(go, 0);
+        } else {
+            go();
         }
-        // Use replace so the dummy history state from the back-button guard
-        // doesn't stay in the browser history stack
-        router.replace('/projects');
     }, [router]);
 
-    // "No" button in the leave modal — behavior depends on project state:
-    //   - Blank project (no layers, no background): delete it and leave
-    //   - New project (never synced): delete it and leave
-    //   - Existing project with content: leave without saving (discard session changes)
+    // Leave the editor and land on /projects. Used whenever there's nothing
+    // to save or delete (project already synced and untouched this session).
+    const leaveToProjects = useCallback((fromPopstate: boolean) => {
+        const current = projectRef.current;
+        if (current) {
+            try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
+        }
+        navigateToProjects(fromPopstate);
+    }, [navigateToProjects]);
+
+    // Discard a blank project (no layers, no background) and leave.
+    // Optimistic UI: the project disappears from the store immediately and
+    // the app navigates away — the DELETE request runs in the background,
+    // so the user never has to wait on it.
+    const leaveAndDeleteBlank = useCallback((current: Project, fromPopstate: boolean) => {
+        if (saveDebounceRef.current) {
+            clearTimeout(saveDebounceRef.current);
+            saveDebounceRef.current = null;
+        }
+        cancelThumbnailUpdate();
+        pendingPersistRef.current = null;
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+        try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
+        storeDeleteProjectOptimistic(current.id);
+        navigateToProjects(fromPopstate);
+    }, [navigateToProjects, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
+
+    // Save and navigate away — used by the "Yes" button in the leave modal.
+    // Optimistic UI: the thumbnail MUST be captured while the canvas is
+    // still mounted (it's a DOM snapshot), so we briefly await that step —
+    // then we navigate to /projects immediately without waiting for the
+    // actual save or the thumbnail upload, which both run in the background.
+    const doSaveAndLeave = useCallback(async (nameOverride?: string) => {
+        const current = pendingPersistRef.current || projectRef.current;
+        if (!current) {
+            navigateToProjects(false);
+            return;
+        }
+        if (saveDebounceRef.current) {
+            clearTimeout(saveDebounceRef.current);
+            saveDebounceRef.current = null;
+        }
+        cancelThumbnailUpdate();
+        pendingPersistRef.current = null;
+        hasUnsavedRef.current = false;
+        setHasUnsavedChanges(false);
+
+        // Safety net — blank projects are normally intercepted before the
+        // leave modal even opens, but guard here too just in case.
+        if (isProjectBlank(current)) {
+            leaveAndDeleteBlank(current, false);
+            return;
+        }
+
+        // Apply rename if provided (first-time save flow)
+        const toSave = nameOverride && nameOverride.trim()
+            ? { ...current, name: nameOverride.trim() }
+            : current;
+
+        // Capture the thumbnail now — this needs the canvas DOM node, so it
+        // must complete before we navigate away and unmount the page. It's a
+        // local snapshot (no network), so the delay is small (~100ms).
+        const blob = await captureThumbnailBlob(toSave.backgroundColor ?? '#ffffff');
+
+        // Optimistic UI — leave immediately; persist to the server and
+        // upload the thumbnail in the background without blocking on them.
+        navigateToProjects(false);
+
+        storeSaveProject(toSave)
+            .then(() => {
+                try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
+                if (blob) uploadThumbnailInBackground(blob, toSave.id);
+            })
+            .catch((err) => {
+                console.error('Failed to save project in background:', err);
+                toast.showToast({ message: t('saveFailedMessage'), variant: 'error' });
+            });
+    }, [navigateToProjects, leaveAndDeleteBlank, captureThumbnailBlob, uploadThumbnailInBackground, storeSaveProject, cancelThumbnailUpdate, toast, t]);
+
+    // "No" button in the leave modal — only reachable for non-blank projects
+    // (blank projects are handled by leaveAndDeleteBlank before the modal
+    // ever opens):
+    //   - New project (never synced): discard means delete it.
+    //   - Existing project with content: leave without saving (discard the
+    //     unsaved session changes; the DB keeps the last-saved version).
     const doNoAndLeave = useCallback(() => {
         if (saveDebounceRef.current) {
             clearTimeout(saveDebounceRef.current);
             saveDebounceRef.current = null;
         }
+        cancelThumbnailUpdate();
         pendingPersistRef.current = null;
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
 
         const current = projectRef.current;
         if (current) {
-            // Clear sessionStorage backup — discarding unsaved changes
             try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
-            const isBlank = current.layers.length === 0 && !current.backgroundUri;
-            if (isBlank || !wasSyncedBefore) {
-                // Blank project or new project that was never synced — delete it
-                deleteProject(current.id).catch(() => { });
+            if (!wasSyncedBefore) {
+                // Brand-new project that was never saved — discard means delete.
+                storeDeleteProjectOptimistic(current.id);
             }
         }
-        // For existing projects with content, just leave — the database still
-        // has the last-saved version; unsaved session changes are discarded.
-        router.replace('/projects');
-    }, [router, wasSyncedBefore]);
+        navigateToProjects(false);
+    }, [navigateToProjects, wasSyncedBefore, storeDeleteProjectOptimistic, cancelThumbnailUpdate]);
 
-    // Silently leave without asking — used when there are no changes at all.
-    // Deletes the project if it's blank (no layers, no background) — whether
-    // it's a brand-new project or an existing one that happens to be empty.
-    const doSilentLeave = useCallback(() => {
-        const current = projectRef.current;
-        if (current) {
-            // Clear any sessionStorage backup
-            try { sessionStorage.removeItem(`manasik:project:${current.id}`); } catch { /* ignore */ }
-            const isBlank = current.layers.length === 0 && !current.backgroundUri;
-            if (isBlank) {
-                // Blank project with no changes — delete it silently
-                deleteProject(current.id).catch(() => { });
-            }
+    // Central "leave" decision, shared by the UI back button and the
+    // browser/phone back button (popstate).
+    //   - Blank project → discard + leave immediately, never ask.
+    //   - Unsaved changes on a non-blank project → show the yes/no modal.
+    //   - Nothing to save (already synced, untouched) → just leave.
+    // `fromPopstate` is true when called from the popstate handler (hardware
+    // back button). We only re-push the history guard state when we're
+    // actually keeping the user on the page (showing the modal) — leaving
+    // always completes in a single back-press with no full page reload.
+    const attemptLeave = useCallback((fromPopstate: boolean) => {
+        const current = pendingPersistRef.current || projectRef.current;
+        if (current && isProjectBlank(current)) {
+            leaveAndDeleteBlank(current, fromPopstate);
+            return;
         }
-        router.replace('/projects');
-    }, [router]);
-
-    // Check for unsaved changes before navigating.
-    // If there are changes, show the yes/no confirmation modal.
-    // If no changes at all, just leave silently (no point asking).
-    const handleNavigateBack = useCallback(() => {
         if (hasUnsavedRef.current) {
+            // Keep the user on the page — re-arm the guard so the next back
+            // press is also caught (only relevant for popstate).
+            if (fromPopstate) {
+                window.history.pushState({ editorGuard: true }, '');
+            }
             setShowLeaveModal(true);
-        } else {
-            doSilentLeave();
+            return;
         }
-    }, [doSilentLeave]);
+        leaveToProjects(fromPopstate);
+    }, [leaveAndDeleteBlank, leaveToProjects]);
+
+    const handleNavigateBack = useCallback(() => {
+        attemptLeave(false);
+    }, [attemptLeave]);
 
     const handleExportJpg = useCallback(async () => {
         if (!canvasRef.current || !project) return;
@@ -519,10 +658,10 @@ export default function EditorPage() {
     const handleRenameProject = useCallback(async () => {
         if (!project || !renameValue.trim()) return;
         const trimmed = renameValue.trim();
-        await updateProjectRemote(project.id, { name: trimmed });
+        await storeUpdateProjectRemote(project.id, { name: trimmed });
         setProject((prev) => (prev ? { ...prev, name: trimmed } : prev));
         setRenameOpen(false);
-    }, [project, renameValue]);
+    }, [project, renameValue, storeUpdateProjectRemote]);
 
     // When the leave modal opens for a brand-new (never-synced) project,
     // seed the inline rename input with the current project name so the user
@@ -719,18 +858,14 @@ export default function EditorPage() {
 
         // Intercept browser/phone back button — push a dummy state so we can
         // catch the popstate event and show our custom confirmation modal
-        // instead of navigating away immediately.
+        // instead of navigating away immediately. We only re-arm this guard
+        // (push another dummy state) when we decide to keep the user on the
+        // page (i.e. showing the leave modal) — when we decide to actually
+        // leave, we let the back press go through as-is so it completes in
+        // a single press instead of getting trapped behind an extra entry.
         window.history.pushState({ editorGuard: true }, '');
         const handlePopState = () => {
-            // Re-push the guard state so the next back press is also caught
-            window.history.pushState({ editorGuard: true }, '');
-            if (hasUnsavedRef.current) {
-                // There are changes — show the yes/no leave modal
-                setShowLeaveModal(true);
-            } else {
-                // No changes — leave silently (delete if new empty project)
-                doSilentLeave();
-            }
+            attemptLeave(true);
         };
         window.addEventListener('popstate', handlePopState);
 
@@ -742,8 +877,12 @@ export default function EditorPage() {
                 clearTimeout(saveDebounceRef.current);
                 saveDebounceRef.current = null;
             }
+            if (thumbnailDebounceRef.current) {
+                clearTimeout(thumbnailDebounceRef.current);
+                thumbnailDebounceRef.current = null;
+            }
         };
-    }, [handleUndo, handleRedo, doSilentLeave]);
+    }, [handleUndo, handleRedo, attemptLeave]);
 
     const startChangeTransaction = useCallback(() => {
         if (inTransactionRef.current) return;
@@ -1552,108 +1691,44 @@ export default function EditorPage() {
         <DndProvider backend={HTML5Backend}>
             <div className="relative flex h-svh flex-col">
                 {/* Top toolbar */}
-                <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
-                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <Button variant="ghost" size="sm" onClick={handleNavigateBack}>
-                            <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
-                        </Button>
-                        <h1 className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
-                            {project.name}
-                        </h1>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                                setRenameValue(project.name);
-                                setRenameOpen(true);
-                            }}
-                            aria-label={t('renameProject')}
-                            className="shrink-0"
-                        >
-                            <LuPencil className="h-4 w-4" />
-                        </Button>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-                        <div className="flex items-center gap-1">
-
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                    handleRedo();
-                                    setRedoFlash(true);
-                                    setHistoryTip(t('redo'));
-                                    setTimeout(() => setRedoFlash(false), 500);
-                                    setTimeout(() => setHistoryTip(null), 800);
-                                }}
-                                disabled={history.future.length === 0}
-                                aria-label={t('redo')}
-                                className={cn('transition-colors', redoFlash && 'bg-brand-primary/20 text-brand-primary')}
-                            >
-                                <LuRedo2 className="h-4 w-4 rtl:-scale-x-100" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                    handleUndo();
-                                    setUndoFlash(true);
-                                    setHistoryTip(t('undo'));
-                                    setTimeout(() => setUndoFlash(false), 500);
-                                    setTimeout(() => setHistoryTip(null), 800);
-                                }}
-                                disabled={history.past.length === 0}
-                                aria-label={t('undo')}
-                                className={cn('transition-colors', undoFlash && 'bg-brand-primary/20 text-brand-primary')}
-                            >
-                                <LuUndo2 className="h-4 w-4 rtl:-scale-x-100" />
-                            </Button>
-                        </div>
-
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setLayersDrawerOpen(true)}
-                            className="gap-1 px-2 sm:px-3"
-                        >
-                            <LuLayers className="h-4 w-4" fill={layersDrawerOpen ? 'currentColor' : 'none'} />
-                            <span className="hidden sm:inline">{t('layers')}</span>
-                        </Button>
-
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleExportJpg}
-                            disabled={isExporting}
-                            className="gap-1 px-2 sm:px-3"
-                        >
-                            {isExporting ? (
-                                <LuLoaderCircle className="h-4 w-4 animate-spin" />
-                            ) : (
-                                <LuDownload className="h-4 w-4" />
-                            )}
-                            <span className="hidden sm:inline">{t('export')}</span>
-                        </Button>
-
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => flushPersist(project)}
-                            loading={saving}
-                            className="relative gap-1 px-2 sm:px-3"
-                        >
-                            <LuSave className="h-4 w-4" />
-                            <span className="hidden sm:inline">{t('save')}</span>
-                            {hasUnsavedChanges && !saving && (
-                                <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
-                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-orange-500" />
-                                </span>
-                            )}
-                        </Button>
-                    </div>
-                </div>
+                <TopToolbar
+                    projectName={project.name}
+                    onBack={handleNavigateBack}
+                    onRename={() => {
+                        setRenameValue(project.name);
+                        setRenameOpen(true);
+                    }}
+                    onUndoClick={() => {
+                        handleUndo();
+                        setUndoFlash(true);
+                        setHistoryTip(t('undo'));
+                        setTimeout(() => setUndoFlash(false), 500);
+                        setTimeout(() => setHistoryTip(null), 800);
+                    }}
+                    onRedoClick={() => {
+                        handleRedo();
+                        setRedoFlash(true);
+                        setHistoryTip(t('redo'));
+                        setTimeout(() => setRedoFlash(false), 500);
+                        setTimeout(() => setHistoryTip(null), 800);
+                    }}
+                    canUndo={history.past.length > 0}
+                    canRedo={history.future.length > 0}
+                    undoFlash={undoFlash}
+                    redoFlash={redoFlash}
+                    undoLabel={t('undo')}
+                    redoLabel={t('redo')}
+                    layersLabel={t('layers')}
+                    exportLabel={t('export')}
+                    saveLabel={t('save')}
+                    layersDrawerOpen={layersDrawerOpen}
+                    onOpenLayers={() => setLayersDrawerOpen(true)}
+                    onExport={handleExportJpg}
+                    isExporting={isExporting}
+                    onSave={() => flushPersist(project)}
+                    saving={saving}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                />
 
                 {/* Main editor area — canvas only, panels are drawers now */}
                 <div className="relative flex flex-1 overflow-hidden">
@@ -1727,84 +1802,37 @@ export default function EditorPage() {
 
                     {/* Bottom bar — shown when no layer is selected (mobile style) */}
                     {!selectedLayer && (
-                        <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg" dir='ltr'>
-                            <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
-                                {/* 1 — Dynamic field (booking templates only) */}
-                                {project?.kind === 'booking_template' && (
-                                    <PropToggle
-                                        label={t('addField')}
-                                        icon={<LuText className="h-5 w-5" />}
-                                        active={dynamicFieldDrawerOpen}
-                                        onClick={() => setDynamicFieldDrawerOpen(true)}
-                                    />
-                                )}
-                                {/* 2 — Text */}
-                                <PropToggle
-                                    label={t('addText')}
-                                    icon={<LuType className="h-5 w-5" />}
-                                    active={false}
-                                    onClick={handleAddText}
-                                />
-                                {/* 3 — Image */}
-                                <PropToggle
-                                    label={t('addImage')}
-                                    icon={<LuImage className="h-5 w-5" />}
-                                    active={false}
-                                    onClick={() => fileInputRef.current?.click()}
-                                />
-                                {/* 4 — Shape (opens the shapes drawer) */}
-                                <PropToggle
-                                    label={t('addShape')}
-                                    icon={<LuShapes className="h-5 w-5" />}
-                                    active={addDrawerOpen}
-                                    onClick={() => setAddDrawerOpen(true)}
-                                />
-                                {/* 5 — BG image */}
-                                <PropToggle
-                                    label={project.backgroundUri ? t('changeBgImage') : t('setBgImage')}
-                                    icon={
-                                        project.bgUploadStatus === 'uploading' ? (
-                                            <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                                        ) : project.bgUploadStatus === 'error' ? (
-                                            <LuRefreshCw className="h-5 w-5 text-error" />
-                                        ) : (
-                                            <LuImage className="h-5 w-5" />
-                                        )
-                                    }
-                                    active={false}
-                                    onClick={() => {
-                                        if (project.bgUploadStatus === 'error') {
-                                            handleRetryBgUpload();
-                                        } else if (project.bgUploadStatus !== 'uploading') {
-                                            bgFileInputRef.current?.click();
-                                        }
-                                    }}
-                                />
-                                {/* 6 — BG color */}
-                                <PropButton
-                                    label={t('canvasBackground')}
-                                    swatch={project.backgroundColor ?? '#ffffff'}
-                                    icon={<LuPalette className="h-5 w-5" />}
-                                    active={colorPickerProp === 'canvas.bg'}
-                                    onClick={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
-                                />
-                                {project.backgroundUri && project.bgUploadStatus !== 'uploading' && (
-                                    <PropToggle
-                                        label={t('removeBgImage')}
-                                        icon={<LuTrash2 className="h-5 w-5 text-error" />}
-                                        active={false}
-                                        onClick={handleRemoveBackgroundImage}
-                                    />
-                                )}
-                                {/* 7 — Safe zone controller */}
-                                <PropToggle
-                                    label={safeAreaEditMode ? t('safeAreaEditOn') : t('safeAreaEditOff')}
-                                    icon={<LuScanLine className="h-5 w-5" />}
-                                    active={safeAreaEditMode}
-                                    onClick={() => setSafeAreaEditMode(!safeAreaEditMode)}
-                                />
-                            </div>
-                        </div>
+                        <BottomBar
+                            project={project}
+                            bottomBarRef={bottomBarRef}
+                            isBookingTemplate={project?.kind === 'booking_template'}
+                            dynamicFieldDrawerOpen={dynamicFieldDrawerOpen}
+                            onOpenDynamicFieldDrawer={() => setDynamicFieldDrawerOpen(true)}
+                            onAddText={handleAddText}
+                            onAddImage={() => fileInputRef.current?.click()}
+                            addDrawerOpen={addDrawerOpen}
+                            onOpenShapesDrawer={() => setAddDrawerOpen(true)}
+                            onBgImageClick={() => bgFileInputRef.current?.click()}
+                            onRemoveBgImage={handleRemoveBackgroundImage}
+                            onRetryBgUpload={handleRetryBgUpload}
+                            bgColor={project.backgroundColor ?? '#ffffff'}
+                            colorPickerActive={colorPickerProp === 'canvas.bg'}
+                            onToggleBgColor={() => setColorPickerProp(colorPickerProp === 'canvas.bg' ? null : 'canvas.bg')}
+                            safeAreaEditMode={safeAreaEditMode}
+                            onToggleSafeArea={() => setSafeAreaEditMode(!safeAreaEditMode)}
+                            labels={{
+                                addField: t('addField'),
+                                addText: t('addText'),
+                                addImage: t('addImage'),
+                                addShape: t('addShape'),
+                                changeBgImage: t('changeBgImage'),
+                                setBgImage: t('setBgImage'),
+                                removeBgImage: t('removeBgImage'),
+                                canvasBackground: t('canvasBackground'),
+                                safeAreaEditOn: t('safeAreaEditOn'),
+                                safeAreaEditOff: t('safeAreaEditOff'),
+                            }}
+                        />
                     )}
 
                     {/* Hidden file inputs */}
@@ -1863,203 +1891,43 @@ export default function EditorPage() {
                 </div>
 
                 {/* Shapes drawer — opened from the bottom bar shape button */}
-                <Drawer
+                <ShapesDrawer
                     isOpen={addDrawerOpen}
                     onClose={() => {
                         setAddDrawerOpen(false);
                         setEditShapesMode(false);
                     }}
                     title={t('addShape')}
-                    height="auto"
-                    footer={
-                        <div className="w-full grid grid-cols-2">
-                            <button
-                                onClick={() => setShapeFilled(true)}
-                                className={cn(
-                                    'w-full flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors',
-                                    shapeFilled
-                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
-                                        : 'border-stroke text-secondary hover:bg-muted'
-                                )}
-                            >
-                                <LuSquare className="h-4 w-4 fill-current" />
-                                {t('shapeFilled')}
-                            </button>
-                            <button
-                                onClick={() => setShapeFilled(false)}
-                                className={cn(
-                                    'flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors',
-                                    !shapeFilled
-                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
-                                        : 'border-stroke text-secondary hover:bg-muted'
-                                )}
-                            >
-                                <LuSquare className="h-4 w-4" />
-                                {t('shapeOutline')}
-                            </button>
-                        </div>
-                    }
-                >
-                    <div className="space-y-6">
-                        {/* Built-in shapes — grid layout, scrollable on Y axis */}
-                        <div>
-                            <div className="mb-3 flex items-center justify-between">
-                                <h3 className="text-sm font-medium text-secondary">{t('addShape')}</h3>
-                                {/* Edit shapes button — only visible when user has uploaded shapes */}
-                                {userShapes.length > 0 && (
-                                    <button
-                                        onClick={() => setEditShapesMode((v) => !v)}
-                                        className={cn(
-                                            'flex items-center gap-1 text-xs transition-colors',
-                                            editShapesMode
-                                                ? 'font-semibold text-brand-primary'
-                                                : 'text-secondary hover:text-foreground'
-                                        )}
-                                    >
-                                        {editShapesMode ? (
-                                            <>
-                                                <LuCheck className="h-3.5 w-3.5" />
-                                                {t('doneEditShapes')}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <LuPencil className="h-3.5 w-3.5" />
-                                                {t('editShapes')}
-                                            </>
-                                        )}
-                                    </button>
-                                )}
-                            </div>
-                            <div
-                                className="grid grid-cols-3 gap-3 sm:grid-cols-5"
-                                onContextMenu={(e) => e.preventDefault()}
-                                style={{
-                                    WebkitTouchCallout: 'none',
-                                    userSelect: 'none',
-                                    touchAction: 'manipulation',
-                                }}
-                            >
-                                {SHAPES.map(({ shape, labelKey }) => (
-                                    <button
-                                        key={shape}
-                                        onClick={() => handleAddShape(shape, shapeFilled)}
-                                        className="flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                    >
-                                        <ShapeRenderer
-                                            shape={shape}
-                                            width={40}
-                                            height={40}
-                                            fillColor="var(--brand-primary)"
-                                            strokeColor="var(--brand-primary)"
-                                            strokeWidth={2}
-                                            filled={shapeFilled}
-                                        />
-                                        <span className="text-xs text-secondary">{t(`toolbars.shape.${labelKey}`)}</span>
-                                    </button>
-                                ))}
-
-                                {/* User-uploaded PNG shapes — directly after built-in shapes.
-                                    Uses background-image instead of <img> to prevent the
-                                    native long-press / right-click context menu on both
-                                    mobile (iOS callout, Android save-image) and desktop. */}
-                                {userShapes.map((shape) => (
-                                    <div
-                                        key={shape.id}
-                                        className="group relative flex flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                        onContextMenu={(e) => e.preventDefault()}
-                                        style={{
-                                            WebkitTouchCallout: 'none',
-                                            userSelect: 'none',
-                                            touchAction: 'manipulation',
-                                        }}
-                                    >
-                                        <button
-                                            onClick={() => {
-                                                if (editShapesMode) return; // don't add while editing
-                                                handleAddPngShape(shape);
-                                            }}
-                                            onContextMenu={(e) => e.preventDefault()}
-                                            style={{
-                                                WebkitTouchCallout: 'none',
-                                                userSelect: 'none',
-                                                touchAction: 'manipulation',
-                                            }}
-                                            className="flex flex-col items-center gap-2"
-                                        >
-                                            <div
-                                                className="h-10 w-10 bg-contain bg-center bg-no-repeat"
-                                                style={{
-                                                    backgroundImage: `url(${shape.url})`,
-                                                    WebkitTouchCallout: 'none',
-                                                    WebkitUserSelect: 'none',
-                                                    userSelect: 'none',
-                                                    touchAction: 'manipulation',
-                                                }}
-                                                role="img"
-                                                aria-label={shape.name}
-                                            />
-                                            <span
-                                                className="w-full truncate text-center text-xs text-secondary"
-                                                style={{ userSelect: 'none' }}
-                                            >
-                                                {shape.name}
-                                            </span>
-                                        </button>
-                                        {/* Delete button — only shown in edit mode */}
-                                        {editShapesMode && (
-                                            <button
-                                                onClick={() => handleDeleteShape(shape.id)}
-                                                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white"
-                                                aria-label={t('toolbars.shape.deleteShape')}
-                                            >
-                                                <LuTrash2 className="h-3 w-3" />
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-
-                                {/* Upload button — at the end of the grid */}
-                                <button
-                                    onClick={() => shapeFileInputRef.current?.click()}
-                                    disabled={shapeUploading}
-                                    className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary disabled:opacity-50"
-                                >
-                                    {shapeUploading ? (
-                                        <LuLoaderCircle className="h-8 w-8 animate-spin text-secondary" />
-                                    ) : (
-                                        <LuUpload className="h-8 w-8 text-secondary" />
-                                    )}
-                                    <span className="text-xs text-secondary">{t('uploadShape')}</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </Drawer>
+                    shapeFilled={shapeFilled}
+                    onSetShapeFilled={setShapeFilled}
+                    editShapesMode={editShapesMode}
+                    onToggleEditShapes={() => setEditShapesMode((v) => !v)}
+                    userShapes={userShapes}
+                    onAddShape={handleAddShape}
+                    onAddPngShape={handleAddPngShape}
+                    onDeleteShape={handleDeleteShape}
+                    onUploadShape={() => shapeFileInputRef.current?.click()}
+                    shapeUploading={shapeUploading}
+                    labels={{
+                        shapeFilled: t('shapeFilled'),
+                        shapeOutline: t('shapeOutline'),
+                        addShape: t('addShape'),
+                        editShapes: t('editShapes'),
+                        doneEditShapes: t('doneEditShapes'),
+                        uploadShape: t('uploadShape'),
+                        deleteShape: t('toolbars.shape.deleteShape'),
+                    }}
+                    shapeLabel={(labelKey) => t(`toolbars.shape.${labelKey}`)}
+                />
 
                 {/* Dynamic fields drawer — order fields picker (booking templates only) */}
-                <Drawer
+                <DynamicFieldsDrawer
                     isOpen={dynamicFieldDrawerOpen}
                     onClose={() => setDynamicFieldDrawerOpen(false)}
                     title={t('addField')}
-                    height="twoThirds"
-                >
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                        {ORDER_FIELDS.map((field) => (
-                            <button
-                                key={field.id}
-                                onClick={() => handleAddDynamicField(field)}
-                                className="flex items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                            >
-                                {field.type === 'image' ? (
-                                    <LuImage className="h-5 w-5 shrink-0 text-brand-primary" />
-                                ) : (
-                                    <LuType className="h-5 w-5 shrink-0 text-brand-primary" />
-                                )}
-                                <span className="truncate text-sm font-medium text-foreground">{field.label}</span>
-                            </button>
-                        ))}
-                    </div>
-                </Drawer>
+                    fields={ORDER_FIELDS}
+                    onAddField={handleAddDynamicField}
+                />
 
                 {/* Layers drawer */}
                 <Drawer
@@ -2408,142 +2276,41 @@ export default function EditorPage() {
                 />
 
                 {/* Font family drawer — for text layers */}
-                <Drawer
+                <FontDrawer
                     isOpen={fontDrawerOpen}
                     onClose={() => setFontDrawerOpen(false)}
                     title={t('toolbars.text.font')}
-                    height="auto"
-                >
-                    <div className="space-y-4">
-                        {/* Upload button */}
-                        <input
-                            ref={fontFileInputRef}
-                            type="file"
-                            accept=".ttf,.otf,.woff,.woff2,.eot,font/ttf,font/otf,font/woff,font/woff2"
-                            className="hidden"
-                            onChange={handleFontFileSelect}
-                        />
-                        <button
-                            type="button"
-                            onClick={() => fontFileInputRef.current?.click()}
-                            disabled={fontUploading}
-                            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-brand-primary/40 bg-brand-primary-light/10 px-4 py-3 text-sm font-medium text-brand-primary transition-colors hover:border-brand-primary hover:bg-brand-primary-light/20 disabled:opacity-50"
-                        >
-                            {fontUploading ? (
-                                <LuLoaderCircle className="h-5 w-5 animate-spin" />
-                            ) : (
-                                <LuUpload className="h-5 w-5" />
-                            )}
-                            {fontUploading ? t('toolbars.text.fontUploading') : t('toolbars.text.uploadFont')}
-                        </button>
-
-                        {/* Built-in fonts */}
-                        <div className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                                {t('toolbars.text.builtinFonts')}
-                            </p>
-                            {ARABIC_SAFE_FONTS.map((font) => (
-                                <button
-                                    key={font.id}
-                                    onClick={() => {
-                                        if (selectedLayer) {
-                                            handleLayerChange(selectedLayer.id, { fontFamily: font.family, fontWeight: font.weight } as Partial<AnyLayer>);
-                                        }
-                                        setFontDrawerOpen(false);
-                                    }}
-                                    className={`flex w-full items-center justify-center rounded-xl border px-4 py-3 text-base transition-colors ${selectedLayer && (selectedLayer as TextLayer).fontFamily === font.family && (selectedLayer as TextLayer).fontWeight === font.weight
-                                        ? 'border-brand-primary bg-brand-primary text-primary-text'
-                                        : 'border-stroke bg-background text-foreground hover:bg-muted'
-                                        }`}
-                                    style={{ fontFamily: resolveFontFamily(font.family), fontWeight: font.weight }}
-                                >
-                                    {font.name}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* User-uploaded fonts */}
-                        {userFonts.length > 0 && (
-                            <div className="space-y-2">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                                    {t('toolbars.text.myFonts')}
-                                </p>
-                                {userFonts.map((font) => {
-                                    const isSelected = selectedLayer &&
-                                        (selectedLayer as TextLayer).fontFamily === font.family;
-                                    return (
-                                        <div
-                                            key={font.id}
-                                            className={`group flex items-center gap-2 rounded-xl border px-3 py-2 transition-colors ${isSelected
-                                                ? 'border-brand-primary bg-brand-primary text-primary-text'
-                                                : 'border-stroke bg-background text-foreground hover:bg-muted'
-                                                }`}
-                                        >
-                                            <button
-                                                onClick={() => {
-                                                    if (selectedLayer) {
-                                                        handleLayerChange(selectedLayer.id, {
-                                                            fontFamily: font.family,
-                                                            fontWeight: font.weight,
-                                                        } as Partial<AnyLayer>);
-                                                    }
-                                                    setFontDrawerOpen(false);
-                                                }}
-                                                className="flex flex-1 items-center justify-center truncate text-base"
-                                                style={{ fontFamily: font.family, fontWeight: font.weight }}
-                                                title={font.name}
-                                            >
-                                                {font.name}
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteUserFont(font.id)}
-                                                className={`shrink-0 rounded-lg p-1.5 transition-colors ${isSelected
-                                                    ? 'text-primary-text/80 hover:bg-white/20'
-                                                    : 'text-secondary hover:bg-muted hover:text-error'
-                                                    }`}
-                                                aria-label={t('toolbars.text.deleteFont')}
-                                                title={t('toolbars.text.deleteFont')}
-                                            >
-                                                <LuTrash2 className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-                </Drawer>
+                    selectedLayer={selectedLayer}
+                    onSelectFont={(family, weight) => {
+                        if (selectedLayer) {
+                            handleLayerChange(selectedLayer.id, { fontFamily: family, fontWeight: weight } as Partial<AnyLayer>);
+                        }
+                        setFontDrawerOpen(false);
+                    }}
+                    userFonts={userFonts}
+                    fontUploading={fontUploading}
+                    onUploadFont={() => fontFileInputRef.current?.click()}
+                    onDeleteFont={handleDeleteUserFont}
+                    fontFileInputRef={fontFileInputRef}
+                    onFontFileSelect={handleFontFileSelect}
+                    labels={{
+                        uploadFont: t('toolbars.text.uploadFont'),
+                        fontUploading: t('toolbars.text.fontUploading'),
+                        builtinFonts: t('toolbars.text.builtinFonts'),
+                        myFonts: t('toolbars.text.myFonts'),
+                        deleteFont: t('toolbars.text.deleteFont'),
+                    }}
+                />
 
                 {/* Text edit drawer — edit the text content */}
-                <Drawer
+                <TextEditDrawer
                     isOpen={textEditDrawerOpen}
-                    onClose={() => {
-                        // If the text layer has no text, remove it from the canvas
-                        if (selectedLayer && selectedLayer.type === 'text' && !(selectedLayer as TextLayer).text.trim()) {
-                            handleDeleteLayer(selectedLayer.id);
-                        }
-                        setTextEditDrawerOpen(false);
-                    }}
+                    onClose={() => setTextEditDrawerOpen(false)}
                     title={t('toolbars.text.text')}
-                    height="auto"
-                    closeIcon={<LuCheck className="h-5 w-5 text-brand-primary" />}
-                >
-                    {selectedLayer && selectedLayer.type === 'text' && (
-                        <textarea
-                            autoFocus
-                            value={(selectedLayer as TextLayer).text}
-                            onChange={(e) => handleLayerChange(selectedLayer.id, { text: e.target.value } as Partial<AnyLayer>, false)}
-                            className="w-full rounded-xl border border-stroke bg-background px-4 py-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                            style={{
-                                fontFamily: resolveFontFamily((selectedLayer as TextLayer).fontFamily),
-                                fontWeight: (selectedLayer as TextLayer).fontWeight || 400,
-                                minHeight: 120,
-                                resize: 'vertical',
-                            }}
-                            dir="auto"
-                        />
-                    )}
-                </Drawer>
+                    selectedLayer={selectedLayer}
+                    onTextChange={(layerId, text) => handleLayerChange(layerId, { text } as Partial<AnyLayer>, false)}
+                    onDeleteLayer={handleDeleteLayer}
+                />
 
                 <Modal
                     isOpen={renameOpen}
@@ -2593,46 +2360,19 @@ export default function EditorPage() {
                 )}
 
                 {/* Mobile eye dropper fallback — uses react-image-color-picker for touch-friendly color picking */}
-                {mobileEyeDropper && (
-                    <div className="fixed inset-0 z-100 flex flex-col items-center justify-center bg-black/90 p-4">
-                        <p className="mb-3 text-center text-sm text-white/80">
-                            {t('toolbars.text.eyeDropper')}
-                        </p>
-                        <div className="max-h-[75vh] max-w-full overflow-hidden rounded-lg shadow-2xl">
-                            <ImageColorPicker
-                                imgSrc={mobileEyeDropper.dataUrl}
-                                zoom={1}
-                                onColorPick={(color: string) => {
-                                    // Library returns "rgb(r, g, b)" — convert to hex
-                                    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-                                    if (match) {
-                                        const hex = '#' + [match[1], match[2], match[3]]
-                                            .map((v) => parseInt(v).toString(16).padStart(2, '0'))
-                                            .join('');
-                                        mobileEyeDropper.onPick(hex);
-                                    } else if (color.startsWith('#')) {
-                                        mobileEyeDropper.onPick(color);
-                                    }
-                                    setMobileEyeDropper(null);
-                                }}
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setMobileEyeDropper(null);
-                                // Restore color picker drawer if it was open
-                                if (eyeDropperReopenRef.current) {
-                                    setColorPickerProp(eyeDropperReopenRef.current);
-                                    eyeDropperReopenRef.current = null;
-                                }
-                            }}
-                            className="mt-4 rounded-lg bg-white/20 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-white/30"
-                        >
-                            {uiT('cancel')}
-                        </button>
-                    </div>
-                )}
+                <MobileEyeDropper
+                    state={mobileEyeDropper}
+                    eyeDropperLabel={t('toolbars.text.eyeDropper')}
+                    cancelLabel={uiT('cancel')}
+                    onClose={() => {
+                        setMobileEyeDropper(null);
+                        // Restore color picker drawer if it was open
+                        if (eyeDropperReopenRef.current) {
+                            setColorPickerProp(eyeDropperReopenRef.current);
+                            eyeDropperReopenRef.current = null;
+                        }
+                    }}
+                />
 
                 {/* Unified leave confirmation modal — simple yes/no question.
                     Behavior depends on whether the project is new (never synced) or existing:
@@ -2640,63 +2380,34 @@ export default function EditorPage() {
                         For new projects the name input is shown inline so the user can
                         rename and save in one step (no separate rename modal).
                       - Existing project: "Save changes?"        Yes=save&leave   No=leave without saving */}
-                {showLeaveModal && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 p-4">
-                        <div className="relative w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl">
-                            {/* X close button — same as "continue editing" (just dismisses the modal) */}
-                            <button
-                                type="button"
-                                onClick={() => setShowLeaveModal(false)}
-                                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-secondary transition-colors hover:bg-muted hover:text-foreground rtl:right-auto rtl:left-3"
-                                aria-label={t('keepEditing')}
-                            >
-                                <LuX className="h-5 w-5" />
-                            </button>
-                            <h2 className="mb-2 pe-8 text-lg font-bold text-foreground">
-                                {wasSyncedBefore ? t('saveChangesTitle') : t('saveProjectTitle')}
-                            </h2>
-                            <p className="mb-4 text-sm text-secondary">
-                                {wasSyncedBefore ? t('saveChangesDescription') : t('saveProjectDescription')}
-                            </p>
-                            {/* Inline rename input — only for first-time save (brand-new project).
-                                The user can rename and confirm save in one step. */}
-                            {!wasSyncedBefore && (
-                                <div className="mb-4">
-                                    <Input
-                                        value={renameValue}
-                                        onChange={(e) => setRenameValue(e.target.value)}
-                                        placeholder={t('renameProjectPlaceholder')}
-                                        autoFocus
-                                    />
-                                </div>
-                            )}
-                            <div className="flex gap-3">
-                                <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                        setShowLeaveModal(false);
-                                        doNoAndLeave();
-                                    }}
-                                    className="flex-1 text-secondary"
-                                >
-                                    {t('no')}
-                                </Button>
-                                <Button
-                                    onClick={() => {
-                                        setShowLeaveModal(false);
-                                        // For a new project, pass the inline name so the
-                                        // first save uses the user's chosen name. For an
-                                        // existing project, just save the current state.
-                                        doSaveAndLeave(!wasSyncedBefore ? renameValue : undefined);
-                                    }}
-                                    className="flex-1"
-                                >
-                                    {t('yes')}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <LeaveModal
+                    isOpen={showLeaveModal}
+                    onClose={() => setShowLeaveModal(false)}
+                    wasSyncedBefore={wasSyncedBefore}
+                    renameValue={renameValue}
+                    onRenameChange={setRenameValue}
+                    onNo={() => {
+                        setShowLeaveModal(false);
+                        doNoAndLeave();
+                    }}
+                    onYes={() => {
+                        setShowLeaveModal(false);
+                        // For a new project, pass the inline name so the
+                        // first save uses the user's chosen name. For an
+                        // existing project, just save the current state.
+                        doSaveAndLeave(!wasSyncedBefore ? renameValue : undefined);
+                    }}
+                    labels={{
+                        keepEditing: t('keepEditing'),
+                        saveChangesTitle: t('saveChangesTitle'),
+                        saveProjectTitle: t('saveProjectTitle'),
+                        saveChangesDescription: t('saveChangesDescription'),
+                        saveProjectDescription: t('saveProjectDescription'),
+                        renameProjectPlaceholder: t('renameProjectPlaceholder'),
+                        no: t('no'),
+                        yes: t('yes'),
+                    }}
+                />
             </div>
         </DndProvider>
     );

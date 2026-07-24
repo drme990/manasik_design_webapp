@@ -336,3 +336,99 @@ export async function uploadImagesWithProgress(
     throw error;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Project thumbnail — generated from the canvas DOM element, compressed to
+// WebP, and uploaded to R2 under `design/thumbnails/{projectId}.webp`.
+// Used by project cards on the /projects and /templates pages.
+//
+// Split into two steps (capture vs. upload) so callers that need to
+// navigate away immediately (optimistic UI) can capture the snapshot while
+// the canvas is still mounted, then upload it in the background afterwards
+// without blocking navigation.
+// ---------------------------------------------------------------------------
+
+const PROJECT_THUMBNAIL_MAX_WIDTH = 600; // px — cap width for card previews
+const PROJECT_THUMBNAIL_QUALITY = 0.75; // WebP quality — good enough for cards
+
+/**
+ * Capture a DOM element as a compressed WebP thumbnail blob.
+ * This is a local (non-network) operation — it must be called while the
+ * element is still mounted in the DOM, but does not need to be awaited
+ * before navigating away since it doesn't touch the network.
+ *
+ * @param element  The canvas DOM element to capture (the design preview)
+ * @param bgColor  Background color (for transparent areas)
+ * @returns A WebP Blob, or null if capture failed
+ */
+export async function captureProjectThumbnailBlob(
+  element: HTMLElement,
+  bgColor: string
+): Promise<Blob | null> {
+  try {
+    // Use html-to-image to capture the canvas element
+    const { toBlob } = await import('html-to-image');
+    return await toBlob(element, {
+      quality: PROJECT_THUMBNAIL_QUALITY,
+      backgroundColor: bgColor || '#ffffff',
+      pixelRatio: Math.min(
+        PROJECT_THUMBNAIL_MAX_WIDTH / element.offsetWidth,
+        1
+      ),
+      cacheBust: true,
+      fetchRequestInit: { mode: 'cors' } as RequestInit,
+    });
+  } catch (error) {
+    console.error('Failed to capture project thumbnail:', error);
+    return null;
+  }
+}
+
+/**
+ * Upload an already-captured thumbnail blob to R2 via the thumbnail API
+ * route. Safe to call after the originating component has navigated away —
+ * it's a plain network request with no DOM dependency.
+ *
+ * @param blob      The WebP blob captured via captureProjectThumbnailBlob
+ * @param projectId The project ID (used as the thumbnail filename)
+ * @returns The thumbnail URL on R2, or null if the upload failed
+ */
+export async function uploadProjectThumbnailBlob(
+  blob: Blob,
+  projectId: string
+): Promise<string | null> {
+  try {
+    const file = new File([blob], `${projectId}.webp`, { type: 'image/webp' });
+    const formData = new FormData();
+    formData.append('thumbnail', file);
+
+    const response = await fetch(`/api/projects/${projectId}/thumbnail`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) return null;
+
+    const result = await response.json();
+    return result.data?.thumbnail ?? null;
+  } catch (error) {
+    console.error('Failed to upload project thumbnail:', error);
+    return null;
+  }
+}
+
+/**
+ * Convenience wrapper that captures and uploads a thumbnail in one call.
+ * Prefer the split functions above when the caller needs to navigate away
+ * before the upload completes.
+ */
+export async function generateAndUploadProjectThumbnail(
+  element: HTMLElement,
+  projectId: string,
+  bgColor: string
+): Promise<string | null> {
+  const blob = await captureProjectThumbnailBlob(element, bgColor);
+  if (!blob) return null;
+  return uploadProjectThumbnailBlob(blob, projectId);
+}

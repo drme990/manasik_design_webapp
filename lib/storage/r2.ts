@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
 const ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
@@ -105,6 +105,81 @@ export function generateShapeKey(file: File | { name: string; type: string }): s
   const rand = Math.random().toString(36).slice(2, 8);
   const safeExt = ext && /^[a-z0-9]+$/.test(ext) ? ext : 'png';
   return `design/shapes/${slug}-${rand}.${safeExt}`;
+}
+
+/**
+ * Generate an R2 key for a project thumbnail.
+ * Stored under `design/thumbnails/` with the project ID as the filename.
+ */
+export function generateThumbnailKey(projectId: string): string {
+  return `design/thumbnails/${projectId}.webp`;
+}
+
+/**
+ * Extract the R2 key from a full public URL.
+ * Returns null if the URL doesn't start with the configured PUBLIC_URL.
+ */
+export function extractKeyFromUrl(url: string): string | null {
+  if (!PUBLIC_URL) return null;
+  if (!url.startsWith(PUBLIC_URL)) return null;
+  return url.slice(PUBLIC_URL.length + 1); // +1 for the '/'
+}
+
+/**
+ * Delete a single object from R2 by its key.
+ * Silently ignores errors (best-effort cleanup).
+ */
+export async function deleteFromR2(key: string): Promise<void> {
+  if (!BUCKET_NAME) return;
+  try {
+    const s3 = getClient();
+    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+  } catch (error) {
+    console.error(`[R2] Failed to delete key "${key}":`, error);
+  }
+}
+
+/**
+ * List all object keys in R2 under a given prefix.
+ * Used to find all assets belonging to a project for bulk deletion.
+ */
+export async function listR2KeysByPrefix(prefix: string): Promise<string[]> {
+  if (!BUCKET_NAME) return [];
+  try {
+    const s3 = getClient();
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const response = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET_NAME,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        })
+      );
+      if (response.Contents) {
+        for (const obj of response.Contents) {
+          if (obj.Key) keys.push(obj.Key);
+        }
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return keys;
+  } catch (error) {
+    console.error(`[R2] Failed to list keys with prefix "${prefix}":`, error);
+    return [];
+  }
+}
+
+/**
+ * Delete multiple objects from R2 by their keys.
+ * Silently ignores errors (best-effort cleanup).
+ */
+export async function deleteMultipleFromR2(keys: string[]): Promise<void> {
+  if (!BUCKET_NAME || keys.length === 0) return;
+  // Delete one by one — R2/S3 batch delete has a 1000-object limit,
+  // and individual deletes are simpler and good enough for project cleanup.
+  await Promise.all(keys.map((key) => deleteFromR2(key)));
 }
 
 export { PUBLIC_URL, BUCKET_NAME };

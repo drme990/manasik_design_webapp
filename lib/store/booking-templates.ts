@@ -1,7 +1,7 @@
 import type { BookingProduct, BookingProductCreateInput, BookingProductUpdateInput, Project } from '@/types';
 import { fetchWithAuth } from './fetch-with-auth';
 import { createResourceCache } from './cache';
-import { createProject, getProject } from './projects';
+import { useProjectStore } from './use-project-store';
 import type { BackendProduct } from './backend-products';
 
 /**
@@ -106,7 +106,7 @@ export async function getOrCreateTemplateProject(productId: string): Promise<Pro
   }
 
   if (product.templateId) {
-    const project = await getProject(product.templateId);
+    const project = await useProjectStore.getState().getProject(product.templateId);
     if (project) {
       return project;
     }
@@ -114,7 +114,7 @@ export async function getOrCreateTemplateProject(productId: string): Promise<Pro
 
   const projectName = `${product.name} — قالب`;
 
-  const project = await createProject({
+  const project = await useProjectStore.getState().createProject({
     name: projectName,
     kind: 'booking_template',
     canvasWidth: product.defaultCanvas.width,

@@ -9,19 +9,21 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listTemplates, createProject, deleteProject, getStaleTemplates, invalidateListCache } from '@/lib/store/projects';
+import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project, BookingProduct } from '@/types';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
-    // Lazy-init from stale cache so returning to this page is instant
-    const [templates, setTemplates] = useState<Project[]>(() => {
-        const stale = getStaleTemplates();
-        return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
-    });
-    const [loading, setLoading] = useState(() => !getStaleTemplates());
+    // Subscribe to the zustand store — templates list is always in sync
+    const templates = useProjectStore((s) => s.templates);
+    const templatesLoading = useProjectStore((s) => s.templatesLoading);
+    const fetchTemplates = useProjectStore((s) => s.fetchTemplates);
+    const storeCreateProject = useProjectStore((s) => s.createProject);
+    const storeDeleteProject = useProjectStore((s) => s.deleteProject);
+    // loading is true only on the very first fetch (no data yet)
+    const loading = templatesLoading && templates.length === 0;
     const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [customWidth, setCustomWidth] = useState('1080');
@@ -32,23 +34,19 @@ export default function TemplatesPage() {
 
     useEffect(() => {
         const load = async () => {
-            const [tmpls, products] = await Promise.all([
-                listTemplates(),
-                listBookingProducts(),
-            ]);
-            setTemplates([...tmpls].sort((a, b) => b.updatedAt - a.updatedAt));
+            fetchTemplates();
+            const products = await listBookingProducts();
             setBookingProducts(products);
-            setLoading(false);
         };
         load();
-    }, []);
+    }, [fetchTemplates]);
 
     // Count how many products are assigned to a template
     const getProductCount = (templateId: string): number =>
         bookingProducts.filter((bp) => bp.templateId === templateId).length;
 
     const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
-        const project = await createProject({
+        const project = await storeCreateProject({
             name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
             kind: 'booking_template',
             canvasWidth: preset.width,
@@ -62,7 +60,7 @@ export default function TemplatesPage() {
         const width = Number(customWidth);
         const height = Number(customHeight);
         if (width <= 0 || height <= 0) return;
-        const project = await createProject({
+        const project = await storeCreateProject({
             name: `${t('newTemplate')} — ${width}×${height}`,
             kind: 'booking_template',
             canvasWidth: width,
@@ -76,9 +74,8 @@ export default function TemplatesPage() {
         if (!deleteTemplateId) return;
         setDeleteLoading(true);
         try {
-            await deleteProject(deleteTemplateId);
-            setTemplates((prev) => prev.filter((p) => p.id !== deleteTemplateId));
-            invalidateListCache();
+            // Optimistic: store removes from the list immediately
+            await storeDeleteProject(deleteTemplateId);
         } catch (err) {
             console.error('Failed to delete template:', err);
         }
@@ -99,7 +96,7 @@ export default function TemplatesPage() {
                         {[...Array(6)].map((_, i) => (
                             <div
                                 key={i}
-                                className="flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0"
+                                className="flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm"
                             >
                                 <div className="aspect-square w-full animate-pulse bg-muted" />
                                 <div className="p-4">
@@ -121,7 +118,7 @@ export default function TemplatesPage() {
                             return (
                                 <div
                                     key={template.id}
-                                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 transition-colors hover:border-brand-primary"
+                                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm transition-shadow hover:shadow-md hover:border-brand-primary"
                                 >
                                     {/* Preview — click opens editor */}
                                     <a
@@ -129,12 +126,13 @@ export default function TemplatesPage() {
                                         className="block"
                                     >
                                         <div
-                                            className="relative aspect-square w-full overflow-hidden bg-muted"
+                                            className="relative w-full overflow-hidden bg-muted"
                                             style={{
+                                                aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}`,
                                                 backgroundColor: template.backgroundColor ?? '#ffffff',
                                             }}
                                         >
-                                            <ProjectCardPreview project={template} />
+                                            <ProjectCardPreview project={template} className="h-full w-full" />
                                         </div>
                                     </a>
 

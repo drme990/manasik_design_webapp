@@ -130,6 +130,14 @@ export async function saveProject(project: Project): Promise<Project> {
   return saved;
 }
 
+/** Invalidate caches after a thumbnail upload so the next fetch picks it up. */
+export function invalidateProjectThumbnail(projectId: string): void {
+  cache.removeItem(projectId);
+  cache.invalidateList();
+  templateCache.removeItem(projectId);
+  templateCache.invalidateList();
+}
+
 export async function createProject(input: ProjectCreateInput): Promise<Project> {
   const result = await fetchWithAuth('/api/projects', {
     method: 'POST',
@@ -160,6 +168,22 @@ export async function deleteProject(id: string): Promise<void> {
   await fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' });
   cache.removeItem(id);
   templateCache.removeItem(id);
+}
+
+/**
+ * Optimistically delete a project: remove it from the cache immediately (so
+ * any UI reading from the cache — e.g. the /projects list — reflects the
+ * deletion instantly) and fire the DELETE request in the background without
+ * waiting for it. Use this when the caller has already navigated (or is
+ * about to navigate) away and doesn't need to block on the server response —
+ * e.g. discarding a blank/never-saved project when leaving the editor.
+ */
+export function deleteProjectOptimistic(id: string): void {
+  cache.removeItem(id);
+  templateCache.removeItem(id);
+  fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' }).catch((error) => {
+    console.error(`Failed to delete project ${id} on server:`, error);
+  });
 }
 
 export async function duplicateProject(id: string): Promise<Project | null> {

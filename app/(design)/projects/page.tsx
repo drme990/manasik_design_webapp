@@ -11,7 +11,7 @@ import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { listProjects, createProject, deleteProject, renameProject, duplicateProject, getStaleProjects } from '@/lib/store/projects';
+import { useProjectStore } from '@/lib/store/use-project-store';
 import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { Project, PdfProject } from '@/types';
@@ -19,12 +19,16 @@ import type { Project, PdfProject } from '@/types';
 export default function ProjectsPage() {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
-  // Lazy-init from stale cache so returning to this page is instant (no spinner)
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const stale = getStaleProjects();
-    return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
-  });
-  const [loading, setLoading] = useState(() => !getStaleProjects());
+  // Subscribe to the zustand store — projects list is always in sync
+  const projects = useProjectStore((s) => s.projects);
+  const projectsLoading = useProjectStore((s) => s.projectsLoading);
+  const fetchProjects = useProjectStore((s) => s.fetchProjects);
+  const storeCreateProject = useProjectStore((s) => s.createProject);
+  const storeDeleteProject = useProjectStore((s) => s.deleteProject);
+  const storeRenameProject = useProjectStore((s) => s.renameProject);
+  const storeDuplicateProject = useProjectStore((s) => s.duplicateProject);
+  // loading is true only on the very first fetch (no data yet)
+  const loading = projectsLoading && projects.length === 0;
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -60,7 +64,7 @@ export default function ProjectsPage() {
     reader.onload = async (event) => {
       const dataUrl = event.target?.result as string;
       // Create project with the image's aspect ratio and set it as background
-      const project = await createProject({
+      const project = await storeCreateProject({
         name: `${t('custom')} — ${naturalWidth}×${naturalHeight}`,
         kind: 'design',
         canvasWidth: naturalWidth,
@@ -77,25 +81,18 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     let cancelled = false;
-
-    // Always refresh from the API in the background
-    listProjects().then((data) => {
-      if (cancelled) return;
-      const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
-      setProjects(sorted);
-      setLoading(false);
-    });
+    // Fetch projects from the store (uses cache if available)
+    fetchProjects();
     listPdfProjects().then((data) => {
       if (cancelled) return;
       const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
       setPdfProjects(sorted);
     });
-
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchProjects]);
 
   const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
-    const project = await createProject({
+    const project = await storeCreateProject({
       name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
       kind: 'design',
       canvasWidth: preset.width,
@@ -109,7 +106,7 @@ export default function ProjectsPage() {
     const width = Number(customWidth);
     const height = Number(customHeight);
     if (width <= 0 || height <= 0) return;
-    const project = await createProject({
+    const project = await storeCreateProject({
       name: `${t('custom')} — ${width}×${height}`,
       kind: 'design',
       canvasWidth: width,
@@ -121,27 +118,23 @@ export default function ProjectsPage() {
 
   const handleRename = async () => {
     if (!renameProjectId || !renameValue.trim()) return;
-    await renameProject(renameProjectId, renameValue.trim());
-    setProjects((prev) =>
-      prev.map((p) => (p.id === renameProjectId ? { ...p, name: renameValue.trim() } : p))
-    );
+    // Optimistic: store updates the list immediately
+    await storeRenameProject(renameProjectId, renameValue.trim());
     setRenameProjectId(null);
   };
 
   const handleDelete = async () => {
     if (!deleteProjectId) return;
     setDeleteLoading(true);
-    await deleteProject(deleteProjectId);
-    setProjects((prev) => prev.filter((p) => p.id !== deleteProjectId));
+    // Optimistic: store removes from the list immediately
+    await storeDeleteProject(deleteProjectId);
     setDeleteLoading(false);
     setDeleteProjectId(null);
   };
 
   const handleDuplicate = async (projectId: string) => {
-    const duplicated = await duplicateProject(projectId);
-    if (duplicated) {
-      setProjects((prev) => [duplicated, ...prev]);
-    }
+    // Optimistic: store adds the duplicate to the list immediately
+    await storeDuplicateProject(projectId);
   };
 
   const handleDeletePdfProject = async () => {
@@ -223,9 +216,9 @@ export default function ProjectsPage() {
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-xl  sm:w-56"
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm sm:w-56"
                 >
-                  <div className="relative aspect-4/3 w-full overflow-hidden">
+                  <div className="relative aspect-4/3 w-full overflow-hidden rounded-t-2xl">
                     <div className="h-full w-full animate-pulse bg-muted" />
                   </div>
                   <div className="px-3 pt-2.5">
@@ -250,11 +243,11 @@ export default function ProjectsPage() {
               {projects.map((project) => (
                 <div
                   key={project.id}
-                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden sm:w-56"
+                  className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
                 >
                   {/* Preview */}
                   <Link href={`/editor/${project.id}`} className="block shrink-0">
-                    <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl">
+                    <div className="relative aspect-4/3 w-full overflow-hidden rounded-t-2xl">
                       <ProjectCardPreview project={project} className="h-full w-full" />
                     </div>
                   </Link>
