@@ -33,6 +33,41 @@ export default function TemplatesPage() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const galleryInputRef = useRef<HTMLInputElement>(null);
 
+    const handlePickGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        // Read the image to get its natural dimensions
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = reject;
+            img.src = url;
+        });
+        const naturalWidth = img.naturalWidth;
+        const naturalHeight = img.naturalHeight;
+        URL.revokeObjectURL(url);
+
+        // Convert to data URL for the background
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const dataUrl = event.target?.result as string;
+            // Create template with the image's aspect ratio and set it as background
+            const project = await storeCreateProject({
+                name: `${t('newTemplate')} — ${naturalWidth}×${naturalHeight}`,
+                kind: 'booking_template',
+                canvasWidth: naturalWidth,
+                canvasHeight: naturalHeight,
+                backgroundUri: dataUrl,
+            });
+            setDrawerOpen(false);
+            window.location.assign(`/editor/${project.id}`);
+        };
+        reader.readAsDataURL(file);
+        // Reset input so the same file can be picked again
+        e.target.value = '';
+    };
+
     useEffect(() => {
         const load = async () => {
             fetchTemplates();
@@ -211,6 +246,7 @@ export default function TemplatesPage() {
                         type="file"
                         accept="image/*"
                         className="hidden"
+                        onChange={handlePickGalleryImage}
                     />
                     <button
                         type="button"
