@@ -5,6 +5,9 @@ import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/template-renderer';
 import type { Project } from '@/types';
 
+// Puppeteer rendering can take time — allow up to 60s on Vercel
+export const maxDuration = 60;
+
 const COLLECTION = 'projects';
 
 function isAdmin(role?: string) {
@@ -117,7 +120,11 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     const jpgBuffer = await renderTemplateToJpg(project, {});
 
     // Upload to R2 at the same key (overwrites the old image)
-    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg');
+    // Use no-cache since we're overwriting an existing key — without
+    // this, Cloudflare CDN serves the stale cached version.
+    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
+      cacheControl: 'no-cache',
+    });
 
     return NextResponse.json({
       success: true,

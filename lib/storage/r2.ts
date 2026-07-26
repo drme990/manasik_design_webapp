@@ -34,7 +34,11 @@ export interface UploadResult {
 export async function uploadToR2(
   key: string,
   body: Buffer | Uint8Array,
-  contentType: string
+  contentType: string,
+  options?: {
+    /** Cache-Control header value. Defaults to long-lived immutable cache. Use 'no-cache' for files that get overwritten at the same key (e.g. order designs). */
+    cacheControl?: string;
+  }
 ): Promise<UploadResult> {
   if (!BUCKET_NAME) {
     throw new Error('R2 bucket name is not configured. Check R2_BUCKET_NAME.');
@@ -48,6 +52,9 @@ export async function uploadToR2(
       Key: key,
       Body: buffer,
       ContentType: contentType,
+      // Default to long cache for static files; allow override for
+      // files that get overwritten at the same key (order designs).
+      CacheControl: options?.cacheControl ?? 'public, max-age=31536000, immutable',
     })
   );
 

@@ -299,8 +299,10 @@
   1. Builds a self-contained HTML document from the project's layers
   2. Inflates dynamic field layers with order data (resolves `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs)
   3. Loads Expo Arabic fonts from `public/fonts/ExpoArabic/` as base64 data URIs
-  4. Uses **Puppeteer** (headless Chrome) to screenshot the HTML as a JPG buffer
+  4. Uses **puppeteer-core** (headless Chrome) to screenshot the HTML as a JPG buffer
   5. Returns the buffer for upload to R2
+- **Vercel-compatible** — uses `@sparticuz/chromium` on Vercel serverless functions (no bundled Chrome), auto-detects local Chrome for dev
+- Routes that render export `maxDuration = 60` (Vercel timeout)
 - Handles text layers (with full styling), image layers (R2 URLs), shape layers, and dynamic field layers
 - Known limitation: collage layers are not yet supported in the server-side renderer
 

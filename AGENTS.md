@@ -158,6 +158,21 @@ This endpoint:
 This means the admin panel always shows the latest version of the
 design without any additional sync between the design app and backend.
 
+### Cache-busting for order designs
+
+Since order designs are overwritten at the same R2 key, the Cloudflare
+CDN and browser cache can serve stale versions. Two mitigations:
+
+1. **R2 upload uses `Cache-Control: no-cache`** — order design uploads
+   (both initial generation and re-render) set `no-cache` so the CDN
+   always revalidates with the origin. Other uploads (thumbnails, user
+   images, fonts) use the default long-lived immutable cache.
+
+2. **Admin panel appends `?v=timestamp`** — the `DesignPreviewModal`
+   and `handleDownloadDesign` append a cache-busting query param every
+   time the design is displayed or downloaded, forcing a fresh fetch
+   that bypasses both the browser cache and the CDN edge cache.
+
 ## Template rendering pipeline
 
 `lib/render/template-renderer.ts` is the server-side renderer. It:
@@ -167,11 +182,34 @@ design without any additional sync between the design app and backend.
    `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs).
 2. Loads Expo Arabic fonts from `public/fonts/ExpoArabic/` as base64
    data URIs, and Tajawal + IBM Plex Sans Arabic from Google Fonts CDN.
-3. Uses **puppeteer** (headless Chromium) to render the HTML and
+3. Uses **puppeteer-core** (headless Chromium) to render the HTML and
    screenshot the canvas element as a JPEG buffer.
 
-Dependencies: `puppeteer` (added to package.json). Run `npm install`
-after pulling. Puppeteer downloads its own Chromium on install.
+### Vercel compatibility
+
+Vercel serverless functions don't have Chrome installed, and
+`puppeteer`'s bundled Chromium (~170MB) exceeds Vercel's function size
+limit. The renderer uses:
+
+- **`puppeteer-core`** (no bundled browser — smaller deploy)
+- **`@sparticuz/chromium`** — provides a Lambda-compatible Chrome binary
+  on Vercel serverless functions
+
+The renderer detects the environment:
+- **Vercel** (`VERCEL=1` or `AWS_REGION` set): uses
+  `@sparticuz/chromium.executablePath()` + recommended Lambda args
+- **Local dev**: uses `PUPPETEER_EXECUTABLE_PATH` env var, or auto-detects
+  Chrome from common install locations (macOS/Windows/Linux)
+
+`next.config.ts` adds `@sparticuz/chromium` and `puppeteer-core` to
+`serverExternalPackages` so Vercel doesn't try to bundle them.
+
+Routes that use Puppeteer export `maxDuration = 60` (seconds) since
+rendering can take longer than Vercel's default 10s timeout.
+
+Dependencies: `puppeteer-core` + `@sparticuz/chromium`. Run
+`npm install` after pulling. For local dev, either install Chrome
+or set `PUPPETEER_EXECUTABLE_PATH` to your Chrome binary path.
 
 Known limitations:
 - Collage image layers render only the first cell's image (full grid
@@ -187,3 +225,13 @@ an `Internal CLR error` on every invocation). `package.json` had the now-
 unused `idb` dependency removed, but `package-lock.json` and `node_modules`
 still reference it. Run `npm install` locally to sync the lockfile, then
 run `npm run build` / `npm run lint` to verify the refactor end-to-end.
+
+**Puppeteer → puppeteer-core migration:** `puppeteer` was replaced with
+`puppeteer-core` + `@sparticuz/chromium` for Vercel compatibility. Run:
+```
+npm install
+npm uninstall puppeteer
+```
+This removes the bundled Chromium (~170MB) and installs the Lambda-
+compatible `@sparticuz/chromium` instead. For local dev, set
+`PUPPETEER_EXECUTABLE_PATH` to your Chrome path if auto-detection fails.

@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import type {
   Project,
@@ -468,39 +469,64 @@ ${layersHtml}
 // ─── Puppeteer rendering ──────────────────────────────────────────────────
 
 /**
- * Render a template project to a JPG buffer using puppeteer.
+ * Find the Chrome/Chromium executable on the local system.
+ * Used for local development when PUPPETEER_EXECUTABLE_PATH is not set.
  *
- * 1. Build a self-contained HTML document from the template + order data.
- * 2. Launch a headless browser, set the viewport to the canvas dimensions.
- * 3. Set the HTML content and wait for all fonts + images to load.
- * 4. Screenshot the #canvas element as JPEG.
- * 5. Close the browser and return the buffer.
- *
- * The browser is launched with `--no-sandbox` for compatibility with
- * containerized environments. On Windows/macOS/Linux this is safe since
- * the browser is headless and only renders local HTML.
+ * Checks common install locations on macOS, Windows, and Linux.
+ * Returns the first path that exists, or throws if none found.
  */
-export async function renderTemplateToJpg(
+function findLocalChrome(): string {
+  const candidates: string[] = [];
+
+  if (process.platform === 'darwin') {
+    // macOS — Chrome + Chromium
+    candidates.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      `${process.env.HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+    );
+  } else if (process.platform === 'win32') {
+    // Windows — Chrome + Edge
+    const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+    const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const localAppData = process.env['LOCALAPPDATA'] || '';
+    candidates.push(
+      `${pf}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${pf86}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${localAppData}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${pf}\\Microsoft\\Edge\\Application\\msedge.exe`,
+      `${pf86}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    );
+  } else {
+    // Linux — Chrome + Chromium
+    candidates.push(
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium',
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  throw new Error(
+    'Could not find Chrome/Chromium on this system. Set PUPPETEER_EXECUTABLE_PATH env var to the Chrome executable path, or install Chrome.',
+  );
+}
+
+/**
+ * Render the already-built HTML in the given browser and return a JPG
+ * buffer. Handles viewport setup, content loading, font/image waiting,
+ * and screenshotting the #canvas element.
+ */
+async function renderWithBrowser(
+  browser: import('puppeteer-core').Browser,
   template: Project,
-  orderData: Record<string, unknown>,
+  html: string,
 ): Promise<Buffer> {
-  // Lazy import — puppeteer is a heavy dependency, only load it when
-  // actually needed.
-  const puppeteer = await import('puppeteer');
-
-  const html = await buildTemplateHtml(template, orderData as OrderDataPayload);
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage', // avoid /dev/shm issues in containers
-      '--disable-gpu',
-      '--font-render-hinting=none',
-    ],
-  });
-
   try {
     const page = await browser.newPage();
 
@@ -562,4 +588,69 @@ export async function renderTemplateToJpg(
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * Render a template project to a JPG buffer using puppeteer.
+ *
+ * 1. Build a self-contained HTML document from the template + order data.
+ * 2. Launch a headless browser, set the viewport to the canvas dimensions.
+ * 3. Set the HTML content and wait for all fonts + images to load.
+ * 4. Screenshot the #canvas element as JPEG.
+ * 5. Close the browser and return the buffer.
+ *
+ * The browser is launched with `--no-sandbox` for compatibility with
+ * containerized environments. On Windows/macOS/Linux this is safe since
+ * the browser is headless and only renders local HTML.
+ *
+ * **Vercel compatibility:** On Vercel serverless functions, Chrome is
+ * not installed and `puppeteer`'s bundled Chromium is too large for the
+ * function size limit. We use `@sparticuz/chromium` instead, which
+ * provides a Lambda-compatible Chrome binary. Locally, we fall back to
+ * the system Chrome (or the one downloaded by `puppeteer`). The
+ * `PUPPETEER_EXECUTABLE_PATH` env var can override the local path.
+ */
+export async function renderTemplateToJpg(
+  template: Project,
+  orderData: Record<string, unknown>,
+): Promise<Buffer> {
+  const html = await buildTemplateHtml(template, orderData as OrderDataPayload);
+
+  // Lazy import — puppeteer-core is a heavy dependency, only load it
+  // when actually needed. We use puppeteer-core (no bundled browser)
+  // and provide the executable path based on the environment.
+  const puppeteer = await import('puppeteer-core');
+
+  // Determine the Chrome executable path + launch args based on env:
+  // - Vercel (production): use @sparticuz/chromium (Lambda-compatible)
+  // - Local dev: use PUPPETEER_EXECUTABLE_PATH env var, or auto-detect
+  //   Chrome from common install locations
+  const isVercel = process.env.VERCEL === '1' || !!process.env.AWS_REGION;
+
+  if (isVercel) {
+    const chromiumModule = await import('@sparticuz/chromium');
+    const chromium = chromiumModule.default;
+    const browser = await puppeteer.launch({
+      headless: chromium.headless,
+      executablePath: await chromium.executablePath(),
+      args: [...chromium.args, '--font-render-hinting=none'],
+    });
+    return renderWithBrowser(browser, template, html);
+  }
+
+  // Local dev — use the explicit override or the system Chrome
+  const executablePath =
+    process.env.PUPPETEER_EXECUTABLE_PATH || findLocalChrome();
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--font-render-hinting=none',
+    ],
+  });
+  return renderWithBrowser(browser, template, html);
 }

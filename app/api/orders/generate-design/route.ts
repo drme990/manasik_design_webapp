@@ -5,6 +5,9 @@ import { renderTemplateToJpg } from '@/lib/render/template-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
+// Puppeteer rendering can take time — allow up to 60s on Vercel
+export const maxDuration = 60;
+
 const BOOKING_COLLECTION = 'booking_products';
 const PROJECTS_COLLECTION = 'projects';
 
@@ -313,7 +316,12 @@ export async function POST(request: NextRequest) {
     // ── Upload to R2 ──────────────────────────────────────────────────
     // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
     const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
-    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg');
+    // Use no-cache since this key gets overwritten when the admin
+    // edits + saves the design (re-render endpoint). Without this,
+    // Cloudflare CDN serves the stale cached version after overwrite.
+    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
+      cacheControl: 'no-cache',
+    });
 
     // Store the R2 URL on the design instance so the re-render endpoint
     // (triggered when the admin edits + saves) can overwrite the same key.
