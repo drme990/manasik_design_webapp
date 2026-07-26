@@ -8,6 +8,10 @@ export interface JWTPayload {
   role?: 'admin' | 'super_admin';
   allowedPages?: string[];
   ref?: string;
+  /** App ID — matches the backend's TokenPayload.appId.
+   *  Always 'admin_panel' for design app tokens so the backend
+   *  accepts them for admin routes. */
+  appId?: string;
   iat: number;
   exp: number;
 }
@@ -40,6 +44,9 @@ export function createJWT(user: SessionUser, maxAgeSeconds = 60 * 60 * 24 * 7): 
     email: user.email,
     name: user.name,
     role: user.role,
+    // Mark design app tokens as admin_panel so the backend accepts
+    // them for admin routes (SSO).
+    appId: 'admin_panel',
     ...(user.allowedPages ? { allowedPages: user.allowedPages } : {}),
     ...(user.ref ? { ref: user.ref } : {}),
     iat: now,
@@ -70,9 +77,18 @@ export function verifyJWT(token: string): JWTPayload | null {
     const expectedSignature = createHmac('sha256', getSecret()).update(signingInput).digest('base64url');
     if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) return null;
 
-    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as JWTPayload;
+    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as JWTPayload & {
+      userId?: string;
+    };
     const now = Math.floor(Date.now() / 1000);
     if (typeof payload.exp !== 'number' || payload.exp < now) return null;
+
+    // Accept backend tokens that use `userId` instead of `sub` (SSO).
+    // The backend's jsonwebtoken payload uses `userId`; the design app
+    // uses `sub`. Map whichever is present.
+    if (!payload.sub && payload.userId) {
+      payload.sub = payload.userId;
+    }
 
     return payload;
   } catch {

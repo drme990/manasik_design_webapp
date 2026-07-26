@@ -94,25 +94,40 @@ export async function getOrCreateBookingProduct(
 }
 
 /**
- * Get or create the single template project for a booking product.
- * If the booking product already has a `templateId`, load that project.
- * Otherwise, create a new booking_template project, link it to the
- * booking product via `templateId`, and return it.
+ * Get or create a template project for a booking product, for a specific
+ * template variant (text or image).
+ *
+ * - If the booking product already has a template for the requested
+ *   variant (`templateId` for 'text', `imageTemplateId` for 'image'),
+ *   load that project.
+ * - Otherwise, create a new booking_template project with the right
+ *   `templateType`, link it to the booking product via the right slot,
+ *   and return it.
+ *
+ * This lets the template detail page manage two independent templates
+ * per product — one without image dynamic fields, one with.
  */
-export async function getOrCreateTemplateProject(productId: string): Promise<Project> {
+export async function getOrCreateTemplateProject(
+  productId: string,
+  templateType: 'text' | 'image' = 'text',
+): Promise<Project> {
   const product = await getBookingProduct(productId);
   if (!product) {
     throw new Error('Product not found');
   }
 
-  if (product.templateId) {
-    const project = await useProjectStore.getState().getProject(product.templateId);
+  const existingId =
+    templateType === 'image' ? product.imageTemplateId : product.templateId;
+
+  if (existingId) {
+    const project = await useProjectStore.getState().getProject(existingId);
     if (project) {
       return project;
     }
   }
 
-  const projectName = `${product.name} — قالب`;
+  const variantLabel = templateType === 'image' ? 'قالب صور' : 'قالب';
+  const projectName = `${product.name} — ${variantLabel}`;
 
   const project = await useProjectStore.getState().createProject({
     name: projectName,
@@ -123,9 +138,15 @@ export async function getOrCreateTemplateProject(productId: string): Promise<Pro
     bookingMeta: {
       productId,
     },
+    templateType,
   });
 
-  await updateBookingProduct(productId, { templateId: project.id });
+  // Link the new template to the right slot on the booking product
+  if (templateType === 'image') {
+    await updateBookingProduct(productId, { imageTemplateId: project.id });
+  } else {
+    await updateBookingProduct(productId, { templateId: project.id });
+  }
 
   return project;
 }

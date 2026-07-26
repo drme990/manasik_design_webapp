@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { verifyJWT } from './jwt';
-import { AUTH_COOKIE_NAME } from './constants';
+import { AUTH_COOKIE_NAME, getCookieDomain } from './constants';
 import type { SessionUser } from '@/types/auth';
 
 export async function verifySession(): Promise<SessionUser | null> {
@@ -31,5 +31,8 @@ export async function destroySession(): Promise<void> {
     sameSite: 'lax',
     path: '/',
     maxAge: 0,
+    // Must match the domain used at login so the browser deletes the
+    // correct cookie.
+    ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
   });
 }

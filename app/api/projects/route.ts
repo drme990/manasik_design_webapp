@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       backgroundUri: body.backgroundUri,
       layers: body.layers ?? [],
       bookingMeta: body.bookingMeta,
+      templateType: body.templateType,
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,

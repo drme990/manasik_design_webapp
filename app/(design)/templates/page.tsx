@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes } from 'react-icons/lu';
@@ -13,7 +13,9 @@ import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { BookingProduct } from '@/types';
+import type { BookingProduct, Project } from '@/types';
+
+type TabId = 'text' | 'image';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
@@ -27,11 +29,27 @@ export default function TemplatesPage() {
     const loading = templatesLoading && templates.length === 0;
     const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
     const [drawerOpen, setDrawerOpen] = useState(false);
+    // Which tab the create drawer is targeting — set when the + button is
+    // clicked so the created template gets the right templateType.
+    const [drawerTab, setDrawerTab] = useState<TabId>('text');
+    const [activeTab, setActiveTab] = useState<TabId>('text');
     const [customWidth, setCustomWidth] = useState('1080');
     const [customHeight, setCustomHeight] = useState('1080');
     const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const galleryInputRef = useRef<HTMLInputElement>(null);
+
+    // Split templates by templateType. Legacy templates (undefined) are
+    // treated as 'text' — the more restrictive option — so they show up in
+    // the text tab and never expose image dynamic fields.
+    const textTemplates = useMemo(
+        () => templates.filter((tpl) => (tpl.templateType ?? 'text') === 'text'),
+        [templates],
+    );
+    const imageTemplates = useMemo(
+        () => templates.filter((tpl) => tpl.templateType === 'image'),
+        [templates],
+    );
 
     const handlePickGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -59,6 +77,7 @@ export default function TemplatesPage() {
                 canvasWidth: naturalWidth,
                 canvasHeight: naturalHeight,
                 backgroundUri: dataUrl,
+                templateType: drawerTab,
             });
             setDrawerOpen(false);
             window.location.assign(`/editor/${project.id}`);
@@ -87,6 +106,7 @@ export default function TemplatesPage() {
             kind: 'booking_template',
             canvasWidth: preset.width,
             canvasHeight: preset.height,
+            templateType: drawerTab,
         });
         setDrawerOpen(false);
         window.location.assign(`/editor/${project.id}`);
@@ -101,6 +121,7 @@ export default function TemplatesPage() {
             kind: 'booking_template',
             canvasWidth: width,
             canvasHeight: height,
+            templateType: drawerTab,
         });
         setDrawerOpen(false);
         window.location.assign(`/editor/${project.id}`);
@@ -119,6 +140,186 @@ export default function TemplatesPage() {
         setDeleteTemplateId(null);
     };
 
+    // Open the create drawer for a specific tab
+    const openCreateDrawer = (tab: TabId) => {
+        setDrawerTab(tab);
+        setDrawerOpen(true);
+    };
+
+    // ── Template card grid ──────────────────────────────────────────────
+    const renderTemplateGrid = (list: Project[]) => {
+        if (list.length === 0) return null;
+        return (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {list.map((template) => {
+                    const productCount = getProductCount(template.id);
+                    return (
+                        <div
+                            key={template.id}
+                            className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm transition-shadow hover:shadow-md hover:border-brand-primary"
+                        >
+                            {/* Preview — click opens editor */}
+                            <Link
+                                href={`/editor/${template.id}`}
+                                className="block"
+                            >
+                                <div
+                                    className="relative w-full overflow-hidden bg-muted"
+                                    style={{
+                                        aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}`,
+                                        backgroundColor: template.backgroundColor ?? '#ffffff',
+                                    }}
+                                >
+                                    <ProjectCardPreview project={template} className="h-full w-full" />
+                                </div>
+                            </Link>
+
+                            {/* Info + actions */}
+                            <div className="flex flex-1 flex-col p-4">
+                                <h3 className="mb-1 line-clamp-1 text-lg font-semibold text-foreground">
+                                    {template.name}
+                                </h3>
+                                <div className="mb-3 flex items-center gap-1.5 text-sm text-secondary">
+                                    <LuBoxes className="h-4 w-4" />
+                                    {productCount > 0
+                                        ? t('assignedProductsCount').replace('{count}', String(productCount))
+                                        : t('noProductsAssigned')}
+                                </div>
+
+                                <div className="mt-auto flex items-center gap-2">
+                                    <Link
+                                        href={`/templates/${template.id}`}
+                                        className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                    >
+                                        <LuBoxes className="h-4 w-4" />
+                                        {t('assignProducts')}
+                                    </Link>
+                                    <Link
+                                        href={`/editor/${template.id}`}
+                                        className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                        aria-label={t('editTemplate')}
+                                    >
+                                        <LuPencil className="h-4 w-4" />
+                                    </Link>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeleteTemplateId(template.id)}
+                                        className="flex items-center justify-center rounded-lg border border-stroke p-2 text-error transition-colors hover:border-error hover:bg-error/10"
+                                        aria-label={t('delete')}
+                                    >
+                                        <LuTrash2 className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    // ── Skeleton grid (shown during initial load) ───────────────────────
+    const renderSkeletons = () => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[...Array(6)].map((_, i) => (
+                <div
+                    key={i}
+                    className="flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm"
+                >
+                    <div className="aspect-square w-full animate-pulse bg-muted" />
+                    <div className="p-4">
+                        <div className="mb-2 h-5 w-2/3 animate-pulse rounded bg-muted" />
+                        <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    // ── Create drawer (shared by both tabs — targets drawerTab) ─────────
+    const renderCreateDrawer = () => (
+        <Drawer
+            isOpen={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            title={t('newTemplate')}
+            height="twoThirds"
+            footer={
+                <Button variant="primary" onClick={handleCreateCustom} className="w-full">
+                    <LuPlus className="ms-2 h-5 w-5" />
+                    {t('create')}
+                </Button>
+            }
+        >
+            {/* Pick from gallery — creates a template with the image's aspect ratio */}
+            <div className="mb-6">
+                <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePickGalleryImage}
+                />
+                <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-stroke bg-card-bg px-4 py-4 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                >
+                    <LuImage className="h-5 w-5 text-brand-primary" />
+                    {t('pickFromGallery')}
+                </button>
+            </div>
+
+            {/* Preset sizes — horizontal scroll */}
+            <div className="mb-6">
+                <h3 className="mb-3 text-sm font-medium text-secondary">{t('newTemplate')}</h3>
+                <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                    {ASPECT_RATIOS.map((preset) => {
+                        const ratio = preset.width / preset.height;
+                        const boxW = ratio >= 1 ? 48 : Math.round(48 * ratio);
+                        const boxH = ratio >= 1 ? Math.round(48 / ratio) : 48;
+                        return (
+                            <button
+                                key={preset.label}
+                                onClick={() => handleCreate(preset)}
+                                className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 text-center transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                            >
+                                <div className="flex h-12 items-center justify-center">
+                                    <div
+                                        className="rounded border-2 border-foreground/40 bg-foreground/5"
+                                        style={{ width: boxW, height: boxH }}
+                                    />
+                                </div>
+                                <p className="text-xs font-semibold text-foreground">{preset.label}</p>
+                                <p className="text-xs text-secondary">{preset.name}</p>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Custom size */}
+            <div>
+                <h3 className="mb-3 text-sm font-medium text-secondary">{t('customSize')}</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <Input
+                        label={t('width')}
+                        type="text"
+                        inputMode="numeric"
+                        value={customWidth}
+                        onChange={(e) => setCustomWidth(e.target.value)}
+                    />
+                    <Input
+                        label={t('height')}
+                        type="text"
+                        inputMode="numeric"
+                        value={customHeight}
+                        onChange={(e) => setCustomHeight(e.target.value)}
+                    />
+                </div>
+            </div>
+        </Drawer>
+    );
+
     return (
         <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-6xl">
@@ -127,186 +328,66 @@ export default function TemplatesPage() {
                     <p className="mt-1 text-secondary">{t('subtitle')}</p>
                 </div>
 
+                {/* Tabs — text templates vs image templates */}
+                <div className="mb-6 flex gap-1 border-b border-stroke">
+                    <button
+                        onClick={() => setActiveTab('text')}
+                        className={`relative px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'text'
+                                ? 'text-brand-primary'
+                                : 'text-secondary hover:text-foreground'
+                            }`}
+                    >
+                        {t('tabText')}
+                        {activeTab === 'text' && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-brand-primary" />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('image')}
+                        className={`relative px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'image'
+                                ? 'text-brand-primary'
+                                : 'text-secondary hover:text-foreground'
+                            }`}
+                    >
+                        {t('tabImage')}
+                        {activeTab === 'image' && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-brand-primary" />
+                        )}
+                    </button>
+                </div>
+
                 {loading ? (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {[...Array(6)].map((_, i) => (
-                            <div
-                                key={i}
-                                className="flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm"
-                            >
-                                <div className="aspect-square w-full animate-pulse bg-muted" />
-                                <div className="p-4">
-                                    <div className="mb-2 h-5 w-2/3 animate-pulse rounded bg-muted" />
-                                    <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : templates.length === 0 ? (
+                    renderSkeletons()
+                ) : activeTab === 'text' ? (
+                    textTemplates.length === 0 ? (
+                        <EmptyState
+                            title={t('emptyTextTemplates')}
+                            description={t('emptyTextTemplatesDesc')}
+                        />
+                    ) : (
+                        renderTemplateGrid(textTemplates)
+                    )
+                ) : imageTemplates.length === 0 ? (
                     <EmptyState
-                        title={t('emptyTitle')}
-                        description={t('emptyDescription')}
+                        title={t('emptyImageTemplates')}
+                        description={t('emptyImageTemplatesDesc')}
                     />
                 ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {templates.map((template) => {
-                            const productCount = getProductCount(template.id);
-                            return (
-                                <div
-                                    key={template.id}
-                                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg p-0 shadow-sm transition-shadow hover:shadow-md hover:border-brand-primary"
-                                >
-                                    {/* Preview — click opens editor */}
-                                    <Link
-                                        href={`/editor/${template.id}`}
-                                        className="block"
-                                    >
-                                        <div
-                                            className="relative w-full overflow-hidden bg-muted"
-                                            style={{
-                                                aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}`,
-                                                backgroundColor: template.backgroundColor ?? '#ffffff',
-                                            }}
-                                        >
-                                            <ProjectCardPreview project={template} className="h-full w-full" />
-                                        </div>
-                                    </Link>
-
-                                    {/* Info + actions */}
-                                    <div className="flex flex-1 flex-col p-4">
-                                        <h3 className="mb-1 line-clamp-1 text-lg font-semibold text-foreground">
-                                            {template.name}
-                                        </h3>
-                                        <div className="mb-3 flex items-center gap-1.5 text-sm text-secondary">
-                                            <LuBoxes className="h-4 w-4" />
-                                            {productCount > 0
-                                                ? t('assignedProductsCount').replace('{count}', String(productCount))
-                                                : t('noProductsAssigned')}
-                                        </div>
-
-                                        <div className="mt-auto flex items-center gap-2">
-                                            <Link
-                                                href={`/templates/${template.id}`}
-                                                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                            >
-                                                <LuBoxes className="h-4 w-4" />
-                                                {t('assignProducts')}
-                                            </Link>
-                                            <Link
-                                                href={`/editor/${template.id}`}
-                                                className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                                aria-label={t('editTemplate')}
-                                            >
-                                                <LuPencil className="h-4 w-4" />
-                                            </Link>
-                                            <button
-                                                type="button"
-                                                onClick={() => setDeleteTemplateId(template.id)}
-                                                className="flex items-center justify-center rounded-lg border border-stroke p-2 text-error transition-colors hover:border-error hover:bg-error/10"
-                                                aria-label={t('delete')}
-                                            >
-                                                <LuTrash2 className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                    renderTemplateGrid(imageTemplates)
                 )}
             </div>
 
-            {/* Floating + button — same as projects page */}
+            {/* Floating + button — creates a template for the active tab */}
             <button
                 type="button"
-                onClick={() => setDrawerOpen(true)}
+                onClick={() => openCreateDrawer(activeTab)}
                 className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-primary-text shadow-xl transition-transform hover:scale-105 active:scale-95"
                 aria-label={t('newTemplate')}
             >
                 <LuPlus className="h-7 w-7" />
             </button>
 
-            {/* New template drawer — same size/structure as projects page */}
-            <Drawer
-                isOpen={drawerOpen}
-                onClose={() => setDrawerOpen(false)}
-                title={t('newTemplate')}
-                height="twoThirds"
-                footer={
-                    <Button variant="primary" onClick={handleCreateCustom} className="w-full">
-                        <LuPlus className="ms-2 h-5 w-5" />
-                        {t('create')}
-                    </Button>
-                }
-            >
-                {/* Pick from gallery — creates a template with the image's aspect ratio */}
-                <div className="mb-6">
-                    <input
-                        ref={galleryInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handlePickGalleryImage}
-                    />
-                    <button
-                        type="button"
-                        onClick={() => galleryInputRef.current?.click()}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-stroke bg-card-bg px-4 py-4 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                    >
-                        <LuImage className="h-5 w-5 text-brand-primary" />
-                        {t('pickFromGallery')}
-                    </button>
-                </div>
-
-                {/* Preset sizes — horizontal scroll */}
-                <div className="mb-6">
-                    <h3 className="mb-3 text-sm font-medium text-secondary">{t('newTemplate')}</h3>
-                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-                        {ASPECT_RATIOS.map((preset) => {
-                            const ratio = preset.width / preset.height;
-                            const boxW = ratio >= 1 ? 48 : Math.round(48 * ratio);
-                            const boxH = ratio >= 1 ? Math.round(48 / ratio) : 48;
-                            return (
-                                <button
-                                    key={preset.label}
-                                    onClick={() => handleCreate(preset)}
-                                    className="flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-stroke bg-card-bg p-3 text-center transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                >
-                                    <div className="flex h-12 items-center justify-center">
-                                        <div
-                                            className="rounded border-2 border-foreground/40 bg-foreground/5"
-                                            style={{ width: boxW, height: boxH }}
-                                        />
-                                    </div>
-                                    <p className="text-xs font-semibold text-foreground">{preset.label}</p>
-                                    <p className="text-xs text-secondary">{preset.name}</p>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Custom size */}
-                <div>
-                    <h3 className="mb-3 text-sm font-medium text-secondary">{t('customSize')}</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        <Input
-                            label={t('width')}
-                            type="text"
-                            inputMode="numeric"
-                            value={customWidth}
-                            onChange={(e) => setCustomWidth(e.target.value)}
-                        />
-                        <Input
-                            label={t('height')}
-                            type="text"
-                            inputMode="numeric"
-                            value={customHeight}
-                            onChange={(e) => setCustomHeight(e.target.value)}
-                        />
-                    </div>
-                </div>
-            </Drawer>
+            {renderCreateDrawer()}
 
             {/* Delete confirmation */}
             <AlertDialog

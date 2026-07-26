@@ -72,7 +72,15 @@
     "height": "الارتفاع",
     "noTemplate": "لم يتم إنشاء قالب بعد",
     "templateReady": "القالب جاهز",
-    "createTemplate": "إنشاء قالب"
+    "createTemplate": "إنشاء قالب",
+    "tabText": "قوالب نصية",
+    "tabImage": "قوالب صور",
+    "tabTextHint": "قوالب بدون حقول صور ديناميكية",
+    "tabImageHint": "قوالب تدعم حقول صور ديناميكية",
+    "emptyTextTemplates": "لا توجد قوالب نصية",
+    "emptyImageTemplates": "لا توجد قوالب صور",
+    "emptyTextTemplatesDesc": "ابدأ بإنشاء قالب نصي جديد من زر + أسفل الشاشة.",
+    "emptyImageTemplatesDesc": "ابدأ بإنشاء قالب صور جديد من زر + أسفل الشاشة."
   },
   "home": {
     "hero": {

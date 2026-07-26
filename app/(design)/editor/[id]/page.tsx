@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import { toJpeg } from 'html-to-image';
@@ -1239,6 +1239,19 @@ export default function EditorPage() {
         }
     }, [deleteShape, toast, t]);
 
+    // Filter the dynamic field picker based on the template type.
+    // - 'text' templates (the default, including legacy undefined) cannot
+    //   receive image-type fields (e.g. reservation.photo) — the user has
+    //   no way to set the customer's photo, so offering the field would be
+    //   misleading.
+    // - 'image' templates expose the full field list.
+    // Non-template projects (kind='design') never open this drawer, so the
+    // filter is harmless there.
+    const availableOrderFields = useMemo(() => {
+        if (project?.templateType === 'image') return ORDER_FIELDS;
+        return ORDER_FIELDS.filter((f) => f.type !== 'image');
+    }, [project?.templateType]);
+
     const handleAddDynamicField = useCallback((field: { id: string; label: string; type: 'text' | 'image'; placeholder: string }) => {
         const w = project?.canvasWidth ?? 1080;
         const h = project?.canvasHeight ?? 1080;
@@ -1962,7 +1975,7 @@ export default function EditorPage() {
                     isOpen={dynamicFieldDrawerOpen}
                     onClose={() => setDynamicFieldDrawerOpen(false)}
                     title={t('addField')}
-                    fields={ORDER_FIELDS}
+                    fields={availableOrderFields}
                     onAddField={handleAddDynamicField}
                 />
 

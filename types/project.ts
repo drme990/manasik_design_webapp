@@ -3,6 +3,19 @@ import type { SyncableDocument } from './storage';
 
 export type ProjectKind = 'design' | 'booking_template';
 
+/**
+ * Booking template variant — only meaningful when kind='booking_template'.
+ * - 'text'  : no-image template. The user cannot add image-type dynamic
+ *             fields (e.g. reservation.photo). Only text dynamic fields
+ *             are allowed.
+ * - 'image' : image template. The user can add image-type dynamic fields
+ *             (e.g. reservation.photo) that will be populated from the
+ *             customer's order data at render time.
+ * Undefined = legacy template created before this split; treated as
+ * 'text' (the more restrictive option) for safety.
+ */
+export type TemplateType = 'text' | 'image';
+
 export interface BookingMeta {
   productId: string;
 }
@@ -55,6 +68,8 @@ export interface Project extends SyncableDocument {
   syncedAt?: number;
   bookingMeta?: BookingMeta;
   userId?: string; // For multi-user support
+  /** Booking template variant — see TemplateType. Designs ignore this. */
+  templateType?: TemplateType;
 }
 
 export interface ProjectCreateInput {
@@ -69,6 +84,7 @@ export interface ProjectCreateInput {
   layers?: AnyLayer[];
   bookingMeta?: BookingMeta;
   userId?: string;
+  templateType?: TemplateType;
 }
 
 export interface ProjectUpdateInput {
@@ -83,4 +99,5 @@ export interface ProjectUpdateInput {
   thumbnail?: string;
   updatedAt?: number;
   localModifiedAt?: number;
+  templateType?: TemplateType;
 }

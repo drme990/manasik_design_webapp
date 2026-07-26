@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findUserByEmail } from '@/lib/auth/user.repository';
 import { comparePassword } from '@/lib/auth/password';
 import { createJWT } from '@/lib/auth/jwt';
-import { AUTH_COOKIE_NAME, AUTH_COOKIE_MAX_AGE } from '@/lib/auth/constants';
+import { AUTH_COOKIE_NAME, AUTH_COOKIE_MAX_AGE, getCookieDomain } from '@/lib/auth/constants';
 
 export async function POST(request: NextRequest) {
   try {
@@ -66,6 +66,9 @@ export async function POST(request: NextRequest) {
       sameSite: 'lax',
       path: '/',
       maxAge: AUTH_COOKIE_MAX_AGE,
+      // Scope to parent domain for SSO across subdomains
+      // (e.g. design.manasik.net + admin.manasik.net)
+      ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
     });
 
     return response;

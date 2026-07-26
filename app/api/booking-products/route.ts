@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
       imageUri: body.imageUri,
       defaultCanvas: body.defaultCanvas,
       templateId: null,
+      imageTemplateId: null,
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,

@@ -3,9 +3,11 @@ import type { SyncableDocument } from './storage';
 
 /**
  * A booking product — the design app's link between a real backend
- * product (from the `products` MongoDB collection) and a template
- * project. Each booking product has exactly one template project
- * (referenced by `templateId`).
+ * product (from the `products` MongoDB collection) and template
+ * projects. Each booking product can have up to two template projects:
+ * a text template (`templateId`) and an image template
+ * (`imageTemplateId`). The callback flow picks the right one based on
+ * whether the order has a reservation photo.
  *
  * `backendProductId` references the backend product's `_id` (as a
  * string). This is what connects the design app's template system to
@@ -26,8 +28,18 @@ export interface BookingProduct extends SyncableDocument {
   syncStatus: 'synced' | 'pending' | 'conflict' | 'error';
   syncedAt?: number;
   defaultCanvas: CanvasSize;
-  /** ID of the single template project linked to this product (null = not created yet) */
+  /**
+   * ID of the text (no-image) template project linked to this product.
+   * null = not created yet. This is the default/fallback template used
+   * when the order has no reservation photo.
+   */
   templateId: string | null;
+  /**
+   * ID of the image template project linked to this product.
+   * null/undefined = not created yet. Used when the order has a
+   * reservation photo (e.g. reservation.photo is set).
+   */
+  imageTemplateId?: string | null;
   userId?: string;
 }
 
@@ -45,6 +57,7 @@ export interface BookingProductUpdateInput {
   imageUri?: string;
   defaultCanvas?: CanvasSize;
   templateId?: string | null;
+  imageTemplateId?: string | null;
   updatedAt?: number;
   localModifiedAt?: number;
 }
