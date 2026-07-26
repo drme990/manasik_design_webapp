@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMongoClient } from '@/lib/db/mongodb';
 import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/template-renderer';
+import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'booking_products';
@@ -80,6 +81,18 @@ function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string
     return `design/orders-design/${safe}-${itemIndex}.jpg`;
   }
   return `design/orders-design/${safe}.jpg`;
+}
+
+/**
+ * Extract the current item's product name from the order data payload.
+ * Used to give the design instance a human-readable name.
+ */
+function resolveProductName(
+  orderData: Record<string, unknown>,
+): string | undefined {
+  const item = (orderData as { item?: { productName?: { ar?: string; en?: string } } }).item;
+  if (!item?.productName) return undefined;
+  return item.productName.ar || item.productName.en;
 }
 
 /**
@@ -268,16 +281,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Render the template with order data ───────────────────────────
+    // ── Create a design instance from the template ────────────────────
+    // We don't render the template directly — instead we create a COPY
+    // of the template as a new `kind: 'design'` project, with all
+    // dynamic field layers inflated with the order's actual data
+    // (customer name, reservation photo, etc.).
+    //
+    // This design instance is what gets:
+    //   1. Saved to MongoDB as a standalone project
+    //   2. Rendered to JPG via puppeteer
+    //   3. Uploaded to R2
+    //   4. Opened in the editor when the admin clicks "edit design"
+    //
+    // The template itself is never modified — editing the design
+    // instance doesn't affect future orders. The template only changes
+    // when the user explicitly edits it in the design app's templates
+    // section.
+    const productName = resolveProductName(body.orderData);
+    const designInstance = inflateTemplateToDesign(template, body.orderData, {
+      orderNumber: body.orderNumber,
+      productName,
+      itemIndex: body.itemIndex,
+    });
+
+    // ── Render the design instance to JPG ─────────────────────────────
     // The renderer builds a self-contained HTML document from the
-    // template's layers, inflates dynamic fields with the order data,
-    // and uses puppeteer to screenshot it as a JPG buffer.
-    const jpgBuffer = await renderTemplateToJpg(template, body.orderData);
+    // design instance's layers (which are now concrete text/image
+    // layers, not dynamic fields) and uses puppeteer to screenshot it.
+    const jpgBuffer = await renderTemplateToJpg(designInstance, body.orderData);
 
     // ── Upload to R2 ──────────────────────────────────────────────────
     // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
     const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
     const result = await uploadToR2(key, jpgBuffer, 'image/jpeg');
+
+    // Store the R2 URL on the design instance so the re-render endpoint
+    // (triggered when the admin edits + saves) can overwrite the same key.
+    designInstance.orderDesignUrl = result.url;
+
+    // Save the design instance to MongoDB (with the R2 URL)
+    await projectsCollection.insertOne(designInstance);
 
     return NextResponse.json({
       success: true,
@@ -286,6 +329,11 @@ export async function POST(request: NextRequest) {
         key: result.key,
         orderNumber: body.orderNumber,
         itemIndex: body.itemIndex,
+        // The design instance's project ID — the admin panel opens
+        // /editor/{projectId} to edit THIS design, not the template.
+        projectId: designInstance.id,
+        designName: designInstance.name,
+        // Keep the template ID for reference (e.g. logging)
         templateId: template.id,
         templateName: template.name,
         templateType,

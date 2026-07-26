@@ -29,7 +29,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Optional ?kind= filter — e.g. /api/projects?kind=booking_template
+    // Optional ?source= filter — e.g. /api/projects?source=order
     const kindFilter = request.nextUrl.searchParams.get('kind');
+    const sourceFilter = request.nextUrl.searchParams.get('source');
 
     const collection = await getCollection();
     const query: Record<string, unknown> = { userId: session.id };
@@ -37,6 +39,14 @@ export async function GET(request: NextRequest) {
       query.kind = kindFilter;
     } else {
       query.kind = { $ne: 'booking_template' };
+    }
+    if (sourceFilter) {
+      query.source = sourceFilter;
+    } else if (!kindFilter || kindFilter === 'design') {
+      // By default, hide order-generated designs from the main list —
+      // they're shown in a separate /orders-designs section. Only
+      // exclude them when no explicit source filter is provided.
+      query.source = { $ne: 'order' };
     }
     const projects = await collection
       .find(query)

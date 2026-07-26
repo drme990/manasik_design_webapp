@@ -29,10 +29,15 @@ interface ProjectState {
   projects: Project[];
   /** All booking-template projects (kind='booking_template'). */
   templates: Project[];
+  /** Order-generated designs (kind='design', source='order'). Shown in
+   *  a separate /orders-designs section, not in the main projects list. */
+  orderDesigns: Project[];
   /** True while the projects list is being fetched for the first time. */
   projectsLoading: boolean;
   /** True while the templates list is being fetched for the first time. */
   templatesLoading: boolean;
+  /** True while the order designs list is being fetched for the first time. */
+  orderDesignsLoading: boolean;
   /** Per-id cache for single-project lookups (editor page). */
   projectMap: Record<string, Project>;
 
@@ -41,6 +46,8 @@ interface ProjectState {
   fetchProjects: () => Promise<void>;
   /** Fetch the full templates list from the API. */
   fetchTemplates: () => Promise<void>;
+  /** Fetch order-generated designs (source='order') from the API. */
+  fetchOrderDesigns: () => Promise<void>;
   /**
    * Get a single project by ID. Returns the cached value from the store
    * immediately (if present), then refreshes from the API in the
@@ -140,8 +147,10 @@ function cleanProjectForSave(project: Project): Project {
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   templates: [],
+  orderDesigns: [],
   projectsLoading: false,
   templatesLoading: false,
+  orderDesignsLoading: false,
   projectMap: {},
 
   // ── Reads ──────────────────────────────────────────────────────────
@@ -154,6 +163,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const hasData = get().projects.length > 0;
     if (!hasData) set({ projectsLoading: true });
     try {
+      // The API already filters out source='order' designs by default,
+      // so this returns only user-created designs + templates.
       const result = await fetchWithAuth('/api/projects');
       const projects = (result.data || []) as Project[];
       const designs = projects.filter((p) => p.kind === 'design');
@@ -169,6 +180,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       console.error('Failed to fetch projects:', error);
       set({ projectsLoading: false });
+    }
+  },
+
+  fetchOrderDesigns: async () => {
+    const hasData = get().orderDesigns.length > 0;
+    if (!hasData) set({ orderDesignsLoading: true });
+    try {
+      const result = await fetchWithAuth('/api/projects?source=order');
+      const orderDesigns = (result.data || []) as Project[];
+      const map: Record<string, Project> = {};
+      for (const p of orderDesigns) map[p.id] = p;
+      set({
+        orderDesigns: sortByUpdated(orderDesigns),
+        projectMap: { ...get().projectMap, ...map },
+        orderDesignsLoading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch order designs:', error);
+      set({ orderDesignsLoading: false });
     }
   },
 
@@ -257,7 +287,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projectMap: { ...state.projectMap, [saved.id]: saved },
       projects: upsertInArray(state.projects, saved),
       templates: upsertInArray(state.templates, saved),
+      orderDesigns: saved.source === 'order'
+        ? sortByUpdated(upsertInArray(state.orderDesigns, saved))
+        : state.orderDesigns,
     }));
+
+    // If this is an order-generated design, re-render it to JPG and
+    // overwrite the old R2 image (same key/URL). This is fire-and-forget
+    // — the save itself already succeeded; the re-render just updates
+    // the image. Errors are logged but don't fail the save.
+    if (saved.source === 'order' && saved.orderDesignUrl) {
+      fetchWithAuth(`/api/projects/${saved.id}/re-render`, {
+        method: 'POST',
+      }).catch((err) => {
+        console.error('Failed to re-render order design:', err);
+      });
+    }
+
     return saved;
   },
 
@@ -280,6 +326,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       projects: removeFromArray(state.projects, id),
       templates: removeFromArray(state.templates, id),
+      orderDesigns: removeFromArray(state.orderDesigns, id),
       projectMap: Object.fromEntries(
         Object.entries(state.projectMap).filter(([key]) => key !== id),
       ),
@@ -291,6 +338,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       projects: removeFromArray(state.projects, id),
       templates: removeFromArray(state.templates, id),
+      orderDesigns: removeFromArray(state.orderDesigns, id),
       projectMap: Object.fromEntries(
         Object.entries(state.projectMap).filter(([key]) => key !== id),
       ),

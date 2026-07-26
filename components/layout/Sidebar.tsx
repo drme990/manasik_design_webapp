@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations, useLocale } from '@/lib/i18n/strings';
-import { LuLayoutGrid, LuPalette, LuFileText } from 'react-icons/lu';
+import { LuLayoutGrid, LuPalette, LuFileText, LuShoppingBag } from 'react-icons/lu';
 import { cn } from '@/lib/utils/cn';
 
 export interface SidebarProps {
@@ -21,6 +21,7 @@ export default function Sidebar({ isOpen = false, onClose, className }: SidebarP
   const navItems = [
     { href: '/projects', label: t('projects'), icon: LuLayoutGrid },
     { href: '/templates', label: t('templates'), icon: LuPalette },
+    { href: '/orders-designs', label: t('ordersDesigns'), icon: LuShoppingBag },
     { href: '/pdf-tool', label: t('pdfTool'), icon: LuFileText },
   ];
 

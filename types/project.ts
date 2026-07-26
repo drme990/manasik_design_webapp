@@ -4,6 +4,16 @@ import type { SyncableDocument } from './storage';
 export type ProjectKind = 'design' | 'booking_template';
 
 /**
+ * Where the project came from.
+ * - 'user'   : created manually by the user in the design app (default)
+ * - 'order'  : auto-generated from a booking template when an order's
+ *              design was created via the admin panel callback. These
+ *              designs are hidden from the main /projects list and shown
+ *              in a separate /orders-designs section instead.
+ */
+export type ProjectSource = 'user' | 'order';
+
+/**
  * Booking template variant — only meaningful when kind='booking_template'.
  * - 'text'  : no-image template. The user cannot add image-type dynamic
  *             fields (e.g. reservation.photo). Only text dynamic fields
@@ -70,6 +80,14 @@ export interface Project extends SyncableDocument {
   userId?: string; // For multi-user support
   /** Booking template variant — see TemplateType. Designs ignore this. */
   templateType?: TemplateType;
+  /** Where the project came from — 'user' (manual) or 'order' (auto-generated). */
+  source?: ProjectSource;
+  /**
+   * R2 URL of the rendered JPG for order-generated designs (source='order').
+   * Set at generation time and updated when the admin edits + saves the
+   * design in the editor (the re-render endpoint overwrites the same R2 key).
+   */
+  orderDesignUrl?: string;
 }
 
 export interface ProjectCreateInput {
@@ -85,6 +103,7 @@ export interface ProjectCreateInput {
   bookingMeta?: BookingMeta;
   userId?: string;
   templateType?: TemplateType;
+  source?: ProjectSource;
 }
 
 export interface ProjectUpdateInput {

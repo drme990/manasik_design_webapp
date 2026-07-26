@@ -104,6 +104,60 @@ Generated designs are uploaded to R2 at:
 
 The URL is stored on the order's `designUrls` array on the backend.
 
+## Design instances vs templates
+
+When a design is generated for an order, the design app creates a
+**design instance** — a standalone `kind: 'design'` project that's a
+copy of the template with all dynamic field layers inflated with the
+order's actual data (customer name, reservation photo, etc.).
+
+The design instance is:
+1. Saved to MongoDB as a separate project
+2. Rendered to JPG via puppeteer
+3. Uploaded to R2
+4. Its project ID is stored on the order's `designUrls[].projectId`
+
+When the admin clicks "edit design" in the admin panel, the editor
+opens the **design instance** (`/editor/{projectId}`), not the template.
+Editing the design instance doesn't affect the template or future
+orders — the admin is editing THIS specific order's design.
+
+The template only changes when the user explicitly goes to the
+templates section in the design app and edits it there.
+
+`lib/render/inflate-template.ts` handles the template → design instance
+conversion:
+- Dynamic text fields → concrete text layers with resolved values
+- Dynamic image fields → concrete image layers with resolved URLs
+- All other layers pass through unchanged
+- The instance is marked `source: 'order'` and stores the R2 URL in
+  `orderDesignUrl`
+
+### Order designs section
+
+Order-generated designs (`source: 'order'`) are hidden from the main
+`/projects` list and shown in a separate `/orders-designs` section in
+the design app. This keeps user-created designs separate from
+auto-generated order designs.
+
+The API filters by `source`:
+- `GET /api/projects` — excludes `source: 'order'` by default
+- `GET /api/projects?source=order` — returns only order designs
+
+### Re-render on save
+
+When the admin edits an order design in the editor and saves, the
+store's `saveProject` automatically calls
+`POST /api/projects/[id]/re-render` in the background (fire-and-forget).
+This endpoint:
+1. Re-renders the project to JPG via puppeteer
+2. Uploads it to R2 at the **same key** (extracted from
+   `project.orderDesignUrl`), overwriting the old image
+3. The URL stays the same — the backend's order doesn't need updating
+
+This means the admin panel always shows the latest version of the
+design without any additional sync between the design app and backend.
+
 ## Template rendering pipeline
 
 `lib/render/template-renderer.ts` is the server-side renderer. It:
