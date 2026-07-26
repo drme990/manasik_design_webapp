@@ -6,6 +6,13 @@
 - Route protection — `(design)` layout verifies session server-side, redirects to `/login` if unauthenticated
 - Role-based access (admin / super_admin) for template and booking product management
 - Multi-user support — each user sees only their own projects
+- **Single Sign-On (SSO)** with the admin panel — shared JWT cookie:
+  - Both apps use the same `users_admin_panel` MongoDB collection
+  - Cookie name `admin_panel-token` is shared across subdomains via `COOKIE_DOMAIN`
+  - JWT payload includes `appId: 'admin_panel'` so each app can read the other's tokens
+  - `verifyJWT` accepts `userId` as an alias for `sub` (and vice versa) for cross-app token compatibility
+  - Cookie `sameSite: 'lax'` in production, `domain: COOKIE_DOMAIN` when set
+  - Admins logged into the admin panel are automatically authenticated in the design app (no second login)
 
 ## Internationalization (i18n)
 
@@ -26,6 +33,7 @@
 - Duplicate project (creates a copy with all layers)
 - PDF projects section — separate list with download/reorder/delete
 - Download PDF project as a `.pdf` file (via `pdf-lib`)
+- **Order-generated designs are hidden from this page** — they appear in a separate `/orders-designs` section (see below)
 
 ## Templates Page (`/templates`)
 
@@ -45,6 +53,18 @@
 - Backend product search/filter
 - Edit template button → opens editor
 - Back to templates link
+
+## Orders Designs Page (`/orders-designs`)
+
+- Dedicated section for **order-generated designs** (projects with `source: 'order'`)
+- Separated from the main `/projects` list so user-created designs aren't mixed with auto-generated order designs
+- Grid of design cards with live thumbnail previews
+- Each card shows the design name (e.g. `ORD-12345 — حج عمرة — قالب الحج`) and last-updated date
+- Click a card → opens the editor at `/editor/{projectId}` to edit that specific order's design
+- Delete an order design (confirmation dialog)
+- Empty state with explanation when no order designs exist yet
+- Loaded via `fetchOrderDesigns()` in the Zustand store (`GET /api/projects?source=order`)
+- Sidebar nav item with shopping-bag icon (between Templates and PDF Tool)
 
 ## Editor Page (`/editor/[id]`)
 
@@ -199,6 +219,7 @@
 - Error toast on background save failure (survives navigation via root ToastProvider)
 - Single back-press to leave — `history.go(-1/-2)` with `isLeavingRef` guard to avoid popstate re-entrancy
 - Returns to the correct page (projects/templates) via browser history, not hardcoded
+- **Auto re-render for order designs** — when an order-generated design (`source: 'order'`) is saved, the store automatically calls `POST /api/projects/[id]/re-render` in the background (fire-and-forget). This re-renders the project to JPG via Puppeteer and overwrites the old R2 image at the same key/URL. The admin panel sees the updated design without any additional sync.
 
 ### Session & Persistence
 
@@ -242,6 +263,47 @@
 - **Seed endpoint** — `/api/booking-products/seed` for seeding initial booking products
 - **Dynamic fields** — order fields (customer name, date, phone, etc.) that populate from booking data when rendering a template for a specific order
 
+## Order Design Generation
+
+- **Callback endpoint** `POST /api/orders/generate-design` — called by the backend admin panel when an admin clicks "create design" for an order:
+  - Authenticated via shared secret (`x-callback-secret` header, must match `CALLBACK_SECRET` env var)
+  - Receives order data (order number, item index, customer info, reservation photo, product info, etc.)
+  - Looks up the template assigned to the product (text template, or image template if the order has a reservation photo)
+  - Creates a **design instance** from the template (see below)
+  - Renders the design instance to JPG via Puppeteer
+  - Uploads the JPG to R2 at `design/orders-design/{orderNumber}[-{itemIndex}].jpg`
+  - Returns the design instance's `projectId`, the R2 URL, and the template reference to the backend
+  - Products without a template are reported as `noTemplate` and skipped
+
+- **Design instances vs templates** — when a design is generated, a **copy** of the template is created as a standalone `kind: 'design'` project:
+  - `lib/render/inflate-template.ts` — `inflateTemplateToDesign()` converts a template to a design instance:
+    - Dynamic text fields → concrete text layers with resolved values (customer name, date, etc.)
+    - Dynamic image fields → concrete image layers with resolved URLs (reservation photo, etc.)
+    - All other layers pass through unchanged
+    - The instance is marked `source: 'order'` and stores the R2 URL in `orderDesignUrl`
+  - The design instance is saved to MongoDB as a separate project
+  - Editing the design instance doesn't affect the template or future orders
+  - The template only changes when the user explicitly edits it in the templates section
+  - Design instance naming includes the order number for easy identification (e.g. `ORD-12345 — حج عمرة — قالب الحج`)
+
+- **Re-render on save** — `POST /api/projects/[id]/re-render`:
+  - Admin-only endpoint that re-renders an order-generated design to JPG
+  - Extracts the R2 key from `project.orderDesignUrl` and overwrites the same file
+  - The URL stays the same — the backend's order doesn't need updating
+  - Called automatically by the store's `saveProject()` when the saved project has `source: 'order'`
+  - Fire-and-forget (errors logged, don't fail the save)
+
+## Template Rendering Pipeline
+
+- `lib/render/template-renderer.ts` — server-side renderer that produces JPG images from projects:
+  1. Builds a self-contained HTML document from the project's layers
+  2. Inflates dynamic field layers with order data (resolves `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs)
+  3. Loads Expo Arabic fonts from `public/fonts/ExpoArabic/` as base64 data URIs
+  4. Uses **Puppeteer** (headless Chrome) to screenshot the HTML as a JPG buffer
+  5. Returns the buffer for upload to R2
+- Handles text layers (with full styling), image layers (R2 URLs), shape layers, and dynamic field layers
+- Known limitation: collage layers are not yet supported in the server-side renderer
+
 ## Image & File Storage
 
 - **R2 (Cloudflare)** for all image/font/shape file storage
@@ -254,10 +316,12 @@
 
 ## State Management
 
-- **Zustand** store (`use-project-store`) for projects + templates
+- **Zustand** store (`use-project-store`) for projects + templates + order designs
   - Optimistic updates on all mutations (create/save/delete/rename/duplicate)
   - Store state IS the cache — components subscribe to slices, no manual invalidation
   - `getState()` access for non-React modules (booking-templates)
+  - Separate `orderDesigns` array (filtered by `source: 'order'`) with its own `fetchOrderDesigns()` action
+  - `saveProject()` auto-triggers re-render for order designs (fire-and-forget)
 - **In-memory cache** (`createResourceCache`) for PDF projects, booking products, backend products
 - **React state** for editor working state (layers, selection, zoom, history)
 - **sessionStorage** for editor crash recovery
@@ -277,10 +341,12 @@
 
 ## API Routes
 
-- `POST /api/auth/login` — authenticate, set session cookie
-- `GET/POST /api/projects` — list/create projects
+- `POST /api/auth/login` — authenticate, set session cookie (SSO-compatible)
+- `GET/POST /api/projects` — list/create projects (excludes `source: 'order'` by default; supports `?kind=` and `?source=` filters)
 - `GET/PATCH/DELETE /api/projects/[id]` — get/update/delete a project
 - `POST /api/projects/[id]/thumbnail` — upload project thumbnail to R2
+- `POST /api/projects/[id]/re-render` — re-render an order design to JPG + overwrite R2 image (admin-only)
+- `POST /api/orders/generate-design` — callback endpoint for the backend admin panel to generate a design for an order (shared-secret auth)
 - `GET/POST /api/pdf-projects` — list/create PDF projects
 - `GET/PATCH/DELETE /api/pdf-projects/[id]` — get/update/delete a PDF project
 - `GET/POST /api/booking-products` — list/create booking products
@@ -295,3 +361,22 @@
 - `GET/POST/DELETE /api/saved-colors` — list/save/delete saved colors
 - `POST /api/upload` — generic file upload to R2
 - `GET /api/image-proxy?url=...` — same-origin image proxy with CORS headers
+
+## Admin Panel Integration
+
+The design app integrates with the separate admin panel (`admin_panel`) for order design management:
+
+- **SSO** — admins logged into the admin panel are automatically authenticated in the design app via the shared JWT cookie (see Authentication section above)
+- **"Create Design" button** (admin panel) — calls the backend, which calls `POST /api/orders/generate-design` on this app to generate a design for an order item
+- **"Edit Design" button** (admin panel) — opens `{DESIGN_APP_URL}/editor/{projectId}` in a new tab; SSO authenticates the admin automatically; the admin edits the design instance (not the template)
+- **"View Design" button** (admin panel) — opens a preview modal showing the design JPG (no new tab)
+- **Design icon in orders table** (admin panel) — always shows `LuPalette` icon; dimmed (`text-secondary/50`) when no design exists, primary color when a design exists; clicking it opens the preview modal
+- **Re-render on save** — when the admin saves an order design in the editor, the design app automatically re-renders it to JPG and overwrites the old R2 image (same URL), so the admin panel always shows the latest version without any explicit refresh
+
+### Environment Variables
+
+- `CALLBACK_SECRET` — shared secret for the `/api/orders/generate-design` callback (must match `DESIGN_APP_CALLBACK_SECRET` on the backend)
+- `JWT_SECRET` — shared with the admin panel for SSO token verification
+- `COOKIE_DOMAIN` — parent domain for the SSO cookie (e.g. `.manasik.net`), enables cross-subdomain auth
+- `R2_*` — Cloudflare R2 credentials for image storage
+- `MONGODB_URI` — MongoDB connection string (shared `users_admin_panel` collection with admin panel)

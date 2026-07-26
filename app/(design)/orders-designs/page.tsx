@@ -96,13 +96,13 @@ export default function OrdersDesignsPage() {
               {/* Actions */}
               <div className="flex items-center gap-1 px-2.5 pb-2.5 pt-1">
                 <Link href={`/editor/${project.id}`}>
-                  <Button variant="ghost" size="custom" className="h-8 w-8 p-0" aria-label={t('edit')}>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t('edit')}>
                     <LuPencil className="h-4 w-4" />
                   </Button>
                 </Link>
                 <Button
                   variant="ghost"
-                  size="custom"
+                  size="sm"
                   className="h-8 w-8 p-0 text-secondary hover:text-destructive"
                   onClick={() => setDeleteProjectId(project.id)}
                   aria-label={t('delete')}
@@ -117,15 +117,15 @@ export default function OrdersDesignsPage() {
 
       {/* Delete confirmation */}
       <AlertDialog
-        open={!!deleteProjectId}
+        isOpen={!!deleteProjectId}
         onClose={() => setDeleteProjectId(null)}
         title={t('deleteTitle')}
         description={t('deleteDescription')}
         confirmLabel={t('delete')}
         cancelLabel={t('cancel')}
         onConfirm={handleDelete}
-        confirmLoading={deleteLoading}
-        variant="destructive"
+        loading={deleteLoading}
+        variant="danger"
       />
     </div>
   );
