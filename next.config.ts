@@ -16,10 +16,10 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // @sparticuz/chromium ships a pre-built Chrome binary that must not
-  // be processed by the bundler — it needs to be loaded from
-  // node_modules at runtime on Vercel serverless functions.
-  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
+  // @napi-rs/canvas ships a pre-built native binary that must not be
+  // processed by the bundler — it needs to be loaded from node_modules
+  // at runtime on Vercel serverless functions.
+  serverExternalPackages: ['@napi-rs/canvas'],
   allowedDevOrigins: ['dayana-nondepressing-probingly.ngrok-free.dev', '192.168.1.16'],
 };
 

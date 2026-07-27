@@ -219,7 +219,7 @@
 - Error toast on background save failure (survives navigation via root ToastProvider)
 - Single back-press to leave — `history.go(-1/-2)` with `isLeavingRef` guard to avoid popstate re-entrancy
 - Returns to the correct page (projects/templates) via browser history, not hardcoded
-- **Auto re-render for order designs** — when an order-generated design (`source: 'order'`) is saved, the store automatically calls `POST /api/projects/[id]/re-render` in the background (fire-and-forget). This re-renders the project to JPG via Puppeteer and overwrites the old R2 image at the same key/URL. The admin panel sees the updated design without any additional sync.
+- **Auto re-render for order designs** — when an order-generated design (`source: 'order'`) is saved, the store automatically calls `POST /api/projects/[id]/re-render` in the background (fire-and-forget). This re-renders the project to JPG via @napi-rs/canvas (native canvas engine) and overwrites the old R2 image at the same key/URL. The admin panel sees the updated design without any additional sync.
 
 ### Session & Persistence
 
@@ -270,7 +270,7 @@
   - Receives order data (order number, item index, customer info, reservation photo, product info, etc.)
   - Looks up the template assigned to the product (text template, or image template if the order has a reservation photo)
   - Creates a **design instance** from the template (see below)
-  - Renders the design instance to JPG via Puppeteer
+  - Renders the design instance to JPG via @napi-rs/canvas
   - Uploads the JPG to R2 at `design/orders-design/{orderNumber}[-{itemIndex}].jpg`
   - Returns the design instance's `projectId`, the R2 URL, and the template reference to the backend
   - Products without a template are reported as `noTemplate` and skipped
@@ -295,16 +295,16 @@
 
 ## Template Rendering Pipeline
 
-- `lib/render/template-renderer.ts` — server-side renderer that produces JPG images from projects:
-  1. Builds a self-contained HTML document from the project's layers
-  2. Inflates dynamic field layers with order data (resolves `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs)
-  3. Loads Expo Arabic fonts from `public/fonts/ExpoArabic/` as base64 data URIs
-  4. Uses **puppeteer-core** (headless Chrome) to screenshot the HTML as a JPG buffer
-  5. Returns the buffer for upload to R2
-- **Vercel-compatible** — uses `@sparticuz/chromium` on Vercel serverless functions (no bundled Chrome), auto-detects local Chrome for dev
-- Routes that render export `maxDuration = 60` (Vercel timeout)
+- `lib/render/canvas-renderer.ts` — server-side renderer that produces JPG images from projects using **@napi-rs/canvas** (native Rust canvas engine, no browser needed):
+  1. Registers Expo Arabic fonts from `public/fonts/ExpoArabic/` with the canvas engine
+  2. Creates a canvas at the project's dimensions, draws the background
+  3. Iterates layers sorted by zIndex, applying transforms (position/rotation/opacity)
+  4. Renders each layer type: text (with wrapping + alignment), image (with crop/scale/flip/border), shape (rectangle/circle/triangle/star/line/PNG), dynamic field (resolves `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs, auto-shrinks text to fit)
+  5. Exports as JPEG buffer (quality 95) for upload to R2
+- **Vercel-compatible** — `@napi-rs/canvas` ships pre-built native binaries for Vercel's AWS Lambda runtime. No Chrome, no Puppeteer, no external services, no environment variables needed.
+- `next.config.ts` adds `@napi-rs/canvas` to `serverExternalPackages`
 - Handles text layers (with full styling), image layers (R2 URLs), shape layers, and dynamic field layers
-- Known limitation: collage layers are not yet supported in the server-side renderer
+- Known limitations: collage layers use a simplified grid layout (not the exact editor layout); regular text layers don't auto-shrink (only dynamic field text does)
 
 ## Image & File Storage
 
@@ -382,3 +382,5 @@ The design app integrates with the separate admin panel (`admin_panel`) for orde
 - `COOKIE_DOMAIN` — parent domain for the SSO cookie (e.g. `.manasik.net`), enables cross-subdomain auth
 - `R2_*` — Cloudflare R2 credentials for image storage
 - `MONGODB_URI` — MongoDB connection string (shared `users_admin_panel` collection with admin panel)
+- `CHROME_WS_ENDPOINT` — ~~required on Vercel~~ **deprecated** — no longer needed after switching to @napi-rs/canvas (native canvas engine, no browser required)
+- `PUPPETEER_EXECUTABLE_PATH` — ~~optional, local dev only~~ **deprecated** — no longer needed after switching to @napi-rs/canvas

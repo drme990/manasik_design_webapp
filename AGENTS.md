@@ -113,7 +113,7 @@ order's actual data (customer name, reservation photo, etc.).
 
 The design instance is:
 1. Saved to MongoDB as a separate project
-2. Rendered to JPG via puppeteer
+2. Rendered to JPG via @napi-rs/canvas (native canvas engine)
 3. Uploaded to R2
 4. Its project ID is stored on the order's `designUrls[].projectId`
 
@@ -150,7 +150,7 @@ When the admin edits an order design in the editor and saves, the
 store's `saveProject` automatically calls
 `POST /api/projects/[id]/re-render` in the background (fire-and-forget).
 This endpoint:
-1. Re-renders the project to JPG via puppeteer
+1. Re-renders the project to JPG via @napi-rs/canvas
 2. Uploads it to R2 at the **same key** (extracted from
    `project.orderDesignUrl`), overwriting the old image
 3. The URL stays the same — the backend's order doesn't need updating
@@ -175,63 +175,76 @@ CDN and browser cache can serve stale versions. Two mitigations:
 
 ## Template rendering pipeline
 
-`lib/render/template-renderer.ts` is the server-side renderer. It:
+`lib/render/canvas-renderer.ts` is the server-side renderer. It uses
+**`@napi-rs/canvas`** — a native Rust-based canvas engine that runs in
+Node.js without a browser. This works on Vercel serverless functions
+out of the box (no Chrome, no Puppeteer, no external services).
 
-1. Builds a self-contained HTML document from the template's layers,
-   inflating dynamic field layers with order data (resolving
-   `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs).
-2. Loads Expo Arabic fonts from `public/fonts/ExpoArabic/` as base64
-   data URIs, and Tajawal + IBM Plex Sans Arabic from Google Fonts CDN.
-3. Uses **puppeteer-core** (headless Chromium) to render the HTML and
-   screenshot the canvas element as a JPEG buffer.
+The renderer:
 
-### Vercel compatibility
+1. Registers Expo Arabic fonts from `public/fonts/ExpoArabic/` with
+   the canvas engine (Tajawal + IBM Plex Sans Arabic are also
+   registered if their .ttf files are in `public/fonts/google/`).
+2. Creates a canvas at the project's `canvasWidth` × `canvasHeight`.
+3. Draws the background (image or solid color).
+4. Iterates layers sorted by `zIndex`, applying each layer's transform
+   (position + rotation + opacity), then dispatches to the right
+   renderer based on layer type:
+   - **text** — wraps text to `boxWidth`, aligns horizontally +
+     vertically, supports bold/italic/lineHeight/RTL direction
+   - **image** — draws with crop, scale, offset, flip, border radius,
+     border. Collage layers use a simplified grid layout.
+   - **shape** — rectangle (with corner radius), circle/ellipse,
+     triangle, line, stars (4/5/6/8 points), PNG shapes
+   - **dynamic_field** — resolves `billing.*`, `order.*`, `item.*`,
+     `reservation.*` variable IDs against the order data, then renders
+     as text (auto-shrunk to fit via binary search) or image
+5. Exports the canvas as a JPEG buffer (quality 95).
 
-Vercel serverless functions don't have Chrome installed, and
-`puppeteer`'s bundled Chromium (~170MB) exceeds Vercel's function size
-limit. The renderer uses:
+### Why not Puppeteer?
 
-- **`puppeteer-core`** (no bundled browser — smaller deploy)
-- **`@sparticuz/chromium`** — provides a Lambda-compatible Chrome binary
-  on Vercel serverless functions
+Previous attempts used Puppeteer (headless Chrome) to render HTML +
+CSS to a screenshot. This doesn't work on Vercel serverless because:
+- `puppeteer`'s bundled Chromium (~170MB) exceeds the function size limit
+- `@sparticuz/chromium` needs system libraries (libnss3, etc.) that
+  Vercel's runtime doesn't include
+- Connecting to a remote Chrome via WebSocket (browserless.io) adds an
+  external dependency + cost
 
-The renderer detects the environment:
-- **Vercel** (`VERCEL=1` or `AWS_REGION` set): uses
-  `@sparticuz/chromium.executablePath()` + recommended Lambda args
-- **Local dev**: uses `PUPPETEER_EXECUTABLE_PATH` env var, or auto-detects
-  Chrome from common install locations (macOS/Windows/Linux)
+`@napi-rs/canvas` ships pre-built native binaries for all major
+platforms (including Vercel's AWS Lambda runtime) and renders directly
+in Node.js — no browser needed.
 
-`next.config.ts` adds `@sparticuz/chromium` and `puppeteer-core` to
-`serverExternalPackages` so Vercel doesn't try to bundle them.
+`next.config.ts` adds `@napi-rs/canvas` to `serverExternalPackages`
+so Vercel doesn't try to bundle the native module.
 
-Routes that use Puppeteer export `maxDuration = 60` (seconds) since
-rendering can take longer than Vercel's default 10s timeout.
-
-Dependencies: `puppeteer-core` + `@sparticuz/chromium`. Run
-`npm install` after pulling. For local dev, either install Chrome
-or set `PUPPETEER_EXECUTABLE_PATH` to your Chrome binary path.
+Dependencies: `@napi-rs/canvas` only. Run `npm install` after pulling.
+No environment variables required for rendering.
 
 Known limitations:
-- Collage image layers render only the first cell's image (full grid
-  layout not yet supported server-side).
-- Dynamic field text auto-shrink (binary search font fitting) is not
-  reproduced — the font size is used as-is. If text overflows the box,
-  it will be clipped by `overflow: hidden`.
+- Collage layers use a simplified grid layout (1 col for 1-2 cells,
+  2 cols for 3+). The exact editor layout (with custom cell positions)
+  is not yet reproduced server-side.
+- Text auto-shrink for regular text layers (binary search font fitting
+  to fit a fixed box) is not implemented — only dynamic field text
+  auto-shrinks. Regular text uses the saved fontSize and wraps to
+  `boxWidth` if set.
+- Arabic text shaping depends on the registered fonts. If a font file
+  is missing, text may render with the default system font.
 
 ## Follow-up needed after this refactor
 
 `npm install` could not be run in this sandbox (the shell tool crashed with
-an `Internal CLR error` on every invocation). `package.json` had the now-
-unused `idb` dependency removed, but `package-lock.json` and `node_modules`
-still reference it. Run `npm install` locally to sync the lockfile, then
-run `npm run build` / `npm run lint` to verify the refactor end-to-end.
+an `Internal CLR error` on every invocation). Run these locally:
 
-**Puppeteer → puppeteer-core migration:** `puppeteer` was replaced with
-`puppeteer-core` + `@sparticuz/chromium` for Vercel compatibility. Run:
 ```
 npm install
-npm uninstall puppeteer
+npm uninstall puppeteer puppeteer-core @sparticuz/chromium
 ```
-This removes the bundled Chromium (~170MB) and installs the Lambda-
-compatible `@sparticuz/chromium` instead. For local dev, set
-`PUPPETEER_EXECUTABLE_PATH` to your Chrome path if auto-detection fails.
+
+This installs `@napi-rs/canvas` and removes the unused Puppeteer
+packages. The old `lib/render/template-renderer.ts` file is no longer
+imported — you can delete it manually.
+
+**For Vercel deployment:** no special environment variables needed.
+The renderer works out of the box with `@napi-rs/canvas`.

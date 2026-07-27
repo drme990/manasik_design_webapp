@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import { uploadToR2 } from '@/lib/storage/r2';
-import { renderTemplateToJpg } from '@/lib/render/template-renderer';
+import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import type { Project } from '@/types';
-
-// Puppeteer rendering can take time — allow up to 60s on Vercel
-export const maxDuration = 60;
 
 const COLLECTION = 'projects';
 
