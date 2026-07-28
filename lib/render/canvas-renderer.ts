@@ -45,7 +45,30 @@ interface OrderDataPayload {
   reservation?: Record<string, string>;
   source?: string;
   locale?: string;
+  /** The order's referral ID (e.g. "m1", "m2", "MNK-D", "GHD-D") */
+  referralId?: string;
+  /** All referrals from the DB — used by ref.phoneNumbers dynamic field */
+  referrals?: Array<{
+    referralId: string;
+    phone: string;
+    name: string;
+  }>;
 }
+
+// ─── Render config ────────────────────────────────────────────────────────
+
+/**
+ * Render scale factor — the canvas is created at RENDER_SCALE times the
+ * project's logical dimensions for sharper output (like a retina display).
+ * The context is scaled by this factor, so all drawing code uses logical
+ * coordinates. NOTE: ctx.measureText() returns values in SCALED pixels,
+ * so width comparisons must multiply by RENDER_SCALE.
+ *
+ * 3x gives noticeably sharper text + images than 2x, especially for
+ * Arabic text with diacritics. The output JPEG is larger but still
+ * well within R2's limits.
+ */
+const RENDER_SCALE = 3;
 
 // ─── Font registration ────────────────────────────────────────────────────
 
@@ -62,7 +85,11 @@ let fontsRegistered = false;
 async function ensureFontsRegistered(): Promise<void> {
   if (fontsRegistered) return;
 
-  const fontDir = join(process.cwd(), 'public', 'fonts', 'ExpoArabic');
+  // ── Expo Arabic (primary Arabic design font) ──────────────────────
+  // All weights registered under the same family name — the canvas
+  // engine reads the weight from the font file's internal metadata
+  // and matches it when ctx.font specifies a weight.
+  const expoDir = join(process.cwd(), 'public', 'fonts', 'ExpoArabic');
   const expoFonts: Array<{ path: string; family: string }> = [
     { path: 'ExpoArabic-Light.ttf', family: 'Expo Arabic' },
     { path: 'ExpoArabic-Book.ttf', family: 'Expo Arabic' },
@@ -73,16 +100,42 @@ async function ensureFontsRegistered(): Promise<void> {
 
   for (const font of expoFonts) {
     try {
-      const buffer = await readFile(join(fontDir, font.path));
+      const buffer = await readFile(join(expoDir, font.path));
       GlobalFonts.register(buffer, font.family);
     } catch {
       // Font file missing — skip
     }
   }
 
-  // Try to register Tajawal + IBM Plex Sans Arabic if available locally
-  // (downloaded from Google Fonts). If not present, text using these
-  // families will fall back to the default font.
+  // ── Satoshi (Latin/UI font, may be used in designs) ───────────────
+  const satoshiDir = join(process.cwd(), 'public', 'fonts', 'Satoshi');
+  const satoshiFonts: Array<{ path: string; family: string }> = [
+    { path: 'Satoshi-Light.otf', family: 'Satoshi' },
+    { path: 'Satoshi-Regular.otf', family: 'Satoshi' },
+    { path: 'Satoshi-Medium.otf', family: 'Satoshi' },
+    { path: 'Satoshi-Bold.otf', family: 'Satoshi' },
+    { path: 'Satoshi-Black.otf', family: 'Satoshi' },
+    { path: 'Satoshi-Italic.otf', family: 'Satoshi' },
+    { path: 'Satoshi-BoldItalic.otf', family: 'Satoshi' },
+  ];
+
+  for (const font of satoshiFonts) {
+    try {
+      const buffer = await readFile(join(satoshiDir, font.path));
+      GlobalFonts.register(buffer, font.family);
+    } catch {
+      // Font file missing — skip
+    }
+  }
+
+  // ── Tajawal + IBM Plex Sans Arabic (Google Fonts) ─────────────────
+  // These are loaded via next/font/google in the editor, but the canvas
+  // renderer needs the actual .ttf files. Download them from Google
+  // Fonts and place in public/fonts/google/:
+  //   https://fonts.google.com/specimen/Tajawal
+  //   https://fonts.google.com/specimen/IBM+Plex+Sans+Arabic
+  //
+  // If not present, text using these families falls back to Expo Arabic.
   const googleFontDir = join(process.cwd(), 'public', 'fonts', 'google');
   const googleFonts: Array<{ path: string; family: string }> = [
     { path: 'Tajawal-Regular.ttf', family: 'Tajawal' },
@@ -128,7 +181,8 @@ function resolveFieldValue(
     if (key === 'productName') {
       const name = item.productName;
       if (!name) return undefined;
-      return orderData.locale === 'en' ? name.en : name.ar || name.en;
+      // Always prefer Arabic — templates are designed for Arabic content.
+      return name.ar || name.en;
     }
     return (item as Record<string, unknown>)[key]?.toString();
   }
@@ -143,7 +197,47 @@ function resolveFieldValue(
     }
     return undefined;
   }
+  if (variableId.startsWith('ref.')) {
+    const key = variableId.slice('ref.'.length);
+    if (key === 'phoneNumbers') {
+      return resolveRefPhoneNumbers(orderData);
+    }
+    return undefined;
+  }
   return undefined;
+}
+
+/**
+ * Resolve the `ref.phoneNumbers` dynamic field.
+ *
+ * Returns all referral phone numbers as a multi-line string (one number
+ * per row), with the order's ref number first, then the rest.
+ *
+ * Default refs (MNK-D, GHD-D) map to m1 — so an order with the default
+ * ref shows m1's phone first, then m2, m3, etc.
+ */
+function resolveRefPhoneNumbers(orderData: OrderDataPayload): string | undefined {
+  const referrals = orderData.referrals;
+  if (!referrals || referrals.length === 0) return undefined;
+
+  let orderRef = orderData.referralId;
+  if (!orderRef) {
+    orderRef = orderData.source === 'ghadaq' ? 'GHD-D' : 'MNK-D';
+  }
+
+  // Map default refs to m1 (per business rule: default or m1 → m1 first)
+  const priorityRef =
+    orderRef === 'MNK-D' || orderRef === 'GHD-D' ? 'm1' : orderRef;
+
+  // Sort: matching ref first, then the rest by referralId
+  const sorted = [...referrals].sort((a, b) => {
+    const aMatch = a.referralId === priorityRef ? 0 : 1;
+    const bMatch = b.referralId === priorityRef ? 0 : 1;
+    if (aMatch !== bMatch) return aMatch - bMatch;
+    return a.referralId.localeCompare(b.referralId);
+  });
+
+  return sorted.map((r) => r.phone).join('\n');
 }
 
 // ─── Image loading ────────────────────────────────────────────────────────
@@ -191,13 +285,14 @@ function applyLayerTransform(ctx: SKRSContext2D, layer: AnyLayer): void {
 // ─── Text rendering ───────────────────────────────────────────────────────
 
 /**
- * Build the CSS font string for a text layer.
+ * Build the CSS font string with a specific font size.
+ * For auto-fit layers, the rendered size differs from layer.fontSize.
  * e.g. "italic 700 24px 'Expo Arabic'"
  */
-function buildFontString(layer: TextLayer): string {
+function buildFontStringWithSize(layer: TextLayer, size: number): string {
   const style = layer.italic ? 'italic ' : '';
   const weight = layer.bold ? 700 : layer.fontWeight || 400;
-  return `${style}${weight} ${layer.fontSize}px '${layer.fontFamily}'`;
+  return `${style}${weight} ${size}px '${layer.fontFamily}'`;
 }
 
 /**
@@ -246,18 +341,84 @@ function wrapText(
 function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   if (!layer.text) return;
 
-  ctx.font = buildFontString(layer);
   ctx.fillStyle = layer.color;
   ctx.textBaseline = 'top';
 
-  // Determine wrapping width
-  const wrapWidth = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
+  // ── Auto-fit mode ────────────────────────────────────────────────
+  // When autoFit is true (text layers inflated from dynamic fields),
+  // the font size is calculated to FILL the box. The saved fontSize
+  // is ignored — the size is determined by box dimensions + text content.
+  //
+  // Uses the same formula as the client-side CSS container queries:
+  //   Width:  fontSize = (boxWidth * 0.9) / (charCount * 0.55)
+  //   Height: fontSize = boxHeight / lineHeight
+  // Then binary-searches to fine-tune (the formula is an approximation;
+  // binary search verifies it actually fits with word wrapping).
+  let renderFontSize = layer.fontSize;
 
-  // Set textAlign — note: canvas textAlign is relative to the x position
-  // of the fillText call, not the bounding box. We handle alignment by
-  // calculating the x offset ourselves.
-  const lines = wrapText(ctx, layer.text, wrapWidth);
-  const lineHeight = layer.fontSize * layer.lineHeight;
+  if (layer.autoFit) {
+    const padding = 8;
+    const maxWidth = layer.width - padding;
+    const maxHeight = layer.height - padding;
+    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+    const charCount = Math.max(1, layer.text.length);
+    const lineHeightRatio = layer.lineHeight || 1.2;
+
+    // Formula-based initial estimate (matching client-side CSS formula).
+    // Accounts for potential word wrapping by estimating the number of
+    // lines based on text length and fill ratio.
+    const AVG_CHAR_WIDTH = 0.52;
+    const FILL_RATIO = 0.92;
+    const widthBased = (layer.width * FILL_RATIO) / (charCount * AVG_CHAR_WIDTH);
+    const estimatedLines = Math.min(5, Math.max(1, Math.ceil(charCount * AVG_CHAR_WIDTH / FILL_RATIO)));
+    const heightBased = layer.height / (estimatedLines * lineHeightRatio);
+    const estimate = Math.min(widthBased, heightBased);
+
+    function doesFit(size: number): boolean {
+      ctx.font = buildFontStringWithSize(layer, size);
+      const lines = wrapText(ctx, layer.text, scaledMaxWidth);
+      if (lines.length === 0) return true;
+      const totalHeight = lines.length * size * lineHeightRatio;
+      if (totalHeight > maxHeight) return false;
+      for (const line of lines) {
+        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+      }
+      return true;
+    }
+
+    // Binary search around the estimate to find the exact best size.
+    // Start with a range of ±50% around the estimate for fast convergence.
+    let lo = Math.max(4, Math.floor(estimate * 0.5));
+    let hi = Math.min(Math.floor(maxHeight), Math.ceil(estimate * 1.5));
+    let best = lo;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (doesFit(mid)) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    renderFontSize = best;
+  }
+
+  ctx.font = buildFontStringWithSize(layer, renderFontSize);
+
+  // Determine wrapping width (scaled for measureText).
+  // For autoFit layers, wrap to the box width (minus padding).
+  // For regular text layers, wrap to boxWidth if set, or no wrapping.
+  let wrapWidthScaled: number;
+  if (layer.autoFit) {
+    const padding = 8;
+    wrapWidthScaled = (layer.width - padding) * RENDER_SCALE;
+  } else {
+    const wrapWidthLogical = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
+    wrapWidthScaled = wrapWidthLogical > 0 ? wrapWidthLogical * RENDER_SCALE : 0;
+  }
+
+  const lines = wrapText(ctx, layer.text, wrapWidthScaled);
+  const lineHeight = renderFontSize * (layer.lineHeight || 1.2);
   const totalHeight = lines.length * lineHeight;
 
   // Vertical alignment within the layer box
@@ -612,8 +773,9 @@ async function renderDynamicFieldLayer(
   layer: DynamicFieldLayer,
   orderData: OrderDataPayload,
 ): Promise<void> {
-  const value = resolveFieldValue(layer.variableId, orderData);
-  if (!value) return; // Field not resolved — skip
+  const resolvedValue = resolveFieldValue(layer.variableId, orderData);
+  if (!resolvedValue) return; // Field not resolved — skip
+  const value: string = resolvedValue; // definite string for closures below
 
   // Background color
   if (layer.backgroundColor) {
@@ -641,25 +803,62 @@ async function renderDynamicFieldLayer(
       // Image failed — skip
     }
   } else {
-    // Text dynamic field — draw the resolved text, auto-shrunk to fit
-    // Binary search for the largest font size that fits (matching the
-    // client-side DynamicFieldText component behavior)
-    // DynamicFieldLayer doesn't have a fontFamily field — use Expo Arabic
-    // (the app's primary Arabic font) as the default.
-    const fieldFontFamily = 'Expo Arabic';
-    let lo = 4;
-    let hi = layer.fontSize;
-    let bestSize = lo;
+    // Text dynamic field — the font size is NOT taken from the saved
+    // layer.fontSize. Instead, we calculate the largest font size that
+    // makes the text FILL the box without overflowing.
+    //
+    // The box size is fixed. The text size is determined purely by:
+    // box width + height, and the text content. The saved fontSize is
+    // just a reference, not the rendered size.
+    //
+    // Uses the dynamic field's text properties (fontFamily, bold, italic,
+    // align, lineHeight, direction) with sensible defaults.
+    const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
+    const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
+    const fieldItalic = layer.italic ?? false;
+    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldAlign = layer.align || 'center';
+    const fieldVAlign = layer.verticalAlign || 'middle';
+    const fieldDirection = layer.direction || 'rtl';
 
+    const padding = 8;
+    const maxWidth = layer.width - padding;
+    const maxHeight = layer.height - padding;
+    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+    const charCount = Math.max(1, value.length);
+
+    // Formula-based initial estimate (matching client-side CSS)
+    const AVG_CHAR_WIDTH = 0.52;
+    const FILL_RATIO = 0.92;
+    const widthBased = (layer.width * FILL_RATIO) / (charCount * AVG_CHAR_WIDTH);
+    const estimatedLines = Math.min(5, Math.max(1, Math.ceil(charCount * AVG_CHAR_WIDTH / FILL_RATIO)));
+    const heightBased = layer.height / (estimatedLines * fieldLineHeight);
+    const estimate = Math.min(widthBased, heightBased);
+
+    function buildFieldFont(size: number): string {
+      const style = fieldItalic ? 'italic ' : '';
+      return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+    }
+
+    function doesFontSizeFit(size: number): boolean {
+      ctx.font = buildFieldFont(size);
+      const lines = wrapText(ctx, value, scaledMaxWidth);
+      if (lines.length === 0) return true;
+      const totalHeight = lines.length * size * fieldLineHeight;
+      if (totalHeight > maxHeight) return false;
+      for (const line of lines) {
+        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+      }
+      return true;
+    }
+
+    // Binary search around the estimate for fast convergence
+    let lo = Math.max(4, Math.floor(estimate * 0.5));
+    let hi = Math.min(Math.floor(maxHeight), Math.ceil(estimate * 1.5));
+    let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
-      ctx.font = `${mid}px '${fieldFontFamily}'`;
-      const metrics = ctx.measureText(value);
-      const padding = 8; // 4px padding each side (matching client)
-      const fits =
-        metrics.width <= layer.width - padding &&
-        mid <= layer.height - padding;
-      if (fits) {
+      if (doesFontSizeFit(mid)) {
         bestSize = mid;
         lo = mid + 1;
       } else {
@@ -667,11 +866,47 @@ async function renderDynamicFieldLayer(
       }
     }
 
-    ctx.font = `${bestSize}px '${fieldFontFamily}'`;
+    // Draw the text centered in the box, wrapped to fit
+    ctx.font = buildFieldFont(bestSize);
     ctx.fillStyle = layer.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(value, layer.width / 2, layer.height / 2);
+    ctx.textBaseline = 'top';
+
+    const lines = wrapText(ctx, value, scaledMaxWidth);
+    const lineHeight = bestSize * fieldLineHeight;
+    const totalHeight = lines.length * lineHeight;
+
+    let startY = 0;
+    if (fieldVAlign === 'middle') {
+      startY = (layer.height - totalHeight) / 2;
+    } else if (fieldVAlign === 'bottom') {
+      startY = layer.height - totalHeight;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, layer.width, layer.height);
+    ctx.clip();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const y = startY + i * lineHeight;
+      const lineWidth = ctx.measureText(line).width;
+
+      let x = 0;
+      if (fieldAlign === 'center') {
+        x = (layer.width - lineWidth) / 2;
+      } else if (fieldAlign === 'right') {
+        x = layer.width - lineWidth;
+      }
+
+      if (fieldDirection === 'rtl' && fieldAlign === 'left') {
+        x = layer.width - lineWidth;
+      }
+
+      ctx.fillText(line, x, y);
+    }
+
+    ctx.restore();
   }
 
   // Border
@@ -709,11 +944,11 @@ export async function renderTemplateToJpg(
   // Clear the image cache for this render pass
   imageCache.clear();
 
-  // Render at 2x resolution for sharper output (like a retina display).
-  // The canvas is created at 2x dimensions, and we scale the context so
-  // all drawing code can use the original (logical) coordinates. The
-  // resulting JPEG has 4x the pixels = much sharper when displayed.
-  const RENDER_SCALE = 2;
+  // Render at 3x resolution for sharp, high-quality output.
+  // The canvas is created at 3x dimensions, and we scale the context so
+  // all drawing code can use the original (logical) coordinates.
+  // For a 1080×1080 template, the output is 3240×3240 — crisp even
+  // when displayed on high-DPI screens or printed.
   const canvas = createCanvas(
     template.canvasWidth * RENDER_SCALE,
     template.canvasHeight * RENDER_SCALE,
@@ -721,9 +956,12 @@ export async function renderTemplateToJpg(
   const ctx = canvas.getContext('2d');
   ctx.scale(RENDER_SCALE, RENDER_SCALE);
 
-  // Smooth image scaling for high-quality output
+  // ── Quality settings ─────────────────────────────────────────────
+  // High-quality image scaling (for uploaded photos + background)
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  // Best text rendering — critical for Arabic text with diacritics
+  ctx.textRendering = 'optimizeLegibility';
 
   // ── Background ───────────────────────────────────────────────────
   if (template.backgroundUri && !template.backgroundUri.startsWith('blob:')) {
@@ -770,6 +1008,7 @@ export async function renderTemplateToJpg(
 
   // ── Export as JPEG ───────────────────────────────────────────────
   // @napi-rs/canvas toBuffer signature: (mime, quality?) where quality
-  // is a number 0-1. Max quality (1) + 2x render scale = sharp output.
+  // is a number 0-1. Max quality (1) + 3x render scale = sharp output
+  // with no JPEG compression artifacts on text edges.
   return canvas.toBuffer('image/jpeg', 1);
 }

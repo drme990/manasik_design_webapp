@@ -14,6 +14,7 @@ export const FONT_CSS_VAR_MAP: Record<string, string> = {
   'Expo Arabic': 'var(--font-expo-arabic)',
   'Tajawal': 'var(--font-tajawal)',
   'IBM Plex Sans Arabic': 'var(--font-ibm-plex-sans-arabic)',
+  'Satoshi': 'var(--font-satoshi)',
 };
 
 export function resolveFontFamily(fontFamily: string): string {

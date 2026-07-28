@@ -78,6 +78,7 @@ export default function SelectionBox({
 
   const isText = layer.type === 'text';
   const isShape = layer.type === 'shape';
+  const isDynamicField = layer.type === 'dynamic_field';
   const textLayer = layer as TextLayer;
 
   // Current align + next in cycle
@@ -263,8 +264,8 @@ export default function SelectionBox({
         <LuMaximize className={iconClass} style={iconStyle} />
       </button>
 
-      {/* Increase height — top-center (all shapes, drag up/down) */}
-      {isShape && onHeightDragStart && (
+      {/* Increase height — top-center (shapes + dynamic fields, drag up/down) */}
+      {(isShape || isDynamicField) && onHeightDragStart && (
         <button
           type="button"
           data-action="increaseHeight"
@@ -277,8 +278,8 @@ export default function SelectionBox({
         </button>
       )}
 
-      {/* Increase width — right-center (all shapes, drag left/right) */}
-      {isShape && onWidthDragStart && (
+      {/* Increase width — right-center (shapes + dynamic fields, drag left/right) */}
+      {(isShape || isDynamicField) && onWidthDragStart && (
         <button
           type="button"
           data-action="increaseWidth"

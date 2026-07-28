@@ -302,6 +302,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
   const [resizeState, setResizeState] = useState<{
     layerId: string;
+    layerType?: string;
     startX: number;
     startY: number;
     startXPos: number;
@@ -474,14 +475,16 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     });
   }, [selectedLayerId, layers, onLayerDragStart]);
 
-  // Drag start for height/width adjustment buttons (all shapes)
+  // Drag start for height/width adjustment buttons (shapes + dynamic fields)
   const handleHwDragStart = useCallback((e: React.PointerEvent, axis: 'height' | 'width') => {
     if (!e.isPrimary) return;
     e.stopPropagation();
     e.preventDefault();
     if (!selectedLayerId) return;
     const layer = layers.find((l) => l.id === selectedLayerId);
-    if (!layer || layer.locked || layer.type !== 'shape') return;
+    if (!layer || layer.locked) return;
+    // Width/height drag supported for shapes + dynamic field layers
+    if (layer.type !== 'shape' && layer.type !== 'dynamic_field') return;
 
     capturePointer(e);
     onLayerDragStart?.(selectedLayerId);
@@ -508,6 +511,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       onLayerDragStart?.(selectedLayerId);
       setResizeState({
         layerId: selectedLayerId,
+        layerType: layer.type,
         startX: e.clientX,
         startY: e.clientY,
         startXPos: layer.x,
@@ -869,7 +873,15 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       // Proportional resize scales content too (font size, stroke width, image scale)
       if (resize.mode === 'proportional') {
         const scaleFactor = rawWidth / resize.startWidth;
-        if (resize.startFontSize !== undefined) {
+        // Dynamic field layers: DON'T scale fontSize or delete width/height.
+        // The text auto-fills the field (binary search in DynamicFieldText),
+        // so we just resize the box and the text adjusts automatically.
+        // Only text layers (with auto-measure) need the special handling below.
+        const isDynamicFieldResize = resize.startFontSize !== undefined && resize.startBoxWidth === undefined && resize.layerType === 'dynamic_field';
+        if (isDynamicFieldResize) {
+          // Just resize the box — text auto-fills via binary search.
+          // width/height are already set in `updates` above.
+        } else if (resize.startFontSize !== undefined) {
           const newFontSize = Math.max(1, Math.round(resize.startFontSize * scaleFactor));
           (updates as Record<string, unknown>).fontSize = newFontSize;
           // If boxWidth is set, scale it too and keep width/height

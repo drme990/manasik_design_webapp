@@ -18,6 +18,8 @@
  *   - order.*     → order.{orderNumber|totalAmount|...}
  *   - item.*      → order.items[0].{productName|quantity}
  *   - reservation.* → order.reservationData[key].value
+ *   - ref.*       → referral phone numbers (from the referrals collection)
+ *                   ref.phoneNumbers → all ref phones, order's ref first
  */
 
 export type OrderFieldType = 'text' | 'image';
@@ -72,6 +74,21 @@ const RESERVATION_FIELDS: OrderField[] = [
   { id: 'reservation.executionDate', label: 'تاريخ التنفيذ', type: 'text', placeholder: 'تاريخ التنفيذ' },
 ];
 
+/* ── Referral phone numbers ───────────────────────────────────────────
+ * A special multi-line text field that displays all referral phone
+ * numbers, with the order's ref number first.
+ *
+ * Resolution logic (in inflate-template.ts + canvas-renderer.ts):
+ *   1. Get the order's referralId (defaults to MNK-D or GHD-D by source)
+ *   2. Map default refs (MNK-D, GHD-D) → m1
+ *   3. Fetch all referrals from the `referrals` collection
+ *   4. Sort: matching ref first, then the rest by referralId
+ *   5. Join phone numbers with newlines (one per row)
+ */
+const REFERRAL_FIELDS: OrderField[] = [
+  { id: 'ref.phoneNumbers', label: 'أرقام المراجع', type: 'text', placeholder: '+9665...\n+9665...' },
+];
+
 /**
  * The canonical list of all dynamic fields derived from the backend
  * Order model. Add new fields here when the order schema grows.
@@ -81,6 +98,7 @@ export const ORDER_FIELDS: OrderField[] = [
   ...ORDER_FIELDS_LIST,
   ...ITEM_FIELDS,
   ...RESERVATION_FIELDS,
+  ...REFERRAL_FIELDS,
 ];
 
 /** Quick lookup by id */

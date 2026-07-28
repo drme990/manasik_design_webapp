@@ -68,6 +68,7 @@ const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
     'image.collageBg': 'collageBg',
     'shape.fillColor': 'fillColor',
     'shape.strokeColor': 'strokeColor',
+    'df.color': 'textColor',
     'df.strokeColor': 'strokeColor',
 };
 
@@ -77,6 +78,7 @@ const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
     'image.collageBg': 'image',
     'shape.fillColor': 'shape',
     'shape.strokeColor': 'shape',
+    'df.color': 'dynamicField',
     'df.strokeColor': 'dynamicField',
 };
 
@@ -85,6 +87,7 @@ function getColorPickerValue(layer: AnyLayer, prop: string): string {
     if (prop === 'image.borderColor') return (layer as ImageLayer).borderColor;
     if (prop === 'shape.fillColor') return (layer as ShapeLayer).fillColor;
     if (prop === 'shape.strokeColor') return (layer as ShapeLayer).strokeColor;
+    if (prop === 'df.color') return (layer as DynamicFieldLayer).color;
     if (prop === 'df.strokeColor') return (layer as DynamicFieldLayer).borderColor ?? '#cccccc';
     return '#000000';
 }
@@ -94,6 +97,7 @@ function getColorPickerUpdate(prop: string, color: string): Partial<AnyLayer> {
     if (prop === 'image.borderColor') return { borderColor: color } as Partial<AnyLayer>;
     if (prop === 'shape.fillColor') return { fillColor: color } as Partial<AnyLayer>;
     if (prop === 'shape.strokeColor') return { strokeColor: color } as Partial<AnyLayer>;
+    if (prop === 'df.color') return { color } as Partial<AnyLayer>;
     if (prop === 'df.strokeColor') return { borderColor: color } as Partial<AnyLayer>;
     return {};
 }
@@ -2281,6 +2285,17 @@ export default function EditorPage() {
                                     min={0}
                                     max={50}
                                     onChange={(v) => handleLayerChange(selectedLayer.id, { borderWidth: v } as Partial<AnyLayer>)}
+                                />
+                            )}
+                            {/* Dynamic field: lineHeight (text fields only) */}
+                            {activeProp === 'df.lineHeight' && (
+                                <SliderField
+                                    label={t('toolbars.text.lineHeight')}
+                                    value={(selectedLayer as DynamicFieldLayer).lineHeight ?? 1.2}
+                                    min={0.5}
+                                    max={2.5}
+                                    step={0.1}
+                                    onChange={(v) => handleLayerChange(selectedLayer.id, { lineHeight: v } as Partial<AnyLayer>)}
                                 />
                             )}
                         </div>

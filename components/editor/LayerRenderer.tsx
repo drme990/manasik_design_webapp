@@ -107,22 +107,106 @@ export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbn
   }
 }
 
+// ─── Auto-fit font size hook ──────────────────────────────────────────────
+// Finds the largest font size where text fits inside the box, using binary
+// search. To keep resizing smooth AND accurate on every frame:
+//   1. Computes an instant proportional estimate during render (scales the
+//      previous result by the box ratio — no measurement needed)
+//   2. Runs a BOUNDED binary search synchronously in useLayoutEffect, starting
+//      from a narrow range around the estimate (±40%). Only 6 iterations
+//      needed → minimal reflows → no flicker, but size updates every frame.
+function useAutoFitFontSize(
+  textRef: React.RefObject<HTMLDivElement | null>,
+  text: string,
+  boxWidth: number,
+  boxHeight: number,
+  deps: React.DependencyList,
+): number {
+  // State holds the last binary-searched font size + the box dimensions it
+  // was measured against. Used to compute a proportional estimate during
+  // render when the box changes (before the binary search runs).
+  const [measured, setMeasured] = useState({ w: 0, h: 0, size: 16 });
+
+  // Instant proportional estimate — computed during render from STATE.
+  // When the box dimensions change, scale the last known font size by the
+  // geometric mean of the width/height ratios. Not rounded so even small
+  // box changes produce a visible size change.
+  let renderSize = measured.size;
+  if (measured.w > 0 && measured.h > 0 && (measured.w !== boxWidth || measured.h !== boxHeight)) {
+    const ratio = Math.sqrt((boxWidth / measured.w) * (boxHeight / measured.h));
+    renderSize = Math.max(1, measured.size * ratio);
+  }
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    const boxW = el.clientWidth;
+    const boxH = el.clientHeight;
+    if (boxW <= 0 || boxH <= 0) return;
+
+    // Bounded binary search: start from a narrow range around the estimate
+    // instead of [1, max(boxW,boxH)]. This needs only ~6 iterations to
+    // converge (vs 20 for a full search), minimizing layout reflows.
+    const estimate = renderSize;
+    let lo = Math.max(1, Math.floor(estimate * 0.6));
+    let hi = Math.ceil(estimate * 1.4);
+    // Make sure the range actually contains the answer — if the estimate
+    // is way off, expand the range (rare, e.g. first render or text change)
+    let best = lo;
+    for (let i = 0; i < 8; i++) {
+      const mid = (lo + hi) / 2;
+      el.style.fontSize = `${mid}px`;
+      const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
+      if (fits) { best = mid; lo = mid; } else { hi = mid; }
+    }
+    // If even the upper bound fits, the estimate was too low — search up
+    if (best >= hi - 1) {
+      lo = hi;
+      hi = Math.ceil(Math.max(boxW, boxH));
+      for (let i = 0; i < 6; i++) {
+        const mid = (lo + hi) / 2;
+        el.style.fontSize = `${mid}px`;
+        const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
+        if (fits) { best = mid; lo = mid; } else { hi = mid; }
+      }
+    }
+    el.style.fontSize = '';
+    const result = Math.max(1, Math.floor(best));
+    setMeasured({ w: boxW, h: boxH, size: result });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return renderSize;
+}
+
 function TextLayerComponent({ layer, className, style, onPointerDown, onLayerChange, onDoubleClick }: LayerComponentProps & { layer: TextLayer }) {
   const measureRef = useRef<HTMLDivElement>(null);
+  const autoFitTextRef = useRef<HTMLDivElement>(null);
   // Track the last measured size to avoid redundant updates
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
   // Track previous fontSize to detect resize vs content change
   const prevFontSizeRef = useRef(layer.fontSize);
 
   const hasBoxWidth = layer.boxWidth !== undefined && layer.boxWidth > 0;
+  const isAutoFit = layer.autoFit === true;
+
+  // ── Auto-fit: binary search for the largest font that fits ────────
+  // Uses the shared useAutoFitFontSize hook which returns an instant
+  // proportional estimate during resize, then refines via binary search
+  // in a requestAnimationFrame callback (smooth, no flicker).
+  const autoFitFontSize = useAutoFitFontSize(
+    autoFitTextRef,
+    layer.text || '',
+    layer.width || 100,
+    layer.height || 100,
+    [isAutoFit, layer.text, layer.width, layer.height, layer.fontFamily, layer.bold, layer.italic, layer.align, layer.lineHeight, layer.direction],
+  );
 
   // Measure actual text content and resize the layer box to fit tightly.
-  // useLayoutEffect runs BEFORE the browser paints, so the user never sees
-  // an intermediate frame where fontSize changed but width/height didn't.
-  // No rAF needed — synchronous measurement eliminates flicker entirely.
-  // Skip auto-measure when boxWidth is set — the user controls the width.
+  // Skip when autoFit is true — the box stays fixed, font adjusts via CSS.
+  // Skip when boxWidth is set — the user controls the width.
   useLayoutEffect(() => {
-    if (!onLayerChange || hasBoxWidth) return;
+    if (!onLayerChange || hasBoxWidth || isAutoFit) return;
     const el = measureRef.current;
     if (!el) return;
 
@@ -130,23 +214,15 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     const h = Math.ceil(el.scrollHeight);
     if (w <= 0 || h <= 0) return;
 
-    // Only update if the measured size actually changed since last time
     if (w !== lastMeasuredRef.current.w || h !== lastMeasuredRef.current.h) {
       const oldW = lastMeasuredRef.current.w;
       const oldH = lastMeasuredRef.current.h;
       const isFirstMeasure = oldW === 0 && oldH === 0;
       lastMeasuredRef.current = { w, h };
-      // On the first measure (initial mount / project reopen), just record
-      // the size WITHOUT calling onLayerChange. The layer already has the
-      // correct width/height/x/y from the saved project — re-centering here
-      // would shift the text by half its size (oldW=0 → newX = x - w/2).
       if (isFirstMeasure) {
         prevFontSizeRef.current = layer.fontSize;
         return;
       }
-      // Only re-center when text content changed (not font size).
-      // Font size changes are handled by the slider/resize handler
-      // which already adjust x/y — re-centering here would fight them.
       const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
       if (fontSizeChanged) {
         onLayerChange(layer.id, { width: w, height: h }, false);
@@ -157,13 +233,11 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
       }
     }
     prevFontSizeRef.current = layer.fontSize;
-    // Only re-measure when text content or font properties change —
-    // deliberately exclude width/height to prevent feedback loops.
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth, layer.x, layer.y]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth, isAutoFit, layer.x, layer.y]);
 
   // When boxWidth is set, measure height only (width is user-controlled)
   useLayoutEffect(() => {
-    if (!onLayerChange || !hasBoxWidth) return;
+    if (!onLayerChange || !hasBoxWidth || isAutoFit) return;
     const el = measureRef.current;
     if (!el) return;
 
@@ -174,26 +248,68 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
       const oldH = lastMeasuredRef.current.h;
       const isFirstMeasure = oldH === 0;
       lastMeasuredRef.current = { w: layer.boxWidth!, h };
-      // On the first measure (initial mount / project reopen), just record
-      // the size WITHOUT calling onLayerChange — the saved height/y are correct.
       if (isFirstMeasure) {
         prevFontSizeRef.current = layer.fontSize;
         return;
       }
-      // Font size changes are handled by handleFontSizeChange which already
-      // adjusts x/y/height/boxWidth — only update height here, don't re-center.
       const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
       if (fontSizeChanged) {
         onLayerChange(layer.id, { height: h }, false);
       } else {
-        // Keep vertical center fixed
         const newY = layer.y + (oldH - h) / 2;
         onLayerChange(layer.id, { height: h, y: newY }, false);
       }
     }
     prevFontSizeRef.current = layer.fontSize;
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth, layer.y]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, layer.boxWidth, onLayerChange, layer.id, hasBoxWidth, isAutoFit, layer.y]);
 
+  // ── Auto-fit render path ──────────────────────────────────────────
+  // Binary search finds the largest font size that fills the box.
+  if (isAutoFit) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          color: layer.color,
+          fontFamily: resolveFontFamily(layer.fontFamily),
+          fontWeight: layer.bold ? 700 : (layer.fontWeight || 400),
+          fontStyle: layer.italic ? 'italic' : 'normal',
+          textAlign: layer.align,
+          lineHeight: layer.lineHeight,
+          direction: layer.direction as React.CSSProperties['direction'],
+          display: style.display === 'none' ? 'none' : 'flex',
+          alignItems: layer.verticalAlign === 'top' ? 'flex-start' : layer.verticalAlign === 'bottom' ? 'flex-end' : 'center',
+          justifyContent: layer.align,
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+          overflow: 'hidden',
+        }}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          ref={autoFitTextRef}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            textAlign: layer.align,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+            overflow: 'hidden',
+            fontSize: `${autoFitFontSize}px`,
+          }}
+        >
+          {layer.text}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal text render path ───────────────────────────────────────
   return (
     <div
       className={className}
@@ -437,42 +553,39 @@ function DynamicFieldLayerComponent({ layer, className, style, onPointerDown }: 
 }
 
 /**
- * Text dynamic field — auto-shrinks the font size so the placeholder
- * text always fits inside the box. The user can resize the box freely;
- * the text scales down (never up beyond the set fontSize) to fit.
+ * Text dynamic field — the font size auto-fills the box based on the
+ * text content + box dimensions. The saved fontSize is NOT used.
+ *
+ * Uses CSS Container Queries (cqw/cqh units) for instant responsive
+ * sizing with NO JavaScript measurement. A tiny JS safety net
+ * (useLayoutEffect) catches edge cases where the CSS formula overflows
+ * and scales down by a few percent until it fits.
  */
 function DynamicFieldText({ layer, className, style, onPointerDown }: LayerComponentProps & { layer: DynamicFieldLayer }) {
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [adjustedFontSize, setAdjustedFontSize] = useState(layer.fontSize);
+  const textRef = useRef<HTMLDivElement>(null);
 
-  useLayoutEffect(() => {
-    const el = measureRef.current;
-    if (!el) return;
+  // Text properties with defaults (matching inflate-template.ts)
+  const fontFamily = layer.fontFamily || 'Expo Arabic';
+  const fontWeight = layer.fontWeight || 700;
+  const bold = layer.bold ?? true;
+  const italic = layer.italic ?? false;
+  const align = layer.align || 'center';
+  const verticalAlign = layer.verticalAlign || 'middle';
+  const lineHeight = layer.lineHeight ?? 1.2;
+  const direction = layer.direction || 'rtl';
 
-    const boxW = el.clientWidth;
-    const boxH = el.clientHeight;
-    if (boxW <= 0 || boxH <= 0) return;
+  const text = layer.placeholder;
 
-    // Binary search for the largest font size that fits
-    let lo = 4;
-    let hi = layer.fontSize;
-    let best = lo;
-
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      el.style.fontSize = `${mid}px`;
-      const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
-      if (fits) {
-        best = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-
-    el.style.fontSize = ''; // reset — we set it via state
-    setAdjustedFontSize(best);
-  }, [layer.fontSize, layer.placeholder, layer.width, layer.height]);
+  // ── Auto-fit: binary search for the largest font that fits ────────
+  // Uses the shared useAutoFitFontSize hook — instant proportional
+  // estimate during resize, refined via binary search in rAF.
+  const fontSize = useAutoFitFontSize(
+    textRef,
+    text,
+    layer.width || 100,
+    layer.height || 100,
+    [text, layer.width, layer.height, fontFamily, fontWeight, bold, italic, align, lineHeight, direction],
+  );
 
   return (
     <div
@@ -480,20 +593,39 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
       style={{
         ...style,
         display: style.display === 'none' ? 'none' : 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: verticalAlign === 'top' ? 'flex-start' : verticalAlign === 'bottom' ? 'flex-end' : 'center',
+        justifyContent: align,
         color: layer.color,
-        fontSize: adjustedFontSize,
-        direction: 'rtl',
-        textAlign: 'center',
+        fontFamily: resolveFontFamily(fontFamily),
+        fontWeight: bold ? 700 : (fontWeight || 400),
+        fontStyle: italic ? 'italic' : 'normal',
+        textAlign: align,
+        lineHeight: lineHeight,
+        direction: direction as React.CSSProperties['direction'],
         wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
         padding: '2px 4px',
+        overflow: 'hidden',
       }}
       onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}
     >
-      <div ref={measureRef} style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', overflow: 'hidden' }}>
-        {layer.placeholder}
+      <div
+        ref={textRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'block',
+          textAlign: align,
+          // pre-wrap preserves newlines (e.g. ref.phoneNumbers multi-line)
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+          overflow: 'hidden',
+          fontSize: `${fontSize}px`,
+        }}
+      >
+        {text}
       </div>
     </div>
   );

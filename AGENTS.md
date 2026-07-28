@@ -95,7 +95,14 @@ Each booking product can have two template slots:
 - `templateId` — the text (no-image) template, used when the order has
   no reservation photo.
 - `imageTemplateId` — the image template, used when the order has a
-  reservation photo. Falls back to `templateId` if not set.
+  reservation photo.
+
+**Strict matching — no fallback.** If an order has a reservation photo,
+the design app MUST use `imageTemplateId`. If it's not set, the request
+fails with `noTemplate` (the admin must create an image template). If an
+order has no photo, the design app MUST use `templateId` — it will never
+use the image template as a fallback. This ensures the right template
+variant is always used for the right order type.
 
 Generated designs are uploaded to R2 at:
 - `design/orders-design/{orderNumber}.jpg` for single-item orders
@@ -197,9 +204,32 @@ The renderer:
    - **shape** — rectangle (with corner radius), circle/ellipse,
      triangle, line, stars (4/5/6/8 points), PNG shapes
    - **dynamic_field** — resolves `billing.*`, `order.*`, `item.*`,
-     `reservation.*` variable IDs against the order data, then renders
-     as text (auto-shrunk to fit via binary search) or image
-5. Exports the canvas as a JPEG buffer (quality 95).
+     `reservation.*`, `ref.*` variable IDs against the order data, then
+     renders as text (auto-fits to fill the box) or image
+     - `ref.phoneNumbers` — multi-line list of all referral phone
+       numbers (from the `referrals` collection), with the order's ref
+       first. Default refs (MNK-D, GHD-D) map to m1. Each number on its
+       own row.
+5. Exports the canvas as a JPEG buffer (quality 1.0 = max).
+
+### Render quality
+
+The renderer uses 3x supersampling for sharp output:
+- Canvas is created at 3× the project's logical dimensions
+- Context is scaled by 3× so drawing code uses logical coordinates
+- For a 1080×1080 template, the output is 3240×3240 pixels
+- `textRendering: 'optimizeLegibility'` for crisp Arabic text
+- `imageSmoothingQuality: 'high'` for smooth photo scaling
+- JPEG quality 1.0 (no compression artifacts on text edges)
+
+### Fonts
+
+Registered fonts (from `public/fonts/`):
+- **Expo Arabic** — primary Arabic design font (5 weights)
+- **Satoshi** — Latin/UI font (7 variants including italics)
+- **Tajawal** + **IBM Plex Sans Arabic** — Google Fonts, must be
+  downloaded manually to `public/fonts/google/` (see renderer code
+  for download links). If missing, text falls back to Expo Arabic.
 
 ### Why not Puppeteer?
 

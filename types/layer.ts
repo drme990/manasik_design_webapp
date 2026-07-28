@@ -35,6 +35,13 @@ export interface TextLayer extends BaseLayer {
   lineHeight: number;
   direction: TextDirection;
   boxWidth?: number;
+  /**
+   * Auto-fit mode — when true, the font size is calculated to FILL the
+   * box (grow or shrink) based on the text content + box dimensions.
+   * The saved fontSize is ignored. Set on text layers inflated from
+   * dynamic fields so the text always fills the field proportionally.
+   */
+  autoFit?: boolean;
 }
 
 export interface ImageLayerCollageCell {
@@ -123,6 +130,9 @@ export interface DynamicFieldLayer extends BaseLayer {
   type: 'dynamic_field';
   variableId: string;
   variableName: string;
+  /** Reference font size — NOT the rendered size. The actual rendered
+   *  size is auto-calculated to fill the box. Kept for backwards
+   *  compatibility with saved projects. */
   fontSize: number;
   color: string;
   backgroundColor?: string;
@@ -139,6 +149,17 @@ export interface DynamicFieldLayer extends BaseLayer {
   collageLayout?: string;
   /** Image fields only — gap between collage cells in px */
   collageGap?: number;
+  // ── Text properties (for fieldType: 'text') ──────────────────────
+  // These are passed through to the inflated text layer. The font size
+  // is NOT among them — it's auto-calculated to fill the box.
+  fontFamily?: string;
+  fontWeight?: number;
+  bold?: boolean;
+  italic?: boolean;
+  align?: TextAlign;
+  verticalAlign?: TextVerticalAlign;
+  lineHeight?: number;
+  direction?: TextDirection;
 }
 
 export type AnyLayer = TextLayer | ImageLayer | ShapeLayer | DynamicFieldLayer;

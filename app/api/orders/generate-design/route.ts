@@ -143,14 +143,13 @@ interface GenerateDesignRequest {
  *   2. Look up the booking product by `backendProductId`.
  *   3. If no booking product exists → respond with `noBookingProduct`.
  *   4. Pick the right template based on `hasReservationPhoto`:
- *        - hasReservationPhoto=true  → image template
- *          (imageTemplateId); fall back to text template if no image
- *          template is assigned.
- *        - hasReservationPhoto=false → text template (templateId).
- *      If the chosen template slot is empty → respond with `noTemplate`.
+ *        - hasReservationPhoto=true  → image template (imageTemplateId)
+ *        - hasReservationPhoto=false → text template (templateId)
+ *      STRICT matching — no fallback between types. If the required
+ *      template slot is empty → respond with `noTemplate`.
  *   5. Load the template project.
- *   6. Render the template with the order data using puppeteer
- *      (dynamic fields inflated, rasterized to JPG).
+ *   6. Inflate the template's dynamic fields with the order data and
+ *      render to JPG via @napi-rs/canvas (native canvas engine).
  *   7. Upload the rendered JPG to R2 at
  *      `design/orders-design/{orderNumber}[-{itemIndex}].jpg`.
  *   8. Return the public URL + which template variant was used.
@@ -220,32 +219,42 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Pick the right template based on reservation photo ───────────
-    // - hasReservationPhoto=true  → prefer imageTemplateId; fall back to
-    //   templateId (text) if no image template is assigned.
-    // - hasReservationPhoto=false → use templateId (text).
+    // STRICT matching — no fallback between template types:
+    //   hasReservationPhoto=true  → MUST use imageTemplateId (image template)
+    //   hasReservationPhoto=false → MUST use templateId (text template)
+    //
+    // We never use an image template for an order without a photo, and
+    // we never use a text template for an order WITH a photo. If the
+    // required template slot is empty, we return `noTemplate` so the
+    // admin knows they need to create the right template variant.
     let templateId: string | null | undefined;
     let templateType: TemplateType;
 
-    if (body.hasReservationPhoto && bookingProduct.imageTemplateId) {
-      templateId = bookingProduct.imageTemplateId;
+    if (body.hasReservationPhoto) {
+      // Order HAS a reservation photo → must use the image template
+      templateId = bookingProduct.imageTemplateId ?? null;
       templateType = 'image';
     } else {
+      // Order has NO reservation photo → must use the text template
       templateId = bookingProduct.templateId;
       templateType = 'text';
     }
 
     if (!templateId) {
-      // The chosen template slot is empty — the user hasn't created a
-      // template for this variant yet. The caller should tell the user
-      // they need to create a template for this product in the design app.
+      // The required template slot is empty — the admin hasn't created
+      // the right template variant for this product yet.
+      const needed = templateType === 'image'
+        ? 'image template (for orders with a reservation photo)'
+        : 'text template (for orders without a reservation photo)';
       return NextResponse.json(
         {
           success: false,
           error: 'noTemplate',
-          message: `No ${templateType} template has been assigned to this product yet. An admin must create a ${templateType} template in the design app before designs can be generated.`,
+          message: `No ${needed} has been assigned to this product. An admin must create one in the design app before designs can be generated for this order.`,
           productId: body.productId,
           bookingProductId: bookingProduct.id,
           templateType,
+          hasReservationPhoto: body.hasReservationPhoto,
         },
         { status: 409 },
       );
@@ -289,7 +298,7 @@ export async function POST(request: NextRequest) {
     //
     // This design instance is what gets:
     //   1. Saved to MongoDB as a standalone project
-    //   2. Rendered to JPG via puppeteer
+    //   2. Rendered to JPG via @napi-rs/canvas
     //   3. Uploaded to R2
     //   4. Opened in the editor when the admin clicks "edit design"
     //
@@ -305,9 +314,10 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Render the design instance to JPG ─────────────────────────────
-    // The renderer builds a self-contained HTML document from the
-    // design instance's layers (which are now concrete text/image
-    // layers, not dynamic fields) and uses puppeteer to screenshot it.
+    // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
+    // draw each layer directly — no browser, no HTML, no Puppeteer.
+    // Dynamic fields have already been inflated to concrete text/image
+    // layers by inflateTemplateToDesign above.
     const jpgBuffer = await renderTemplateToJpg(designInstance, body.orderData);
 
     // ── Upload to R2 ──────────────────────────────────────────────────

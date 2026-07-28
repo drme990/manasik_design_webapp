@@ -42,6 +42,14 @@ interface OrderDataPayload {
   reservation?: Record<string, string>;
   source?: string;
   locale?: string;
+  /** The order's referral ID (e.g. "m1", "m2", "MNK-D", "GHD-D") */
+  referralId?: string;
+  /** All referrals from the DB — used by ref.phoneNumbers dynamic field */
+  referrals?: Array<{
+    referralId: string;
+    phone: string;
+    name: string;
+  }>;
 }
 
 // ─── Field resolution ─────────────────────────────────────────────────────
@@ -80,7 +88,9 @@ function resolveFieldValue(
     if (key === 'productName') {
       const name = item.productName;
       if (!name) return undefined;
-      return orderData.locale === 'en' ? name.en : name.ar || name.en;
+      // Always prefer the Arabic name — templates are designed for
+      // Arabic content. Fall back to English only if Arabic is missing.
+      return name.ar || name.en;
     }
     return (item as Record<string, unknown>)[key]?.toString();
   }
@@ -97,7 +107,54 @@ function resolveFieldValue(
     return undefined;
   }
 
+  if (variableId.startsWith('ref.')) {
+    const key = variableId.slice('ref.'.length);
+    if (key === 'phoneNumbers') {
+      return resolveRefPhoneNumbers(orderData);
+    }
+    return undefined;
+  }
+
   return undefined;
+}
+
+/**
+ * Resolve the `ref.phoneNumbers` dynamic field.
+ *
+ * Returns all referral phone numbers as a multi-line string (one number
+ * per row), with the order's ref number first, then the rest.
+ *
+ * Default refs (MNK-D, GHD-D) map to m1 — so an order with the default
+ * ref shows m1's phone first, then m2, m3, etc.
+ *
+ * If the order's ref isn't in the referrals list, the numbers are sorted
+ * alphabetically by referralId (no special first position).
+ */
+function resolveRefPhoneNumbers(orderData: OrderDataPayload): string | undefined {
+  const referrals = orderData.referrals;
+  if (!referrals || referrals.length === 0) return undefined;
+
+  // Determine the order's ref, defaulting by source
+  let orderRef = orderData.referralId;
+  if (!orderRef) {
+    orderRef = orderData.source === 'ghadaq' ? 'GHD-D' : 'MNK-D';
+  }
+
+  // Map default refs to m1 (per business rule: default or m1 → m1 first)
+  const priorityRef =
+    orderRef === 'MNK-D' || orderRef === 'GHD-D' ? 'm1' : orderRef;
+
+  // Sort: matching ref first, then the rest by referralId
+  const sorted = [...referrals].sort((a, b) => {
+    const aMatch = a.referralId === priorityRef ? 0 : 1;
+    const bMatch = b.referralId === priorityRef ? 0 : 1;
+    if (aMatch !== bMatch) return aMatch - bMatch;
+    // Both are either matching or non-matching → sort by referralId
+    return a.referralId.localeCompare(b.referralId);
+  });
+
+  // Join phone numbers with newlines (one per row)
+  return sorted.map((r) => r.phone).join('\n');
 }
 
 // ─── Layer inflation ──────────────────────────────────────────────────────
@@ -130,16 +187,21 @@ function inflateTextDynamicField(
     visible: layer.visible,
     locked: layer.locked,
     text: value || layer.placeholder,
-    fontFamily: 'Expo Arabic',
-    fontWeight: 700,
-    fontSize: layer.fontSize,
+    // Use the dynamic field's text properties, with sensible defaults
+    fontFamily: layer.fontFamily || 'Expo Arabic',
+    fontWeight: layer.fontWeight || 700,
+    fontSize: layer.fontSize, // reference only — autoFit overrides this
     color: layer.color,
-    bold: true,
-    italic: false,
-    align: 'center',
-    verticalAlign: 'middle',
-    lineHeight: 1.2,
-    direction: 'rtl',
+    bold: layer.bold ?? true,
+    italic: layer.italic ?? false,
+    align: layer.align || 'center',
+    verticalAlign: layer.verticalAlign || 'middle',
+    lineHeight: layer.lineHeight ?? 1.2,
+    direction: layer.direction || 'rtl',
+    // Auto-fit: the font size is calculated to fill the box (grow or
+    // shrink) based on the text content + box dimensions. The saved
+    // fontSize is only a reference, not the actual rendered size.
+    autoFit: true,
   };
 }
 

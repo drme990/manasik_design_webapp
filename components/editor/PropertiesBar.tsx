@@ -448,8 +448,90 @@ export default function PropertiesBar({
                 {/* Dynamic field layer */}
                 {selectedLayer.type === 'dynamic_field' && (() => {
                     const l = selectedLayer as DynamicFieldLayer;
+                    const alignIcons = { left: LuAlignLeft, center: LuAlignCenter, right: LuAlignRight };
+                    const vAlignIcons = { top: LuAlignStartVertical, middle: LuAlignCenterVertical, bottom: LuAlignEndVertical };
+                    const curAlign = l.align || 'center';
+                    const curVAlign = l.verticalAlign || 'middle';
+                    const AlignIcon = alignIcons[curAlign];
+                    const VAlignIcon = vAlignIcons[curVAlign];
+                    const nextAlign: TextLayer['align'] = curAlign === 'right' ? 'center' : curAlign === 'center' ? 'left' : 'right';
+                    const nextVAlign: TextLayer['verticalAlign'] = curVAlign === 'bottom' ? 'middle' : curVAlign === 'middle' ? 'top' : 'bottom';
+                    const curDirection = l.direction || 'rtl';
+                    const isText = l.fieldType === 'text';
                     return (
                         <>
+                            {/* Text-only properties (font, bold, italic, align, etc.)
+                                Font SIZE is intentionally excluded — it's auto-calculated
+                                to fill the box based on the text content. */}
+                            {isText && (
+                                <>
+                                    <PropButton
+                                        label={t('toolbars.text.font')}
+                                        value={l.fontFamily || 'Expo Arabic'}
+                                        icon={<LuType className="h-5 w-5" />}
+                                        active={fontDrawerOpen}
+                                        onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.autoSize')}
+                                        value="AUTO"
+                                        icon={<LuALargeSmall className="h-5 w-5" />}
+                                        active={false}
+                                        onClick={() => { /* no-op — size is auto */ }}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.text.color')}
+                                        swatch={l.color}
+                                        icon={<LuPalette className="h-5 w-5" />}
+                                        active={colorPickerProp === 'df.color'}
+                                        onClick={() => setColorPickerProp(colorPickerProp === 'df.color' ? null : 'df.color')}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.text.bold')}
+                                        icon={<LuBold className="h-5 w-5" />}
+                                        active={l.bold ?? true}
+                                        onClick={() => onLayerChange(l.id, { bold: !(l.bold ?? true) } as Partial<AnyLayer>)}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.text.italic')}
+                                        icon={<LuItalic className="h-5 w-5" />}
+                                        active={l.italic ?? false}
+                                        onClick={() => onLayerChange(l.id, { italic: !(l.italic ?? false) } as Partial<AnyLayer>)}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.text.lineHeight')}
+                                        value={l.lineHeight ?? 1.2}
+                                        icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
+                                        active={activeProp === 'df.lineHeight'}
+                                        onClick={() => setActiveProp(activeProp === 'df.lineHeight' ? null : 'df.lineHeight')}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.text.align')}
+                                        icon={<AlignIcon className="h-5 w-5" />}
+                                        active={false}
+                                        onClick={() => onLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.text.vAlign')}
+                                        icon={<VAlignIcon className="h-5 w-5" />}
+                                        active={false}
+                                        onClick={() => onLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
+                                    />
+                                    <PropToggle
+                                        label={t('toolbars.text.direction')}
+                                        icon={
+                                            curDirection === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
+                                                curDirection === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
+                                                    <LuLanguages className="h-5 w-5" />
+                                        }
+                                        active={false}
+                                        onClick={() => {
+                                            const next = curDirection === 'auto' ? 'rtl' : curDirection === 'rtl' ? 'ltr' : 'auto';
+                                            onLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
+                                        }}
+                                    />
+                                </>
+                            )}
                             <PropButton
                                 label={t('toolbars.dynamicField.opacity')}
                                 value={`${Math.round(l.opacity * 100)}%`}
