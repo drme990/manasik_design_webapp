@@ -204,13 +204,44 @@ The renderer:
    - **shape** — rectangle (with corner radius), circle/ellipse,
      triangle, line, stars (4/5/6/8 points), PNG shapes
    - **dynamic_field** — resolves `billing.*`, `order.*`, `item.*`,
-     `reservation.*`, `ref.*` variable IDs against the order data, then
-     renders as text (auto-fits to fill the box) or image
-     - `ref.phoneNumbers` — multi-line list of all referral phone
-       numbers (from the `referrals` collection), with the order's ref
-       first. Default refs (MNK-D, GHD-D) map to m1. Each number on its
-       own row.
-5. Exports the canvas as a JPEG buffer (quality 1.0 = max).
+     `reservation.*`, `ref.*`, `custom.*` variable IDs against the order
+     data, then renders as text (auto-fits to fill the box) or image.
+     Fields are grouped in the picker UI by category:
+     - **Order fields** (`order` category): billing, order-level, item
+       fields — direct data from the order.
+     - **Reservation fields** (`reservation` category): intention,
+       sacrificeFor, gender, isAlive, shortDuaa, photo, executionDate.
+     - **Custom fields** (`custom` category): derived/computed fields:
+       - `ref.phoneNumbers` — multi-line list of all referral phone
+         numbers (from the `referrals` collection), with the order's ref
+         first. Default refs (MNK-D, GHD-D) map to m1. Each number on its
+         own row.
+       - `custom.genderLetter` — gender as a single letter: "M" (male),
+         "F" (female), "M,F" (both). Reads `reservation.gender` from
+         the DB (stored in Arabic: "ذكر", "انثى", "ذكور و اناث") and
+         converts to the letter representation.
+       - `custom.genderIcon` — gender as a Unicode symbol: "♂" (male),
+         "♀" (female), "♂♀" (both). Same source as genderLetter.
+     - **Missing data → hidden** — if a field resolves to no value
+       (undefined, null, empty string, whitespace-only, or the literal
+       strings "none"/"null"/"undefined"), the field is NOT displayed.
+       The placeholder text is never shown on generated designs — only
+       fields with real data appear. The layer is set to
+       `visible: false` (inflate) or skipped entirely (render).
+     - **Display rules** — some fields are conditionally hidden via
+       `shouldDisplayField()` even when they have a value:
+       - `item.quantity` — only shown when quantity >= 2. A single item
+         is the default, so showing "1" is redundant. The layer is set
+         to `visible: false` (inflate) or skipped entirely (render).
+     - **Formatting rules** — some fields have their values formatted
+       before display:
+       - `reservation.sacrificeFor` (اسم الشخص المؤدى عنه) — the backend
+         stores multiple names as a newline-separated string. Each name
+         goes on its own line with "و" (Arabic "and") prepended to every
+         name after the first. Single name → no prefix.
+         e.g. `"أحمد\nمحمد\nعلي"` → `"أحمد\nو محمد\nو علي"`.
+5. Exports the canvas as a JPEG buffer (quality 100 = max on
+   @napi-rs/canvas's 0-100 scale — NOT 0-1 like browser canvas).
 
 ### Render quality
 
@@ -220,7 +251,7 @@ The renderer uses 3x supersampling for sharp output:
 - For a 1080×1080 template, the output is 3240×3240 pixels
 - `textRendering: 'optimizeLegibility'` for crisp Arabic text
 - `imageSmoothingQuality: 'high'` for smooth photo scaling
-- JPEG quality 1.0 (no compression artifacts on text edges)
+- JPEG quality 100 (@napi-rs/canvas uses 0-100 scale, not 0-1)
 
 ### Fonts
 

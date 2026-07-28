@@ -55,6 +55,83 @@ interface OrderDataPayload {
 // ─── Field resolution ─────────────────────────────────────────────────────
 
 /**
+ * Check if a resolved field value is "empty" / missing and should cause
+ * the field to be hidden entirely (not displayed on the design).
+ *
+ * Treats the following as empty:
+ *   - undefined / null
+ *   - empty string or whitespace-only
+ *   - the literal strings "none", "null", "undefined" (case-insensitive)
+ *     — these can appear when a backend field has no value but is stored
+ *     as a string rather than omitted
+ */
+function isEmptyValue(value: string | undefined): boolean {
+  if (value === undefined || value === null) return true;
+  const trimmed = value.trim();
+  if (trimmed === '') return true;
+  const lower = trimmed.toLowerCase();
+  return lower === 'none' || lower === 'null' || lower === 'undefined';
+}
+
+/**
+ * Format the `sacrificeFor` field (اسم الشخص المؤدى عنه) for display.
+ *
+ * The backend stores multiple names as a single newline-separated string
+ * (e.g. "أحمد\nمحمد\nعلي"). For display on the design, each name goes on
+ * its own line with "و" (Arabic "and") prepended to every name after the
+ * first:
+ *
+ *   "أحمد\nمحمد\nعلي"  →  "أحمد\nو محمد\nو علي"
+ *
+ * A single name is returned as-is (no "و" prefix).
+ */
+function formatSacrificeForNames(raw: string): string {
+  const names = raw
+    .split('\n')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (names.length === 0) return raw.trim();
+  if (names.length === 1) return names[0];
+  return names.map((n, i) => (i === 0 ? n : `و ${n}`)).join('\n');
+}
+
+/**
+ * Resolve the gender value to a symbol (letter or icon).
+ *
+ * The backend stores gender in Arabic: "ذكر" (male), "انثى" (female),
+ * "ذكور و اناث" (both). This function converts to:
+ *
+ *   - 'letter': "M" / "F" / "M,F"
+ *   - 'icon':   "♂" / "♀" / "♂♀"
+ *
+ * Also handles English values ("male", "female", "males and females")
+ * in case the data comes from a different source.
+ *
+ * Returns undefined if the gender value can't be recognized.
+ */
+function resolveGenderSymbol(
+  rawGender: string | undefined,
+  mode: 'letter' | 'icon',
+): string | undefined {
+  if (!rawGender) return undefined;
+  const v = rawGender.trim().toLowerCase();
+
+  // Male: "ذكر" or "male"
+  if (v === 'ذكر' || v === 'male') {
+    return mode === 'letter' ? 'M' : '♂';
+  }
+  // Female: "انثى" or "أنثى" or "female"
+  if (v === 'انثى' || v === 'أنثى' || v === 'female') {
+    return mode === 'letter' ? 'F' : '♀';
+  }
+  // Both: "ذكور و اناث" or "males and females" or similar
+  if (v.includes('ذكور') || v.includes('اناث') || v.includes('both') || v.includes('males')) {
+    return mode === 'letter' ? 'M,F' : '♂♀';
+  }
+  return undefined;
+}
+
+/**
  * Resolve a dynamic field's variableId against the order data payload.
  *
  * Variable IDs match the backend data paths:
@@ -97,20 +174,42 @@ function resolveFieldValue(
 
   if (variableId.startsWith('reservation.')) {
     const key = variableId.slice('reservation.'.length);
+    let raw: string | undefined;
     if (orderData.reservation && orderData.reservation[key]) {
-      return orderData.reservation[key];
-    }
-    if (orderData.reservationData) {
+      raw = orderData.reservation[key];
+    } else if (orderData.reservationData) {
       const entry = orderData.reservationData.find((r) => r.key === key);
-      return entry?.value;
+      raw = entry?.value;
     }
-    return undefined;
+    // sacrificeFor stores multiple names separated by newlines.
+    // Format as: first name on its own line, then "و" prepended to each
+    // subsequent name (Arabic "and" — e.g. "أحمد\nو محمد\nو علي").
+    if (key === 'sacrificeFor' && raw) {
+      return formatSacrificeForNames(raw);
+    }
+    return raw;
   }
 
   if (variableId.startsWith('ref.')) {
     const key = variableId.slice('ref.'.length);
     if (key === 'phoneNumbers') {
       return resolveRefPhoneNumbers(orderData);
+    }
+    return undefined;
+  }
+
+  if (variableId.startsWith('custom.')) {
+    const key = variableId.slice('custom.'.length);
+    if (key === 'genderLetter' || key === 'genderIcon') {
+      // Read the raw gender from reservation data
+      let rawGender: string | undefined;
+      if (orderData.reservation && orderData.reservation['gender']) {
+        rawGender = orderData.reservation['gender'];
+      } else if (orderData.reservationData) {
+        const entry = orderData.reservationData.find((r) => r.key === 'gender');
+        rawGender = entry?.value;
+      }
+      return resolveGenderSymbol(rawGender, key === 'genderLetter' ? 'letter' : 'icon');
     }
     return undefined;
   }
@@ -124,11 +223,12 @@ function resolveFieldValue(
  * Returns all referral phone numbers as a multi-line string (one number
  * per row), with the order's ref number first, then the rest.
  *
- * Default refs (MNK-D, GHD-D) map to m1 — so an order with the default
- * ref shows m1's phone first, then m2, m3, etc.
+ * Default refs (MNK-D, GHD-D) are NOT real refs — they share m1's phone
+ * number. So we exclude them from the list and use m1 as the priority
+ * when the order's ref is a default.
  *
- * If the order's ref isn't in the referrals list, the numbers are sorted
- * alphabetically by referralId (no special first position).
+ * Numbers are deduplicated by phone — if the same number appears under
+ * multiple referralIds, it only shows once.
  */
 function resolveRefPhoneNumbers(orderData: OrderDataPayload): string | undefined {
   const referrals = orderData.referrals;
@@ -140,38 +240,86 @@ function resolveRefPhoneNumbers(orderData: OrderDataPayload): string | undefined
     orderRef = orderData.source === 'ghadaq' ? 'GHD-D' : 'MNK-D';
   }
 
-  // Map default refs to m1 (per business rule: default or m1 → m1 first)
+  // Default refs (MNK-D, GHD-D) share m1's phone number — map to m1
   const priorityRef =
     orderRef === 'MNK-D' || orderRef === 'GHD-D' ? 'm1' : orderRef;
 
+  // Exclude the default ref entries (MNK-D, GHD-D) from the list — they
+  // duplicate m1's number. Only keep real refs (m1, m2, m3, ...).
+  const realRefs = referrals.filter(
+    (r) => r.referralId !== 'MNK-D' && r.referralId !== 'GHD-D',
+  );
+
   // Sort: matching ref first, then the rest by referralId
-  const sorted = [...referrals].sort((a, b) => {
+  const sorted = [...realRefs].sort((a, b) => {
     const aMatch = a.referralId === priorityRef ? 0 : 1;
     const bMatch = b.referralId === priorityRef ? 0 : 1;
     if (aMatch !== bMatch) return aMatch - bMatch;
-    // Both are either matching or non-matching → sort by referralId
     return a.referralId.localeCompare(b.referralId);
   });
 
-  // Join phone numbers with newlines (one per row)
-  return sorted.map((r) => r.phone).join('\n');
+  // Deduplicate by phone number — keep the first occurrence (which is
+  // the priority ref's number if it appeared first after sorting)
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const r of sorted) {
+    if (!seen.has(r.phone)) {
+      seen.add(r.phone);
+      unique.push(r.phone);
+    }
+  }
+
+  return unique.join('\n');
 }
 
 // ─── Layer inflation ──────────────────────────────────────────────────────
 
 /**
+ * Business rules for when a dynamic field should be hidden (not displayed
+ * on the design) even though the user added it to the template.
+ *
+ * Returns true if the field should be displayed, false if it should be
+ * hidden.
+ *
+ * Current rules:
+ *   - item.quantity: only show if quantity >= 2 (a single item is the
+ *     default, so showing "1" is redundant noise on the design)
+ */
+function shouldDisplayField(
+  variableId: string,
+  orderData: OrderDataPayload,
+): boolean {
+  if (variableId === 'item.quantity') {
+    const item = orderData.item || orderData.items?.[0];
+    const qty = item?.quantity;
+    if (qty === undefined) return true; // can't resolve — let normal flow handle
+    return qty >= 2;
+  }
+  return true;
+}
+
+/**
  * Convert a dynamic text field layer to a concrete text layer.
  *
  * The new text layer inherits the dynamic field's position, size,
- * font, color, and alignment. The `text` is set to the resolved value,
- * or the placeholder if the value couldn't be resolved (so the user
- * sees something in the editor instead of an empty box).
+ * font, color, and alignment. The `text` is set to the resolved value.
+ *
+ * If the value is missing/empty/none, the layer is hidden (visible: false)
+ * — the placeholder is NOT shown. The design only shows fields that have
+ * real data. The admin can still see the hidden layer in the editor's
+ * layers panel and toggle it on manually if needed.
+ *
+ * Some fields also have display rules (e.g. item.quantity is hidden when
+ * the quantity is 1) — if the rule says to hide, the layer is returned
+ * with `visible: false` so it stays in the layer list but doesn't render.
  */
 function inflateTextDynamicField(
   layer: DynamicFieldLayer,
   orderData: OrderDataPayload,
 ): TextLayer {
   const value = resolveFieldValue(layer.variableId, orderData);
+  const display = shouldDisplayField(layer.variableId, orderData);
+  const hasValue = !isEmptyValue(value);
 
   return {
     id: generateId(),
@@ -184,9 +332,10 @@ function inflateTextDynamicField(
     rotation: layer.rotation,
     opacity: layer.opacity,
     zIndex: layer.zIndex,
-    visible: layer.visible,
+    // Hide if: layer was manually hidden, display rule says no, or no data
+    visible: layer.visible && display && hasValue,
     locked: layer.locked,
-    text: value || layer.placeholder,
+    text: hasValue ? value! : layer.placeholder,
     // Use the dynamic field's text properties, with sensible defaults
     fontFamily: layer.fontFamily || 'Expo Arabic',
     fontWeight: layer.fontWeight || 700,
@@ -221,6 +370,7 @@ function inflateImageDynamicField(
   orderData: OrderDataPayload,
 ): ImageLayer {
   const value = resolveFieldValue(layer.variableId, orderData);
+  const hasValue = !isEmptyValue(value);
 
   return {
     id: generateId(),
@@ -235,9 +385,9 @@ function inflateImageDynamicField(
     zIndex: layer.zIndex,
     // Hide the layer if no image was resolved — the user can manually
     // upload one in the editor if needed.
-    visible: layer.visible && !!value,
+    visible: layer.visible && hasValue,
     locked: layer.locked,
-    uri: value || '',
+    uri: hasValue ? value! : '',
     naturalWidth: layer.imageWidth || layer.width,
     naturalHeight: layer.imageHeight || layer.height,
     maskWidth: layer.width,

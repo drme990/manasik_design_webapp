@@ -290,6 +290,10 @@ export default function EditorPage() {
     const pendingPersistRef = useRef<Project | null>(null);
     const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedRef = useRef(false);
+    // Track in-flight background image upload so save can wait for it.
+    // Without this, saving while the bg is still uploading strips the
+    // blob: URI (cleanProjectForSave) and the template loses its background.
+    const bgUploadPromiseRef = useRef<Promise<{ uri: string; thumbnailUri?: string }> | null>(null);
     // Debounced thumbnail regeneration — after the user stops making changes
     // for a few seconds, we capture a new thumbnail and upload it in the
     // background so the /projects card preview stays up-to-date without
@@ -428,6 +432,15 @@ export default function EditorPage() {
         cancelThumbnailUpdate();
         setSaving(true);
         try {
+            // Wait for any in-flight background image upload to complete.
+            // Without this, cleanProjectForSave strips the blob: URI and
+            // the template/design loses its background image.
+            if (bgUploadPromiseRef.current) {
+                try { await bgUploadPromiseRef.current; } catch { /* upload error already handled in UI */ }
+                // Use the latest project state (bg URI was updated by the
+                // upload's .then() callback above)
+                updated = projectRef.current || updated;
+            }
             const saved = await storeSaveProject(updated);
             // Update local state with the server's response (canonical positions)
             setProject(saved);
@@ -550,9 +563,23 @@ export default function EditorPage() {
         }
 
         // Apply rename if provided (first-time save flow)
-        const toSave = nameOverride && nameOverride.trim()
+        let toSave = nameOverride && nameOverride.trim()
             ? { ...current, name: nameOverride.trim() }
             : current;
+
+        // Wait for any in-flight background image upload to complete.
+        // Without this, cleanProjectForSave strips the blob: URI and the
+        // template/design loses its background image on save.
+        if (bgUploadPromiseRef.current) {
+            try { await bgUploadPromiseRef.current; } catch { /* upload error already handled */ }
+            // Use the latest project state (bg URI updated by upload callback)
+            const latest = projectRef.current;
+            if (latest) {
+                toSave = nameOverride && nameOverride.trim()
+                    ? { ...latest, name: nameOverride.trim() }
+                    : latest;
+            }
+        }
 
         // Capture the thumbnail now — this needs the canvas DOM node, so it
         // must complete before we navigate away and unmount the page. It's a
@@ -748,7 +775,7 @@ export default function EditorPage() {
         }));
 
         // --- Background upload ---
-        uploadImageInBackground(file)
+        const uploadPromise = uploadImageInBackground(file)
             .then((uploaded) => {
                 try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
                 updateProjectState((prev) => ({
@@ -757,6 +784,7 @@ export default function EditorPage() {
                     backgroundThumbnailUri: uploaded.thumbnailUri,
                     bgUploadStatus: undefined,
                 }));
+                return uploaded;
             })
             .catch((err) => {
                 console.error('Background image upload failed:', err);
@@ -767,7 +795,16 @@ export default function EditorPage() {
                     bgUploadStatus: 'error',
                     bgPendingFile: file,
                 }));
+                throw err;
+            })
+            .finally(() => {
+                // Clear the ref once the upload settles (success or failure)
+                if (bgUploadPromiseRef.current === uploadPromise) {
+                    bgUploadPromiseRef.current = null;
+                }
             });
+        // Store the promise so flushPersist/doSaveAndLeave can await it
+        bgUploadPromiseRef.current = uploadPromise;
     }, [project, updateProjectState]);
 
     /** Retry a failed background image upload. */
@@ -777,7 +814,7 @@ export default function EditorPage() {
         const file = current.bgPendingFile;
         const tempUri = current.backgroundUri?.startsWith('blob:') ? current.backgroundUri : URL.createObjectURL(file);
         updateProjectState((prev) => ({ ...prev, bgUploadStatus: 'uploading' }));
-        uploadImageInBackground(file)
+        const uploadPromise = uploadImageInBackground(file)
             .then((uploaded) => {
                 try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
                 updateProjectState((prev) => ({
@@ -787,11 +824,19 @@ export default function EditorPage() {
                     bgUploadStatus: undefined,
                     bgPendingFile: undefined,
                 }));
+                return uploaded;
             })
             .catch((err) => {
                 console.error('Background image re-upload failed:', err);
                 updateProjectState((prev) => ({ ...prev, bgUploadStatus: 'error' }));
+                throw err;
+            })
+            .finally(() => {
+                if (bgUploadPromiseRef.current === uploadPromise) {
+                    bgUploadPromiseRef.current = null;
+                }
             });
+        bgUploadPromiseRef.current = uploadPromise;
     }, [updateProjectState]);
 
     const handleRemoveBackgroundImage = useCallback(() => {
@@ -800,6 +845,7 @@ export default function EditorPage() {
         if (prevBg && prevBg.startsWith('blob:')) {
             try { URL.revokeObjectURL(prevBg); } catch { /* ignore */ }
         }
+        bgUploadPromiseRef.current = null;
         updateProjectState((prev) => ({
             ...prev,
             backgroundUri: undefined,
