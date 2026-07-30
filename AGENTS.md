@@ -97,6 +97,23 @@ Each booking product can have two template slots:
 - `imageTemplateId` — the image template, used when the order has a
   reservation photo.
 
+**One text + one image — no duplicates.** Each product can have at most
+ONE text template and ONE image template. A product cannot have two text
+templates or two image templates. This is enforced both client-side (the
+`ConnectProductsModal` disables the toggle button if the product already
+has a different template in the same slot) and server-side (the
+`PATCH /api/booking-products/[id]` route validates that `templateId`
+points to a text template and `imageTemplateId` points to an image
+template, returning `templateTypeMismatch` if they don't match).
+
+**Product assignment UI.** Connecting products to templates is done via
+the `ConnectProductsModal` (`components/templates/ConnectProductsModal.tsx`)
+opened from the `/templates` list page — not a separate page. The modal
+shows the template preview, a type badge (text/image), a search box, and
+a grid of backend products with checkboxes. Changes are staged locally
+and only persisted when the Save button is clicked (batched in parallel).
+The old `/templates/[productId]` route redirects to `/templates`.
+
 **Strict matching — no fallback.** If an order has a reservation photo,
 the design app MUST use `imageTemplateId`. If it's not set, the request
 fails with `noTemplate` (the admin must create an image template). If an

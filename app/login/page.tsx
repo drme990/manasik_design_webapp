@@ -11,7 +11,7 @@ export default async function LoginPage({
 
     if (session) {
         const { from } = await searchParams;
-        const redirectTo = (Array.isArray(from) ? from[0] : from) || '/projects';
+        const redirectTo = (Array.isArray(from) ? from[0] : from) || '/';
         redirect(redirectTo);
     }
 

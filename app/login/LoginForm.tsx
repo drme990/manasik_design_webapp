@@ -32,7 +32,7 @@ export default function LoginForm() {
             const result = await response.json();
 
             if (response.ok && result.success) {
-                const redirectTo = searchParams.get('from') || '/projects';
+                const redirectTo = searchParams.get('from') || '/';
                 router.push(redirectTo);
                 router.refresh();
             } else if (response.status === 429) {

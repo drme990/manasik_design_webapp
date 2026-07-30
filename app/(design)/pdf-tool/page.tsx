@@ -481,7 +481,7 @@ function PdfToolPage() {
         hasUnsavedRef.current = false;
         setHasUnsavedChanges(false);
         await flushSave();
-        router.replace('/projects');
+        router.replace('/');
     }, [flushSave, router]);
 
     // "No" button in the leave modal — discards unsaved changes.
@@ -502,7 +502,7 @@ function PdfToolPage() {
         }
         // For existing projects with content, just leave — the DB still has
         // the last-saved version; unsaved session changes are discarded.
-        router.replace('/projects');
+        router.replace('/');
     }, [router, images.length]);
 
     // Silently leave without asking — used when there are no changes at all.
@@ -516,7 +516,7 @@ function PdfToolPage() {
                 invalidatePdfListCache();
             }
         }
-        router.replace('/projects');
+        router.replace('/');
     }, [router, images.length]);
 
     const handleNavigateBack = useCallback(() => {
@@ -680,19 +680,17 @@ function PdfToolPage() {
     return (
         <DndProvider backend={HTML5Backend}>
             <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
-                <div className="mx-auto max-w-4xl">
+                <div className="mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mb-8">
                         <div className="mb-3 flex items-center gap-3">
-                            {projectId && (
-                                <button
-                                    onClick={handleNavigateBack}
-                                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-card-bg text-foreground transition-colors hover:bg-muted"
-                                    aria-label={uiT('back')}
-                                >
-                                    <LuArrowLeft className="h-5 w-5 rtl:rotate-180" />
-                                </button>
-                            )}
+                            <button
+                                onClick={handleNavigateBack}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-card-bg text-foreground transition-colors hover:bg-muted"
+                                aria-label={uiT('back')}
+                            >
+                                <LuArrowLeft className="h-5 w-5 rtl:rotate-180" />
+                            </button>
                             <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
                         </div>
                         <p className="mt-1 text-secondary">{t('subtitle')}</p>

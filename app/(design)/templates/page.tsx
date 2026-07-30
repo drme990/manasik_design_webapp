@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -13,12 +13,14 @@ import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
+import ConnectProductsModal from '@/components/templates/ConnectProductsModal';
 import type { BookingProduct, Project } from '@/types';
 
 type TabId = 'text' | 'image';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
+    const uiT = useTranslations('ui');
     // Subscribe to the zustand store — templates list is always in sync
     const templates = useProjectStore((s) => s.templates);
     const templatesLoading = useProjectStore((s) => s.templatesLoading);
@@ -37,6 +39,7 @@ export default function TemplatesPage() {
     const [customHeight, setCustomHeight] = useState('1080');
     const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
+    const [connectModalTemplate, setConnectModalTemplate] = useState<Project | null>(null);
     const galleryInputRef = useRef<HTMLInputElement>(null);
 
     // Split templates by templateType. Legacy templates (undefined) are
@@ -96,9 +99,11 @@ export default function TemplatesPage() {
         load();
     }, [fetchTemplates]);
 
-    // Count how many products are assigned to a template
+    // Count how many products are assigned to a template (in either slot)
     const getProductCount = (templateId: string): number =>
-        bookingProducts.filter((bp) => bp.templateId === templateId).length;
+        bookingProducts.filter(
+            (bp) => bp.templateId === templateId || bp.imageTemplateId === templateId,
+        ).length;
 
     const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
         const project = await storeCreateProject({
@@ -187,13 +192,14 @@ export default function TemplatesPage() {
                                 </div>
 
                                 <div className="mt-auto flex items-center gap-2">
-                                    <Link
-                                        href={`/templates/${template.id}`}
+                                    <button
+                                        type="button"
+                                        onClick={() => setConnectModalTemplate(template)}
                                         className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                                     >
                                         <LuBoxes className="h-4 w-4" />
                                         {t('assignProducts')}
-                                    </Link>
+                                    </button>
                                     <Link
                                         href={`/editor/${template.id}`}
                                         className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
@@ -324,7 +330,16 @@ export default function TemplatesPage() {
         <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-6xl">
                 <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+                    <div className="mb-3 flex items-center gap-3">
+                        <Link
+                            href="/"
+                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-card-bg text-foreground transition-colors hover:bg-muted"
+                            aria-label={uiT('back')}
+                        >
+                            <LuArrowLeft className="h-5 w-5 rtl:rotate-180" />
+                        </Link>
+                        <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+                    </div>
                     <p className="mt-1 text-secondary">{t('subtitle')}</p>
                 </div>
 
@@ -333,8 +348,8 @@ export default function TemplatesPage() {
                     <button
                         onClick={() => setActiveTab('text')}
                         className={`relative px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'text'
-                                ? 'text-brand-primary'
-                                : 'text-secondary hover:text-foreground'
+                            ? 'text-brand-primary'
+                            : 'text-secondary hover:text-foreground'
                             }`}
                     >
                         {t('tabText')}
@@ -345,8 +360,8 @@ export default function TemplatesPage() {
                     <button
                         onClick={() => setActiveTab('image')}
                         className={`relative px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'image'
-                                ? 'text-brand-primary'
-                                : 'text-secondary hover:text-foreground'
+                            ? 'text-brand-primary'
+                            : 'text-secondary hover:text-foreground'
                             }`}
                     >
                         {t('tabImage')}
@@ -400,6 +415,14 @@ export default function TemplatesPage() {
                 onConfirm={handleDelete}
                 loading={deleteLoading}
                 variant="danger"
+            />
+
+            {/* Connect products modal */}
+            <ConnectProductsModal
+                isOpen={!!connectModalTemplate}
+                onClose={() => setConnectModalTemplate(null)}
+                template={connectModalTemplate}
+                onSaved={(refreshed) => setBookingProducts(refreshed)}
             />
         </main>
     );

@@ -22,7 +22,7 @@ export default function Header({ className }: HeaderProps) {
     >
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-3">
-          <Link href="/projects" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <div className="gradient-site flex h-9 w-9 items-center justify-center rounded-lg">
               <span className="gradient-text text-lg font-bold">M</span>
             </div>

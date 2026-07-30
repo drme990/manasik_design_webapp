@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
-import type { BookingProduct, BookingProductUpdateInput } from '@/types';
+import type { BookingProduct, BookingProductUpdateInput, Project } from '@/types';
 
 const COLLECTION = 'booking_products';
+const PROJECTS_COLLECTION = 'projects';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
@@ -70,6 +71,39 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     delete safeBody._id;
     delete safeBody.id;
     delete safeBody.userId;
+
+    // ── Validate template type matches the slot ──────────────────────
+    // A text template (templateType='text' or undefined) can only go in
+    // `templateId`. An image template (templateType='image') can only go
+    // in `imageTemplateId`. This prevents assigning 2 text templates or
+    // 2 image templates to the same product.
+    if (safeBody.templateId || safeBody.imageTemplateId) {
+      const mongoClient = getMongoClient();
+      const projectsCollection = mongoClient.getCollection<Project>(PROJECTS_COLLECTION);
+      if (projectsCollection) {
+        // Check templateId slot — must be a text template
+        if (safeBody.templateId && typeof safeBody.templateId === 'string') {
+          const tpl = await projectsCollection.findOne({ id: safeBody.templateId });
+          if (tpl && tpl.templateType === 'image') {
+            return NextResponse.json(
+              { success: false, error: 'templateTypeMismatch', message: 'An image template cannot be assigned to the text template slot.' },
+              { status: 400 },
+            );
+          }
+        }
+        // Check imageTemplateId slot — must be an image template
+        if (safeBody.imageTemplateId && typeof safeBody.imageTemplateId === 'string') {
+          const tpl = await projectsCollection.findOne({ id: safeBody.imageTemplateId });
+          if (tpl && (tpl.templateType ?? 'text') === 'text') {
+            return NextResponse.json(
+              { success: false, error: 'templateTypeMismatch', message: 'A text template cannot be assigned to the image template slot.' },
+              { status: 400 },
+            );
+          }
+        }
+      }
+    }
+
     const updates: Partial<BookingProduct> = {
       ...(safeBody as BookingProductUpdateInput),
       updatedAt: Date.now(),

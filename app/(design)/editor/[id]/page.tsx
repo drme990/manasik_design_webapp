@@ -486,13 +486,22 @@ export default function EditorPage() {
         const steps = fromPopstate ? -1 : -2;
         const go = () => {
             const beforeUrl = window.location.href;
+            // If there's no history to go back to (e.g. user opened the
+            // editor by direct URL / external link), history.go() does
+            // nothing. Detect this and fall back to /orders-designs so
+            // the user always lands somewhere useful instead of being
+            // stuck on the editor page.
+            if (window.history.length <= 1) {
+                router.push('/');
+                return;
+            }
             window.history.go(steps);
             // Fallback: if history.go() didn't change the URL (not enough
-            // history — e.g. direct URL entry), use router.back() after
-            // a short delay.
+            // history — e.g. direct URL entry), navigate to / (main page)
+            // after a short delay.
             setTimeout(() => {
                 if (window.location.href === beforeUrl) {
-                    router.back();
+                    router.push('/');
                 }
             }, 100);
         };

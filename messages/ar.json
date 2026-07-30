@@ -91,7 +91,15 @@
     "emptyTextTemplates": "لا توجد قوالب نصية",
     "emptyImageTemplates": "لا توجد قوالب صور",
     "emptyTextTemplatesDesc": "ابدأ بإنشاء قالب نصي جديد من زر + أسفل الشاشة.",
-    "emptyImageTemplatesDesc": "ابدأ بإنشاء قالب صور جديد من زر + أسفل الشاشة."
+    "emptyImageTemplatesDesc": "ابدأ بإنشاء قالب صور جديد من زر + أسفل الشاشة.",
+    "textTemplate": "قالب نصي",
+    "imageTemplate": "قالب صور",
+    "textTemplateAssignHint": "هذا قالب نصي — يمكن ربطه بالمنتجات كقالب نصي. كل منتج يمكنه رط قالب نصي واحد وقالب صور واحد.",
+    "imageTemplateAssignHint": "هذا قالب صور — يمكن ربطه بالمنتجات كقالب صور. كل منتج يمكنه ربط قالب نصي واحد وقالب صور واحد.",
+    "hasTextTemplate": "مرتبط بقالب نصي",
+    "hasImageTemplate": "مرتبط بقالب صور",
+    "searchProducts": "ابحث عن منتج...",
+    "noSearchResults": "لا توجد نتائج مطابقة"
   },
   "home": {
     "hero": {
