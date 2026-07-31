@@ -228,6 +228,91 @@ function resolveGenderSymbol(
 }
 
 /**
+ * Resolve the `custom.deceased` dynamic field ("المغفور له").
+ *
+ * Display rules:
+ *   - If status is "حي" or "احياء" (alive) → hide (return undefined)
+ *   - If status is "احياء و متوفين" / "احياء و اموات" (mixed) → hide
+ *   - If status is "متوفي" (deceased only) → display based on gender
+ *     AND number of names in sacrificeFor:
+ *     - Multiple names → "المغفور لهم بإذن الله"
+ *     - Male (single)  → "المغفور له بإذن الله"
+ *     - Female (single)→ "المغفور لها بإذن الله"
+ *     - Both genders   → "المغفور لهم بإذن الله"
+ *
+ * The key rule: if there's any "alive" component in the status, display
+ * nothing. Only pure "متوفي" triggers the prayer text.
+ */
+function resolveDeceasedText(
+  orderData: OrderDataPayload,
+): string | undefined {
+  let rawStatus: string | undefined;
+  if (orderData.reservation && orderData.reservation['isAlive']) {
+    rawStatus = orderData.reservation['isAlive'];
+  } else if (orderData.reservationData) {
+    const entry = orderData.reservationData.find((r) => r.key === 'isAlive');
+    rawStatus = entry?.value;
+  }
+  if (!rawStatus) return undefined;
+  const status = rawStatus.trim().toLowerCase();
+
+  // If there's any "alive" component ("حي", "احياء", "alive"), hide.
+  // This covers: "حي", "احياء و متوفين", "احياء و اموات", "alive and dead".
+  if (status.includes('حي') || status.includes('احياء') || status.includes('alive')) {
+    return undefined;
+  }
+
+  // Only show for pure deceased ("متوفي", "deceased", "dead")
+  const isDeceased =
+    status === 'متوفي' ||
+    status === 'deceased' ||
+    status === 'dead' ||
+    status.includes('متوفين') ||
+    status.includes('اموات') ||
+    status.includes('dead');
+  if (!isDeceased) return undefined;
+
+  // Read the sacrificeFor names to check if there are multiple
+  let rawSacrificeFor: string | undefined;
+  if (orderData.reservation && orderData.reservation['sacrificeFor']) {
+    rawSacrificeFor = orderData.reservation['sacrificeFor'];
+  } else if (orderData.reservationData) {
+    const entry = orderData.reservationData.find((r) => r.key === 'sacrificeFor');
+    rawSacrificeFor = entry?.value;
+  }
+  const nameCount = rawSacrificeFor
+    ? rawSacrificeFor.split('\n').map((n) => n.trim()).filter(Boolean).length
+    : 0;
+
+  // Multiple names → always "المغفور لهم" regardless of gender
+  if (nameCount > 1) {
+    return 'المغفور لهم بإذن الله';
+  }
+
+  // Read the gender from reservation data
+  let rawGender: string | undefined;
+  if (orderData.reservation && orderData.reservation['gender']) {
+    rawGender = orderData.reservation['gender'];
+  } else if (orderData.reservationData) {
+    const entry = orderData.reservationData.find((r) => r.key === 'gender');
+    rawGender = entry?.value;
+  }
+  if (!rawGender) return undefined;
+  const g = rawGender.trim().toLowerCase();
+
+  if (g === 'ذكر' || g === 'male') {
+    return 'المغفور له بإذن الله';
+  }
+  if (g === 'انثى' || g === 'أنثى' || g === 'female') {
+    return 'المغفور لها بإذن الله';
+  }
+  if (g.includes('ذكور') || g.includes('اناث') || g.includes('both') || g.includes('males')) {
+    return 'المغفور لهم بإذن الله';
+  }
+  return undefined;
+}
+
+/**
  * Resolve a dynamic field's variableId against the order data payload.
  * Same logic as the client-side renderer + the old Puppeteer renderer.
  */
@@ -294,6 +379,9 @@ function resolveFieldValue(
         rawGender = entry?.value;
       }
       return resolveGenderSymbol(rawGender, key === 'genderLetter' ? 'letter' : 'icon');
+    }
+    if (key === 'deceased') {
+      return resolveDeceasedText(orderData);
     }
     return undefined;
   }

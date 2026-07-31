@@ -115,6 +115,7 @@ const REFERRAL_ID_FIELD: OrderField = {
 const GENDER_FIELDS: OrderField[] = [
   { id: 'custom.genderLetter', label: 'الجنس (حرف)', type: 'text', placeholder: 'M', category: 'custom' },
   { id: 'custom.genderIcon', label: 'الجنس (أيقونة)', type: 'text', placeholder: '♂', category: 'custom' },
+  { id: 'custom.deceased', label: 'المغفور له', type: 'text', placeholder: 'المغفور له بإذن الله', category: 'custom' },
 ];
 
 /**
