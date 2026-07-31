@@ -142,12 +142,25 @@ The design instance is:
 4. Its project ID is stored on the order's `designUrls[].projectId`
 
 When the admin clicks "edit design" in the admin panel, the editor
-opens the **design instance** (`/editor/{projectId}`), not the template.
+opens the **design instance** (`/editor/d/{projectId}`), not the template.
 Editing the design instance doesn't affect the template or future
 orders — the admin is editing THIS specific order's design.
 
 The template only changes when the user explicitly goes to the
 templates section in the design app and edits it there.
+
+### Editor routes
+
+The editor is split into two routes by project kind:
+- `/editor/t/[id]` — template editor (`kind: 'booking_template'`). Shows
+  the "Add Field" button and filters dynamic fields by `templateType`.
+  Redirects to `/editor/d/` if the project is not a template.
+- `/editor/d/[id]` — design editor (`kind: 'design'`). Used for both
+  user-created designs and order-generated designs. No "Add Field"
+  button (dynamic fields are only for templates). Redirects to
+  `/editor/t/` if the project is a booking template.
+- `/editor/[id]` — legacy route, auto-redirects to `/editor/t/` or
+  `/editor/d/` based on project kind. Kept for backwards compatibility.
 
 `lib/render/inflate-template.ts` handles the template → design instance
 conversion:

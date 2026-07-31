@@ -38,21 +38,33 @@
 ## Templates Page (`/templates`)
 
 - Grid of booking template cards with live previews
-- Create new template from preset sizes or custom dimensions
+- **Two tabs** — text templates (قالب نصي) and image templates (قالب صور):
+  - Text templates: no image-type dynamic fields allowed (e.g. `reservation.photo`)
+  - Image templates: support image-type dynamic fields
+  - Legacy templates (undefined `templateType`) are treated as text
+- Create new template from preset sizes or custom dimensions (per-tab)
 - Create template from gallery image (auto aspect ratio + background)
 - Delete template (confirmation dialog)
-- Per-template product assignment count badge
-- Click template card → opens editor
-- "Assign Products" link → template detail page
+- Per-template product assignment count badge (counts both text + image slots)
+- Click template card preview → opens editor
+- **"Assign Products" button → opens ConnectProductsModal** (no page navigation)
+- Old `/templates/[productId]` route redirects to `/templates`
 
-## Template Detail Page (`/templates/[productId]`)
+### Connect Products Modal (`ConnectProductsModal`)
 
-- Shows template preview and canvas dimensions
-- Lists all booking products and backend products
-- Toggle product assignment to a template (assign/unassign)
-- Backend product search/filter
-- Edit template button → opens editor
-- Back to templates link
+- **Modal-based product assignment** — no separate page needed
+- Shows template preview, type badge (text/image), and canvas dimensions
+- **Search box** — filter products by name
+- 2-column grid of backend products with checkbox-style toggles
+- **Save button** — batches all changes in parallel (staged locally, persisted on save only)
+  - Shows pending change count badge
+  - Disabled when there are no staged changes
+- **Cancel button** — discards staged changes and closes
+- **One text + one image constraint** — each product can have at most ONE text template and ONE image template:
+  - Products already assigned to a different template in the same slot are disabled with "already assigned" hint
+  - Products with a template in the other slot show a green badge ("مرتبط بقالب نصي" / "مرتبط بقالب صور")
+- Auto-creates booking products for backend products that don't have one yet (on toggle)
+- Server-side validation: `PATCH /api/booking-products/[id]` rejects `templateTypeMismatch` if a text template is assigned to `imageTemplateId` or vice versa
 
 ## Orders Designs Page (`/orders-designs`)
 
@@ -66,7 +78,23 @@
 - Loaded via `fetchOrderDesigns()` in the Zustand store (`GET /api/projects?source=order`)
 - Sidebar nav item with shopping-bag icon (between Templates and PDF Tool)
 
-## Editor Page (`/editor/[id]`)
+## Editor Pages
+
+The editor is split into two routes based on project kind:
+
+- **`/editor/t/[id]`** — Template editor (for `kind: 'booking_template'` projects)
+  - Enforces template creation rules:
+    - "Add Field" (dynamic fields) button is always available
+    - Dynamic field picker filters by `templateType`: text templates can't add image-type fields (e.g. `reservation.photo`), image templates get the full field list
+  - Redirects to `/editor/d/[id]` if the loaded project is not a template
+- **`/editor/d/[id]`** — Design editor (for `kind: 'design'` projects)
+  - Used for BOTH user-created designs and order-generated designs (`source: 'order'`)
+  - No "Add Field" button — dynamic fields are only for templates; in designs they're already inflated to concrete text/image layers
+  - Existing dynamic field layers (from inflated templates) can still be edited via the properties bar (opacity, stroke, etc.)
+  - Redirects to `/editor/t/[id]` if the loaded project is a booking template
+- **`/editor/[id]`** — Legacy route, redirects to `/editor/t/` or `/editor/d/` based on project kind (kept for backwards compatibility with old bookmarks)
+
+### Canvas
 
 ### Canvas
 
@@ -75,6 +103,7 @@
 - Background color picker
 - Background image upload (instant preview via blob: URL, uploads to R2 in background)
 - Background image replacement and removal
+- **Background upload race condition fix** — if the user saves before the background image upload completes, the save now awaits the in-flight upload promise (`bgUploadPromiseRef`) and uses the latest project state with the real R2 URL. Prevents templates from being saved with no background.
 - Safe area overlay (configurable percentage insets from each edge)
 - Export canvas as JPG (high quality, 2x pixel ratio, via `html-to-image`)
 - Export canvas as PNG
@@ -94,6 +123,7 @@
   - Rotation handle
   - Inline text editing via TextEditDrawer (live preview)
   - Text box width control for multi-line wrapping
+  - **Auto-fit flickering fix** — dynamic field text auto-fit uses a synchronous bounded binary search (8 iterations around ±40% of proportional estimate) instead of `requestAnimationFrame`-based search. Proportional estimate is no longer rounded (raw float) so every box dimension change produces a visible font size change. Eliminates flickering during resize.
 - **Image layers** — upload and manipulate images:
   - Instant preview (blob: URL) with background upload to R2 + progress indicator
   - Drag to move, resize handles (8-direction), rotate handle
@@ -143,11 +173,24 @@
   - Live preview in the editor canvas
 - **Dynamic field layers** — order-specific placeholder fields:
   - Text fields: customer name, date, phone, order number, etc.
-  - Image fields: product image, customer avatar, etc.
+  - Image fields: product image, customer avatar, reservation photo, etc.
   - Auto-populate from booking/order data at render time
   - Border (width, color, radius)
   - Opacity slider
   - Stroke color (with eye dropper + saved colors)
+  - **Category grouping in the field picker** (DynamicFieldsDrawer):
+    - **Order fields** (`order` category): billing, order-level, item fields
+    - **Reservation fields** (`reservation` category): intention, sacrificeFor, gender, isAlive, shortDuaa, photo, executionDate
+    - **Custom fields** (`custom` category): derived/computed fields (ref phone numbers, gender symbols)
+  - **Conditional display rules**:
+    - `item.quantity` — only shown when quantity >= 2 (single item is the default, showing "1" is redundant)
+    - **Missing data → hidden** — fields with no value (undefined/null/empty/whitespace/"none"/"null"/"undefined") are not displayed. Placeholder text is never shown on generated designs.
+  - **Formatting rules**:
+    - `reservation.sacrificeFor` — multiple names (newline-separated in DB) are rendered each on its own line with "و" (Arabic "and") prepended to every name after the first
+  - **Custom dynamic fields**:
+    - `ref.phoneNumbers` — multi-line list of all referral phone numbers (from the `referrals` collection), with the order's ref first. Default refs (MNK-D, GHD-D) map to m1. Duplicate phone numbers are deduplicated.
+    - `custom.genderLetter` — gender as a single letter: "M" (male), "F" (female), "M,F" (both). Reads `reservation.gender` from DB (Arabic: "ذكر", "انثى", "ذكور و اناث").
+    - `custom.genderIcon` — gender as a Unicode symbol: "♂" (male), "♀" (female), "♂♀" (both).
 - Layer selection (click to select, properties bar shows layer-specific controls)
 - Layer manipulation — drag to move, resize handles, rotate handle, nudge with arrow keys
 - Layer ordering — drag-and-drop reordering in the layer list (react-dnd), z-index management
@@ -175,7 +218,10 @@
   - **Dynamic field selected**: stroke width, stroke color, opacity
   - **All layers**: duplicate + delete buttons
 - **Shapes drawer** — pick from built-in shapes (rectangle, circle, triangle, stars, line) or upload custom PNG shapes
-- **Dynamic fields drawer** — insert order-specific text/image fields (customer name, date, phone, etc.)
+- **Dynamic fields drawer** — insert order-specific text/image fields, grouped by category:
+  - **حقول الطلب** (Order fields): billing, order-level, item fields
+  - **حقول الحجز** (Reservation fields): intention, sacrificeFor, gender, isAlive, shortDuaa, photo, executionDate
+  - **حقول مخصصة** (Custom fields): ref.phoneNumbers, custom.genderLetter, custom.genderIcon
 - **Font drawer** — browse and select fonts (system Arabic-safe + user-uploaded), with font preview
 - **Text edit drawer** — inline text editing with live preview on the canvas
 - **Color picker drawer** — pick colors with saved-colors palette, HEX input, eye dropper
@@ -258,7 +304,11 @@
 
 - **Booking products** — link backend products to design templates
 - **Backend products** — fetched from external backend API
-- **Template assignment** — assign/unassign products to templates via the template detail page
+- **Two template slots per product**:
+  - `templateId` — text (no-image) template, used when order has no reservation photo
+  - `imageTemplateId` — image template, used when order has a reservation photo
+- **One text + one image constraint** — each product can have at most ONE text template and ONE image template (enforced client-side via disabled toggles + server-side via `templateTypeMismatch` validation)
+- **Template assignment** — assign/unassign products to templates via the ConnectProductsModal on the `/templates` page
 - **Auto-create template** — `getOrCreateTemplateProject()` creates a template on first assignment
 - **Seed endpoint** — `/api/booking-products/seed` for seeding initial booking products
 - **Dynamic fields** — order fields (customer name, date, phone, etc.) that populate from booking data when rendering a template for a specific order
@@ -297,10 +347,20 @@
 
 - `lib/render/canvas-renderer.ts` — server-side renderer that produces JPG images from projects using **@napi-rs/canvas** (native Rust canvas engine, no browser needed):
   1. Registers Expo Arabic fonts from `public/fonts/ExpoArabic/` with the canvas engine
-  2. Creates a canvas at the project's dimensions, draws the background
+  2. Creates a canvas at 3× the project's dimensions (supersampling for sharp output), draws the background
   3. Iterates layers sorted by zIndex, applying transforms (position/rotation/opacity)
-  4. Renders each layer type: text (with wrapping + alignment), image (with crop/scale/flip/border), shape (rectangle/circle/triangle/star/line/PNG), dynamic field (resolves `billing.*`, `order.*`, `item.*`, `reservation.*` variable IDs, auto-shrinks text to fit)
-  5. Exports as JPEG buffer (quality 95) for upload to R2
+  4. Renders each layer type: text (with wrapping + alignment), image (with crop/scale/flip/border), shape (rectangle/circle/triangle/star/line/PNG), dynamic field (resolves `billing.*`, `order.*`, `item.*`, `reservation.*`, `ref.*`, `custom.*` variable IDs, auto-shrinks text to fit)
+  5. Exports as JPEG buffer (**quality 100** — @napi-rs/canvas uses a 0-100 scale, NOT 0-1 like browser canvas) for upload to R2
+- **Render quality** — 3x supersampling, `textRendering: 'optimizeLegibility'`, `imageSmoothingQuality: 'high'`, JPEG quality 100
+- **Dynamic field resolution** — resolves variable IDs against order data payload:
+  - `billing.*` → billingData (fullName, email, phone, country)
+  - `order.*` → order-level fields (orderNumber, totalAmount, etc.)
+  - `item.*` → currentItem (productName, quantity — only shown when quantity >= 2)
+  - `reservation.*` → reservation fields (intention, sacrificeFor, gender, isAlive, shortDuaa, photo, executionDate)
+  - `ref.*` → referral fields (ref.phoneNumbers — deduplicated, default refs excluded)
+  - `custom.*` → computed fields (genderLetter, genderIcon — derived from reservation.gender)
+- **Conditional display** — `shouldDisplayField()` hides fields based on rules (e.g. quantity >= 2); `isEmptyValue()` hides fields with no data
+- **Formatting** — `reservation.sacrificeFor` formats multiple names with "و" prefix on each line after the first
 - **Vercel-compatible** — `@napi-rs/canvas` ships pre-built native binaries for Vercel's AWS Lambda runtime. No Chrome, no Puppeteer, no external services, no environment variables needed.
 - `next.config.ts` adds `@napi-rs/canvas` to `serverExternalPackages`
 - Handles text layers (with full styling), image layers (R2 URLs), shape layers, and dynamic field layers
@@ -352,7 +412,7 @@
 - `GET/POST /api/pdf-projects` — list/create PDF projects
 - `GET/PATCH/DELETE /api/pdf-projects/[id]` — get/update/delete a PDF project
 - `GET/POST /api/booking-products` — list/create booking products
-- `GET/PATCH/DELETE /api/booking-products/[id]` — get/update/delete a booking product
+- `GET/PATCH/DELETE /api/booking-products/[id]` — get/update/delete a booking product (PATCH validates `templateTypeMismatch` — text templates can't go in `imageTemplateId` slot and vice versa)
 - `POST /api/booking-products/seed` — seed initial booking products
 - `GET /api/backend/products` — list backend products (proxied to external API)
 - `GET/POST /api/fonts` — list/upload user fonts
@@ -370,7 +430,7 @@ The design app integrates with the separate admin panel (`admin_panel`) for orde
 
 - **SSO** — admins logged into the admin panel are automatically authenticated in the design app via the shared JWT cookie (see Authentication section above)
 - **"Create Design" button** (admin panel) — calls the backend, which calls `POST /api/orders/generate-design` on this app to generate a design for an order item
-- **"Edit Design" button** (admin panel) — opens `{DESIGN_APP_URL}/editor/{projectId}` in a new tab; SSO authenticates the admin automatically; the admin edits the design instance (not the template)
+- **"Edit Design" button** (admin panel) — opens `{DESIGN_APP_URL}/editor/d/{projectId}` in a new tab; SSO authenticates the admin automatically; the admin edits the design instance (not the template)
 - **"View Design" button** (admin panel) — opens a preview modal showing the design JPG (no new tab)
 - **Design icon in orders table** (admin panel) — always shows `LuPalette` icon; dimmed (`text-secondary/50`) when no design exists, primary color when a design exists; clicking it opens the preview modal
 - **Re-render on save** — when the admin saves an order design in the editor, the design app automatically re-renders it to JPG and overwrites the old R2 image (same URL), so the admin panel always shows the latest version without any explicit refresh

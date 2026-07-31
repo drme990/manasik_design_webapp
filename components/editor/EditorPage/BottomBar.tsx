@@ -18,8 +18,10 @@ interface BottomBarProps {
     project: Project;
     bottomBarRef: (el: HTMLDivElement | null) => void;
     isBookingTemplate: boolean;
-    dynamicFieldDrawerOpen: boolean;
-    onOpenDynamicFieldDrawer: () => void;
+    /** Only used when isBookingTemplate=true */
+    dynamicFieldDrawerOpen?: boolean;
+    /** Only used when isBookingTemplate=true */
+    onOpenDynamicFieldDrawer?: () => void;
     onAddText: () => void;
     onAddImage: () => void;
     addDrawerOpen: boolean;
@@ -50,8 +52,8 @@ export default function BottomBar({
     project,
     bottomBarRef,
     isBookingTemplate,
-    dynamicFieldDrawerOpen,
-    onOpenDynamicFieldDrawer,
+    dynamicFieldDrawerOpen = false,
+    onOpenDynamicFieldDrawer = () => { },
     onAddText,
     onAddImage,
     addDrawerOpen,

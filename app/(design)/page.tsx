@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage, LuDownload, LuLoaderCircle, LuShoppingBag } from 'react-icons/lu';
@@ -19,6 +20,7 @@ import type { PdfProject } from '@/types';
 export default function ProjectsPage() {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
+  const router = useRouter();
   // Subscribe to the zustand store — projects list is always in sync
   const projects = useProjectStore((s) => s.projects);
   const projectsLoading = useProjectStore((s) => s.projectsLoading);
@@ -72,7 +74,7 @@ export default function ProjectsPage() {
         backgroundUri: dataUrl,
       });
       setDrawerOpen(false);
-      window.location.href = `/editor/${project.id}`;
+      router.push(`/editor/d/${project.id}`);
     };
     reader.readAsDataURL(file);
     // Reset input so the same file can be picked again
@@ -99,7 +101,7 @@ export default function ProjectsPage() {
       canvasHeight: preset.height,
     });
     setDrawerOpen(false);
-    window.location.assign(`/editor/${project.id}`);
+    router.push(`/editor/d/${project.id}`);
   };
 
   const handleCreateCustom = async () => {
@@ -113,7 +115,7 @@ export default function ProjectsPage() {
       canvasHeight: height,
     });
     setDrawerOpen(false);
-    window.location.assign(`/editor/${project.id}`);
+    router.push(`/editor/d/${project.id}`);
   };
 
   const handleRename = async () => {
@@ -246,13 +248,13 @@ export default function ProjectsPage() {
                   className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
                 >
                   {/* Preview */}
-                  <Link href={`/editor/${project.id}`} className="block shrink-0">
+                  <Link href={`/editor/d/${project.id}`} className="block shrink-0">
                     <div className="relative aspect-4/3 w-full overflow-hidden rounded-t-2xl">
                       <ProjectCardPreview project={project} className="h-full w-full" />
                     </div>
                   </Link>
                   {/* Name + date */}
-                  <Link href={`/editor/${project.id}`} className="block px-3 pt-2.5">
+                  <Link href={`/editor/d/${project.id}`} className="block px-3 pt-2.5">
                     <p className="truncate text-sm font-semibold text-foreground">{project.name}</p>
                     <p className="mt-0.5 text-xs text-secondary">
                       {new Date(project.updatedAt).toLocaleDateString()}

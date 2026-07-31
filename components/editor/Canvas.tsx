@@ -1226,7 +1226,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         <LayerRenderer
           key={layer.id}
           layer={layer}
-          isSelected={layer.id === selectedLayerId}
+          isSelected={layer.id === selectedLayerId && showGrid}
           onPointerDown={(e) => handlePointerDown(e, layer.id)}
           onLayerChange={onLayerChange}
           onRetryUpload={onRetryUpload ? (id: string) => onRetryUploadRef.current?.(id) : undefined}
@@ -1250,7 +1250,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         />
       ))}
 
-      {selectedLayerId && (
+      {selectedLayerId && showGrid && (
         <SelectionBox
           layer={layers.find((l) => l.id === selectedLayerId)}
           scale={scale}

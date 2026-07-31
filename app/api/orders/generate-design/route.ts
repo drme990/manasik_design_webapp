@@ -345,7 +345,7 @@ export async function POST(request: NextRequest) {
         orderNumber: body.orderNumber,
         itemIndex: body.itemIndex,
         // The design instance's project ID — the admin panel opens
-        // /editor/{projectId} to edit THIS design, not the template.
+        // /editor/d/{projectId} to edit THIS design, not the template.
         projectId: designInstance.id,
         designName: designInstance.name,
         // Keep the template ID for reference (e.g. logging)

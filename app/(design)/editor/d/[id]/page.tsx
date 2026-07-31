@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from '@/lib/i18n/strings';
 import { toJpeg } from 'html-to-image';
@@ -24,7 +24,6 @@ import CollageEditModal from '@/components/editor/Modals/CollageEditModal';
 import TopToolbar from '@/components/editor/EditorPage/TopToolbar';
 import BottomBar from '@/components/editor/EditorPage/BottomBar';
 import ShapesDrawer from '@/components/editor/EditorPage/ShapesDrawer';
-import DynamicFieldsDrawer from '@/components/editor/EditorPage/DynamicFieldsDrawer';
 import FontDrawer from '@/components/editor/EditorPage/FontDrawer';
 import TextEditDrawer from '@/components/editor/EditorPage/TextEditDrawer';
 import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
@@ -37,12 +36,10 @@ import {
     buildImageLayer,
     buildCollageLayer,
     buildShapeLayer,
-    buildDynamicFieldLayer,
     nextZIndex,
     cloneLayer,
 } from '@/lib/utils/layer-utils';
 import { ASPECT_RATIOS, COLLAGE_LAYOUTS } from '@/lib/constants/presets';
-import { ORDER_FIELDS } from '@/lib/constants/order-fields';
 import { useSavedColors } from '@/lib/hooks/useSavedColors';
 import { useUserFonts } from '@/lib/hooks/useUserFonts';
 import { useUserShapes } from '@/lib/hooks/useUserShapes';
@@ -184,7 +181,6 @@ export default function EditorPage() {
     const [isCropOpen, setIsCropOpen] = useState(false);
     const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
-    const [dynamicFieldDrawerOpen, setDynamicFieldDrawerOpen] = useState(false);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     // When true, delete buttons are shown above each uploaded user shape
     const [editShapesMode, setEditShapesMode] = useState(false);
@@ -239,15 +235,21 @@ export default function EditorPage() {
     // Load the project — always from the API (single source of truth).
     // No IndexedDB/localStorage — positions never drift because the DB is
     // the only place data is read from.
+    // This route is for DESIGNS only (kind='design'). If the loaded
+    // project is a booking template, redirect to /editor/t/[id].
     useEffect(() => {
         storeGetProject(id).then((p) => {
+            if (p && p.kind === 'booking_template') {
+                router.replace(`/editor/t/${id}`);
+                return;
+            }
             setProject(p);
             // Track if this project was ever synced to the server.
             // If not, it's a brand-new project and "No" on leave = delete it.
             setWasSyncedBefore(!!(p && p.syncedAt));
             setLoading(false);
         });
-    }, [id, storeGetProject]);
+    }, [id, storeGetProject, router]);
 
     // Compute zoom to fit the canvas fully inside the available container space
     // with breathing room (padding) on all sides. Reserves space for the
@@ -321,8 +323,9 @@ export default function EditorPage() {
     // layer selection outline so it doesn't appear in the captured image.
     const captureThumbnailBlob = useCallback(async (bgColor: string): Promise<Blob | null> => {
         if (!canvasRef.current) return null;
-        const prevSelection = selectedLayerIdRef.current;
-        setSelectedLayerId(null);
+        // Hide the selection outline via isExporting (maps to showGrid=false
+        // in Canvas) WITHOUT clearing selectedLayerId — clearing it would
+        // flicker the PropertiesBar off and on.
         setIsExporting(true);
         // Wait one tick so the selection outline is actually removed from
         // the DOM before we capture the snapshot.
@@ -333,7 +336,6 @@ export default function EditorPage() {
             return null;
         } finally {
             setIsExporting(false);
-            setSelectedLayerId(prevSelection);
         }
     }, []);
 
@@ -460,50 +462,42 @@ export default function EditorPage() {
         }
     }, [storeSaveProject, captureThumbnailBlob, uploadThumbnailInBackground, cancelThumbnailUpdate, toast, t]);
 
-    // Navigate back using the browser's history stack — no hardcoded target
-    // page. The browser knows where the user came from, so this always
-    // returns to the correct page (e.g. /templates if they came from
-    // templates, /projects if from projects).
+    // Navigate back to the previous page using router.back().
     //
     // The editor pushes a dummy history entry on mount to intercept the
     // hardware back button. So the history stack looks like:
     //   [referrer] → [editor] → [dummy]
     //
-    // - UI back button (fromPopstate=false): we're at [dummy]. Go back 2
-    //   steps to land on [referrer].
-    // - Hardware back (fromPopstate=true): the dummy was just popped by the
-    //   browser's popstate, so we're at [editor]. Go back 1 step to land
-    //   on [referrer].
+    // - UI back button (fromPopstate=false): we're at [dummy]. Call
+    //   router.back() to pop the dummy (lands on [editor]), then call
+    //   router.back() again to go to [referrer].
+    // - Hardware back (fromPopstate=true): the dummy was already popped
+    //   by the browser's popstate, so we're at [editor]. One router.back()
+    //   takes us to [referrer].
     //
     // If there isn't enough history (e.g. user opened the editor by direct
-    // URL), history.go() does nothing — we fall back to router.back().
+    // URL), router.back() does nothing — we fall back to router.push('/').
     //
     // isLeavingRef prevents the popstate handler from re-entering attemptLeave
-    // when our intentional history.go() fires its own popstate event.
+    // when our intentional router.back() fires its own popstate event.
     const navigateBack = useCallback((fromPopstate: boolean) => {
         isLeavingRef.current = true;
 
-        const steps = fromPopstate ? -1 : -2;
         const go = () => {
-            const beforeUrl = window.location.href;
-            // If there's no history to go back to (e.g. user opened the
-            // editor by direct URL / external link), history.go() does
-            // nothing. Detect this and fall back to /orders-designs so
-            // the user always lands somewhere useful instead of being
-            // stuck on the editor page.
             if (window.history.length <= 1) {
                 router.push('/');
                 return;
             }
-            window.history.go(steps);
-            // Fallback: if history.go() didn't change the URL (not enough
-            // history — e.g. direct URL entry), navigate to / (main page)
-            // after a short delay.
-            setTimeout(() => {
-                if (window.location.href === beforeUrl) {
-                    router.push('/');
-                }
-            }, 100);
+            if (fromPopstate) {
+                // Dummy was already popped by the browser — one back.
+                router.back();
+            } else {
+                // We're at [dummy] — pop it, then go back one more.
+                // Use history.go(-2) to do it in one step. This is
+                // reliable because router.push() created real history
+                // entries (not full page loads).
+                window.history.go(-2);
+            }
         };
 
         // Defer when fromPopstate so the call runs AFTER the browser
@@ -672,8 +666,9 @@ export default function EditorPage() {
         if (!canvasRef.current || !project) return;
         if (isExporting) return; // Prevent double-clicks
 
-        const previousSelection = selectedLayerId;
-        setSelectedLayerId(null);
+        // Hide the selection outline via isExporting (maps to showGrid=false
+        // in Canvas) WITHOUT clearing selectedLayerId — clearing it would
+        // flicker the PropertiesBar off and on.
         setIsExporting(true);
 
         await new Promise((resolve) => setTimeout(resolve, 120));
@@ -697,9 +692,8 @@ export default function EditorPage() {
             console.error('Failed to export canvas as JPG:', error);
         } finally {
             setIsExporting(false);
-            setSelectedLayerId(previousSelection);
         }
-    }, [project, selectedLayerId, isExporting]);
+    }, [project, isExporting]);
 
     useEffect(() => {
         const endTransaction = () => {
@@ -1298,44 +1292,6 @@ export default function EditorPage() {
         }
     }, [deleteShape, toast, t]);
 
-    // Filter the dynamic field picker based on the template type.
-    // - 'text' templates (the default, including legacy undefined) cannot
-    //   receive image-type fields (e.g. reservation.photo) — the user has
-    //   no way to set the customer's photo, so offering the field would be
-    //   misleading.
-    // - 'image' templates expose the full field list.
-    // Non-template projects (kind='design') never open this drawer, so the
-    // filter is harmless there.
-    const availableOrderFields = useMemo(() => {
-        if (project?.templateType === 'image') return ORDER_FIELDS;
-        return ORDER_FIELDS.filter((f) => f.type !== 'image');
-    }, [project?.templateType]);
-
-    const handleAddDynamicField = useCallback((field: { id: string; label: string; type: 'text' | 'image'; placeholder: string }) => {
-        const w = project?.canvasWidth ?? 1080;
-        const h = project?.canvasHeight ?? 1080;
-        // reservation.photo supports multiple photos → default to a 2-image collage layout
-        const isMultiPhoto = field.id === 'reservation.photo';
-        const newLayer = buildDynamicFieldLayer({
-            variableId: field.id,
-            variableName: field.label,
-            fieldType: field.type,
-            placeholder: field.placeholder,
-            fontSize: 50,
-            collageLayout: isMultiPhoto ? '2h' : undefined,
-        });
-        // Center on canvas
-        newLayer.x = (w - newLayer.width) / 2;
-        newLayer.y = (h - newLayer.height) / 2;
-        newLayer.zIndex = nextZIndex(project?.layers ?? []);
-        updateProjectState((prev) => ({
-            ...prev,
-            layers: [...prev.layers, newLayer],
-        }));
-        setSelectedLayerId(newLayer.id);
-        setDynamicFieldDrawerOpen(false);
-    }, [updateProjectState, project]);
-
     /**
      * Upload a single image file in the background and swap the layer's URI
      * from the temporary object URL to the R2 URL when done.
@@ -1914,9 +1870,7 @@ export default function EditorPage() {
                         <BottomBar
                             project={project}
                             bottomBarRef={bottomBarRef}
-                            isBookingTemplate={project?.kind === 'booking_template'}
-                            dynamicFieldDrawerOpen={dynamicFieldDrawerOpen}
-                            onOpenDynamicFieldDrawer={() => setDynamicFieldDrawerOpen(true)}
+                            isBookingTemplate={false}
                             onAddText={handleAddText}
                             onAddImage={() => fileInputRef.current?.click()}
                             addDrawerOpen={addDrawerOpen}
@@ -2027,15 +1981,6 @@ export default function EditorPage() {
                         deleteShape: t('toolbars.shape.deleteShape'),
                     }}
                     shapeLabel={(labelKey) => t(`toolbars.shape.${labelKey}`)}
-                />
-
-                {/* Dynamic fields drawer — order fields picker (booking templates only) */}
-                <DynamicFieldsDrawer
-                    isOpen={dynamicFieldDrawerOpen}
-                    onClose={() => setDynamicFieldDrawerOpen(false)}
-                    title={t('addField')}
-                    fields={availableOrderFields}
-                    onAddField={handleAddDynamicField}
                 />
 
                 {/* Layers drawer */}
@@ -2321,6 +2266,72 @@ export default function EditorPage() {
                                     onDragStart={startChangeTransaction}
                                 />
                             )}
+                            {/* Dynamic field: borderRadius (image fields only) */}
+                            {activeProp === 'df.borderRadius' && (
+                                <SliderField
+                                    label={t('toolbars.dynamicField.borderRadius')}
+                                    value={(selectedLayer as DynamicFieldLayer).borderRadius ?? 0}
+                                    min={0}
+                                    max={200}
+                                    onChange={(v) => handleLayerChange(selectedLayer.id, { borderRadius: v } as Partial<AnyLayer>)}
+                                    onDragStart={startChangeTransaction}
+                                />
+                            )}
+                            {/* Dynamic field: aspectRatio (image fields only) */}
+                            {activeProp === 'df.aspectRatio' && (() => {
+                                const df = selectedLayer as DynamicFieldLayer;
+                                return (
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium text-foreground">
+                                            {t('toolbars.dynamicField.aspectRatio')}
+                                        </label>
+                                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                                            {ASPECT_RATIOS.map((ratio) => {
+                                                const currentRatio = df.width / df.height;
+                                                const isSelected = Math.abs(currentRatio - ratio.ratio) < 0.01;
+                                                const boxW = ratio.ratio >= 1 ? 48 : Math.round(48 * ratio.ratio);
+                                                const boxH = ratio.ratio >= 1 ? Math.round(48 / ratio.ratio) : 48;
+                                                return (
+                                                    <button
+                                                        key={ratio.label}
+                                                        onClick={() => {
+                                                            const currentW = df.width;
+                                                            const currentH = df.height;
+                                                            const base = Math.max(currentW, currentH);
+                                                            let newW: number, newH: number;
+                                                            if (ratio.ratio >= 1) {
+                                                                newW = base;
+                                                                newH = base / ratio.ratio;
+                                                            } else {
+                                                                newH = base;
+                                                                newW = base * ratio.ratio;
+                                                            }
+                                                            const newX = df.x + (currentW - newW) / 2;
+                                                            const newY = df.y + (currentH - newH) / 2;
+                                                            handleLayerChange(df.id, {
+                                                                width: newW, height: newH,
+                                                                x: newX, y: newY,
+                                                            } as Partial<AnyLayer>);
+                                                        }}
+                                                        className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 text-center transition-colors ${isSelected
+                                                            ? 'border-brand-primary bg-brand-primary text-white'
+                                                            : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary hover:bg-brand-primary-light/10'
+                                                            }`}
+                                                    >
+                                                        <div className="flex h-12 items-center justify-center">
+                                                            <div
+                                                                className={`rounded border-2 ${isSelected ? 'border-white/60 bg-white/10' : 'border-foreground/40 bg-foreground/5'}`}
+                                                                style={{ width: boxW, height: boxH }}
+                                                            />
+                                                        </div>
+                                                        <span className="text-xs font-medium">{ratio.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             {/* Dynamic field: opacity */}
                             {activeProp === 'df.opacity' && (
                                 <SliderField

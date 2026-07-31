@@ -36,6 +36,18 @@ export default function SmoothScrollProvider({
 
     frameId = window.requestAnimationFrame(raf);
 
+    // Lenis doesn't auto-detect content height changes. When async data
+    // loads (project lists, images, etc.) the page grows taller but Lenis
+    // still uses the old scroll dimensions — so scrolling stops short of
+    // the real bottom. A ResizeObserver on <body> recalculates whenever
+    // the content height changes.
+    const resizeObserver = new ResizeObserver(() => {
+      lenis.resize();
+    });
+    resizeObserver.observe(document.body);
+    // Also observe the html element — some layouts set height on <html>.
+    resizeObserver.observe(document.documentElement);
+
     const scrollToHash = (hash: string) => {
       if (!hash || !lenisRef.current) return;
       const targetId = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -90,6 +102,7 @@ export default function SmoothScrollProvider({
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
       document.removeEventListener('click', handleDocumentClick);
+      resizeObserver.disconnect();
       window.cancelAnimationFrame(frameId);
       lenis.destroy();
       lenisRef.current = null;

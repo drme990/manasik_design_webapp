@@ -87,7 +87,7 @@ export default function OrdersDesignsPage() {
                 className="flex w-48 shrink-0 flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
               >
                 {/* Preview */}
-                <Link href={`/editor/${project.id}`} className="block shrink-0">
+                <Link href={`/editor/d/${project.id}`} className="block shrink-0">
                   <div className="relative aspect-4/3 w-full overflow-hidden rounded-t-2xl">
                     <ProjectCardPreview project={project} className="h-full w-full" />
                   </div>
@@ -103,7 +103,7 @@ export default function OrdersDesignsPage() {
                 </div>
                 {/* Actions */}
                 <div className="flex items-center gap-1 px-2.5 pb-2.5 pt-1">
-                  <Link href={`/editor/${project.id}`}>
+                  <Link href={`/editor/d/${project.id}`}>
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t('edit')}>
                       <LuPencil className="h-4 w-4" />
                     </Button>

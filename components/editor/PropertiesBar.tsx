@@ -532,6 +532,24 @@ export default function PropertiesBar({
                                     />
                                 </>
                             )}
+                            {/* Image-only properties (aspect ratio + rounded corners) */}
+                            {!isText && (
+                                <>
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.aspectRatio')}
+                                        icon={<LuRectangleHorizontal className="h-5 w-5" />}
+                                        active={activeProp === 'df.aspectRatio'}
+                                        onClick={() => setActiveProp(activeProp === 'df.aspectRatio' ? null : 'df.aspectRatio')}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.borderRadius')}
+                                        value={l.borderRadius ?? 0}
+                                        icon={<TbBorderCorners className="h-5 w-5" />}
+                                        active={activeProp === 'df.borderRadius'}
+                                        onClick={() => setActiveProp(activeProp === 'df.borderRadius' ? null : 'df.borderRadius')}
+                                    />
+                                </>
+                            )}
                             <PropButton
                                 label={t('toolbars.dynamicField.opacity')}
                                 value={`${Math.round(l.opacity * 100)}%`}

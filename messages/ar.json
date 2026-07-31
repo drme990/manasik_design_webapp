@@ -205,6 +205,11 @@
     "fileUpload": {
       "title": "اضغط أو اسحب الملفات هنا",
       "subtitle": "JPG, PNG, PDF up to 10MB"
+    },
+    "notFound": {
+      "title": "الصفحة غير موجودة",
+      "description": "عذراً، لم نتمكن من العثور على الصفحة التي تبحث عنها.",
+      "backHome": "العودة إلى الرئيسية"
     }
   },
   "editor": {
@@ -369,7 +374,9 @@
         "opacity": "الشفافية",
         "collageLayout": "تخطيط الكولاج",
         "singleImage": "صورة واحدة",
-        "collageGap": "مسافة الكولاج"
+        "collageGap": "مسافة الكولاج",
+        "aspectRatio": "نسبة الصورة",
+        "borderRadius": "استدارة الزوايا"
       }
     },
     "modals": {

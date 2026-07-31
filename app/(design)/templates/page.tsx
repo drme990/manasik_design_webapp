@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft } from 'react-icons/lu';
@@ -20,6 +21,7 @@ type TabId = 'text' | 'image';
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
+    const router = useRouter();
     const uiT = useTranslations('ui');
     // Subscribe to the zustand store — templates list is always in sync
     const templates = useProjectStore((s) => s.templates);
@@ -83,7 +85,7 @@ export default function TemplatesPage() {
                 templateType: drawerTab,
             });
             setDrawerOpen(false);
-            window.location.assign(`/editor/${project.id}`);
+            router.push(`/editor/t/${project.id}`);
         };
         reader.readAsDataURL(file);
         // Reset input so the same file can be picked again
@@ -114,7 +116,7 @@ export default function TemplatesPage() {
             templateType: drawerTab,
         });
         setDrawerOpen(false);
-        window.location.assign(`/editor/${project.id}`);
+        router.push(`/editor/t/${project.id}`);
     };
 
     const handleCreateCustom = async () => {
@@ -129,7 +131,7 @@ export default function TemplatesPage() {
             templateType: drawerTab,
         });
         setDrawerOpen(false);
-        window.location.assign(`/editor/${project.id}`);
+        router.push(`/editor/t/${project.id}`);
     };
 
     const handleDelete = async () => {
@@ -165,7 +167,7 @@ export default function TemplatesPage() {
                         >
                             {/* Preview — click opens editor */}
                             <Link
-                                href={`/editor/${template.id}`}
+                                href={`/editor/t/${template.id}`}
                                 className="block"
                             >
                                 <div
@@ -201,7 +203,7 @@ export default function TemplatesPage() {
                                         {t('assignProducts')}
                                     </button>
                                     <Link
-                                        href={`/editor/${template.id}`}
+                                        href={`/editor/t/${template.id}`}
                                         className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
                                         aria-label={t('editTemplate')}
                                     >
