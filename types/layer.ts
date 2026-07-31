@@ -38,10 +38,21 @@ export interface TextLayer extends BaseLayer {
   /**
    * Auto-fit mode — when true, the font size is calculated to FILL the
    * box (grow or shrink) based on the text content + box dimensions.
-   * The saved fontSize is ignored. Set on text layers inflated from
-   * dynamic fields so the text always fills the field proportionally.
+   * The saved fontSize is ignored. Only used in the template editor
+   * (/editor/t/) for dynamic field text layers. In the design editor
+   * (/editor/d/), autoFit is always stripped so inflated text layers
+   * behave like normal text (font size directly controllable, box
+   * grows with text).
    */
   autoFit?: boolean;
+  /**
+   * Internal flag set by the design editor when stripping autoFit from
+   * an inflated dynamic text layer. Tells the LayerRenderer to shrink
+   * the box to fit the text on the first measurement (the box was
+   * sized for autoFit and is much bigger than the text at fontSize).
+   * Stripped after the first measurement — never persisted to the DB.
+   */
+  _needsInitialFit?: boolean;
 }
 
 export interface ImageLayerCollageCell {

@@ -215,25 +215,37 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
     if (w <= 0 || h <= 0) return;
 
     if (w !== lastMeasuredRef.current.w || h !== lastMeasuredRef.current.h) {
-      const oldW = lastMeasuredRef.current.w;
-      const oldH = lastMeasuredRef.current.h;
-      const isFirstMeasure = oldW === 0 && oldH === 0;
+      const isFirstMeasure = lastMeasuredRef.current.w === 0 && lastMeasuredRef.current.h === 0;
+      // On the first measure, lastMeasuredRef is {0,0} — use the layer's
+      // actual dimensions for recentering so the layer stays centered at
+      // the same position as the original (template) box.
+      const oldW = isFirstMeasure ? layer.width : lastMeasuredRef.current.w;
+      const oldH = isFirstMeasure ? layer.height : lastMeasuredRef.current.h;
       lastMeasuredRef.current = { w, h };
-      if (isFirstMeasure) {
+      // On the very first measurement, normally skip the resize — the
+      // box was already sized correctly when the user created the text.
+      // But if this layer was inflated from a dynamic field (marked with
+      // _needsInitialFit), the box was sized for autoFit and is much
+      // bigger than the text at layer.fontSize. Shrink it now.
+      if (isFirstMeasure && !layer._needsInitialFit) {
         prevFontSizeRef.current = layer.fontSize;
         return;
       }
       const fontSizeChanged = prevFontSizeRef.current !== layer.fontSize;
+      // Strip the _needsInitialFit flag so it doesn't trigger again.
+      const extra: Partial<TextLayer> = isFirstMeasure
+        ? { _needsInitialFit: false }
+        : {};
       if (fontSizeChanged) {
-        onLayerChange(layer.id, { width: w, height: h }, false);
+        onLayerChange(layer.id, { width: w, height: h, ...extra }, false);
       } else {
         const newX = layer.x + (oldW - w) / 2;
         const newY = layer.y + (oldH - h) / 2;
-        onLayerChange(layer.id, { width: w, height: h, x: newX, y: newY }, false);
+        onLayerChange(layer.id, { width: w, height: h, x: newX, y: newY, ...extra }, false);
       }
     }
     prevFontSizeRef.current = layer.fontSize;
-  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth, isAutoFit, layer.x, layer.y]);
+  }, [layer.text, layer.fontSize, layer.fontFamily, layer.bold, layer.italic, layer.lineHeight, layer.direction, onLayerChange, layer.id, hasBoxWidth, isAutoFit, layer.x, layer.y, layer.width, layer.height, layer._needsInitialFit]);
 
   // When boxWidth is set, measure height only (width is user-controlled)
   useLayoutEffect(() => {

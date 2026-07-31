@@ -243,6 +243,25 @@ export default function EditorPage() {
                 router.replace(`/editor/t/${id}`);
                 return;
             }
+            // Strip autoFit from text layers — in the design editor,
+            // inflated dynamic text fields should behave like normal text
+            // layers (font size directly controllable, box grows with
+            // text). autoFit is only for the template editor.
+            // Mark stripped layers with _needsInitialFit so the
+            // LayerRenderer knows to shrink the box to fit the text on
+            // the first measurement (the box was sized for autoFit and
+            // is much bigger than the actual text at layer.fontSize).
+            if (p && p.layers) {
+                let modified = false;
+                const layers = p.layers.map((l) => {
+                    if (l.type === 'text' && l.autoFit) {
+                        modified = true;
+                        return { ...l, autoFit: undefined, _needsInitialFit: true };
+                    }
+                    return l;
+                });
+                if (modified) p = { ...p, layers };
+            }
             setProject(p);
             // Track if this project was ever synced to the server.
             // If not, it's a brand-new project and "No" on leave = delete it.

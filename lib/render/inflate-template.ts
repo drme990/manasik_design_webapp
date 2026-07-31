@@ -339,7 +339,7 @@ function inflateTextDynamicField(
     // Use the dynamic field's text properties, with sensible defaults
     fontFamily: layer.fontFamily || 'Expo Arabic',
     fontWeight: layer.fontWeight || 700,
-    fontSize: layer.fontSize, // reference only — autoFit overrides this
+    fontSize: layer.fontSize,
     color: layer.color,
     bold: layer.bold ?? true,
     italic: layer.italic ?? false,
@@ -347,9 +347,11 @@ function inflateTextDynamicField(
     verticalAlign: layer.verticalAlign || 'middle',
     lineHeight: layer.lineHeight ?? 1.2,
     direction: layer.direction || 'rtl',
-    // Auto-fit: the font size is calculated to fill the box (grow or
-    // shrink) based on the text content + box dimensions. The saved
-    // fontSize is only a reference, not the actual rendered size.
+    // Keep autoFit: true in the DB — the design editor's loading code
+    // detects this, strips it, and marks the layer with _needsInitialFit
+    // so the box gets shrunk to fit the text on first render. The
+    // server-side renderer uses autoFit to size the text for the initial
+    // JPG export (before the admin edits it in the design editor).
     autoFit: true,
   };
 }
