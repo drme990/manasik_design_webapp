@@ -119,8 +119,8 @@ export interface PropertiesBarProps {
     setTextEditDrawerOpen: (v: boolean) => void;
     setCollageEditOpen: (v: boolean) => void;
     setIsCropOpen: (v: boolean) => void;
-    combineDrawerOpen: boolean;
-    setCombineDrawerOpen: (v: boolean) => void;
+    combineDrawerOpen?: boolean;
+    setCombineDrawerOpen?: (v: boolean) => void;
     replaceImageInputRef: RefObject<HTMLInputElement | null>;
     onDuplicateLayer: (id: string) => void;
     onDeleteLayer: (id: string) => void;
@@ -484,13 +484,15 @@ export default function PropertiesBar({
                                         active={false}
                                         onClick={() => { /* no-op — size is auto */ }}
                                     />
-                                    <PropButton
-                                        label={t('toolbars.dynamicField.combine')}
-                                        value={l.combinedFields?.length ? `${l.combinedFields.length + 1}` : undefined}
-                                        icon={<LuCombine className="h-5 w-5" />}
-                                        active={combineDrawerOpen}
-                                        onClick={() => setCombineDrawerOpen(!combineDrawerOpen)}
-                                    />
+                                    {setCombineDrawerOpen && (
+                                        <PropButton
+                                            label={t('toolbars.dynamicField.combine')}
+                                            value={l.combinedFields?.length ? `${l.combinedFields.length + 1}` : undefined}
+                                            icon={<LuCombine className="h-5 w-5" />}
+                                            active={combineDrawerOpen}
+                                            onClick={() => setCombineDrawerOpen(!combineDrawerOpen)}
+                                        />
+                                    )}
                                     <PropButton
                                         label={t('toolbars.text.color')}
                                         swatch={l.color}
