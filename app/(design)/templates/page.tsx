@@ -138,8 +138,21 @@ export default function TemplatesPage() {
         if (!deleteTemplateId) return;
         setDeleteLoading(true);
         try {
-            // Optimistic: store removes from the list immediately
             await storeDeleteProject(deleteTemplateId);
+            // Optimistically disconnect this template from all booking
+            // products in the local state. The server-side DELETE handler
+            // also does this, but we update locally for instant UI feedback.
+            setBookingProducts((prev) =>
+                prev.map((bp) =>
+                    bp.templateId === deleteTemplateId || bp.imageTemplateId === deleteTemplateId
+                        ? {
+                            ...bp,
+                            templateId: bp.templateId === deleteTemplateId ? null : bp.templateId,
+                            imageTemplateId: bp.imageTemplateId === deleteTemplateId ? null : bp.imageTemplateId,
+                        }
+                        : bp,
+                ),
+            );
         } catch (err) {
             console.error('Failed to delete template:', err);
         }

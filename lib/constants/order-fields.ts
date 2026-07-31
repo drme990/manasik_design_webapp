@@ -104,6 +104,14 @@ const REFERRAL_FIELDS: OrderField[] = [
   { id: 'ref.phoneNumbers', label: 'أرقام المراجع', type: 'text', placeholder: '+9665...\n+9665...', category: 'custom' },
 ];
 
+const REFERRAL_ID_FIELD: OrderField = {
+  id: 'ref.referralId',
+  label: 'كود المرجع',
+  type: 'text',
+  placeholder: 'm1',
+  category: 'order',
+};
+
 const GENDER_FIELDS: OrderField[] = [
   { id: 'custom.genderLetter', label: 'الجنس (حرف)', type: 'text', placeholder: 'M', category: 'custom' },
   { id: 'custom.genderIcon', label: 'الجنس (أيقونة)', type: 'text', placeholder: '♂', category: 'custom' },
@@ -117,6 +125,7 @@ export const ORDER_FIELDS: OrderField[] = [
   ...BILLING_FIELDS,
   ...ORDER_FIELDS_LIST,
   ...ITEM_FIELDS,
+  REFERRAL_ID_FIELD,
   ...RESERVATION_FIELDS,
   ...REFERRAL_FIELDS,
   ...GENDER_FIELDS,
@@ -145,7 +154,7 @@ export const CATEGORY_LABELS: Record<OrderFieldCategory, string> = {
  * category. Used by the DynamicFieldsDrawer to render section headers.
  */
 export const ORDER_FIELDS_BY_CATEGORY: { category: OrderFieldCategory; label: string; fields: OrderField[] }[] = [
-  { category: 'order', label: CATEGORY_LABELS.order, fields: [...BILLING_FIELDS, ...ORDER_FIELDS_LIST, ...ITEM_FIELDS] },
+  { category: 'order', label: CATEGORY_LABELS.order, fields: [...BILLING_FIELDS, ...ORDER_FIELDS_LIST, ...ITEM_FIELDS, REFERRAL_ID_FIELD] },
   { category: 'reservation', label: CATEGORY_LABELS.reservation, fields: RESERVATION_FIELDS },
   { category: 'custom', label: CATEGORY_LABELS.custom, fields: [...REFERRAL_FIELDS, ...GENDER_FIELDS] },
 ];

@@ -3,8 +3,10 @@ import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import { deleteMultipleFromR2, extractKeyFromUrl, generateThumbnailKey } from '@/lib/storage/r2';
 import type { Project, ProjectUpdateInput, ImageLayer, ShapeLayer } from '@/types';
+import type { BookingProduct } from '@/types/booking';
 
 const COLLECTION = 'projects';
+const BOOKING_PRODUCTS_COLLECTION = 'booking_products';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
@@ -185,6 +187,26 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const collection = await getCollection();
     await collection.deleteOne({ id });
+
+    // If this is a booking template, disconnect it from all booking
+    // products that reference it via templateId or imageTemplateId.
+    // This prevents products from pointing to a deleted template.
+    if (existing.kind === 'booking_template') {
+      const mongoClient = getMongoClient();
+      const bpCollection = mongoClient.getCollection<BookingProduct>(BOOKING_PRODUCTS_COLLECTION);
+      if (bpCollection) {
+        // Set templateId to null for products using this template in the text slot
+        await bpCollection.updateMany(
+          { templateId: id },
+          { $set: { templateId: null, updatedAt: Date.now(), localModifiedAt: Date.now() } },
+        );
+        // Set imageTemplateId to null for products using this template in the image slot
+        await bpCollection.updateMany(
+          { imageTemplateId: id },
+          { $set: { imageTemplateId: null, updatedAt: Date.now(), localModifiedAt: Date.now() } },
+        );
+      }
+    }
 
     // Delete all R2 assets in the background (best-effort, non-blocking)
     if (r2Keys.length > 0) {

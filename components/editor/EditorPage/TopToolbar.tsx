@@ -17,12 +17,12 @@ interface TopToolbarProps {
     undoLabel: string;
     redoLabel: string;
     layersLabel: string;
-    exportLabel: string;
+    exportLabel?: string;
     saveLabel: string;
     layersDrawerOpen: boolean;
     onOpenLayers: () => void;
-    onExport: () => void;
-    isExporting: boolean;
+    onExport?: () => void;
+    isExporting?: boolean;
     onSave: () => void;
     saving: boolean;
     hasUnsavedChanges: boolean;
@@ -105,20 +105,22 @@ export default function TopToolbar({
                     <span className="hidden sm:inline">{layersLabel}</span>
                 </Button>
 
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onExport}
-                    disabled={isExporting}
-                    className="gap-1 px-2 sm:px-3"
-                >
-                    {isExporting ? (
-                        <LuLoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <LuDownload className="h-4 w-4" />
-                    )}
-                    <span className="hidden sm:inline">{exportLabel}</span>
-                </Button>
+                {onExport && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onExport}
+                        disabled={isExporting}
+                        className="gap-1 px-2 sm:px-3"
+                    >
+                        {isExporting ? (
+                            <LuLoaderCircle className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <LuDownload className="h-4 w-4" />
+                        )}
+                        <span className="hidden sm:inline">{exportLabel}</span>
+                    </Button>
+                )}
 
                 <Button
                     variant="primary"

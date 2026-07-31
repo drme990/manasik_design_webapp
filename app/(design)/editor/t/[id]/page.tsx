@@ -669,38 +669,6 @@ export default function EditorPage() {
         attemptLeave(false);
     }, [attemptLeave]);
 
-    const handleExportJpg = useCallback(async () => {
-        if (!canvasRef.current || !project) return;
-        if (isExporting) return; // Prevent double-clicks
-
-        // Hide the selection outline via isExporting (maps to showGrid=false
-        // in Canvas) WITHOUT clearing selectedLayerId — clearing it would
-        // flicker the PropertiesBar off and on.
-        setIsExporting(true);
-
-        await new Promise((resolve) => setTimeout(resolve, 120));
-
-        try {
-            const dataUrl = await toJpeg(canvasRef.current, {
-                quality: 0.95,
-                backgroundColor: project.backgroundColor || '#ffffff',
-                pixelRatio: 2,
-                cacheBust: true,
-                fetchRequestInit: { mode: 'cors' } as RequestInit,
-            });
-
-            const link = document.createElement('a');
-            link.href = dataUrl;
-            link.download = `${project.name || 'design'}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } catch (error) {
-            console.error('Failed to export canvas as JPG:', error);
-        } finally {
-            setIsExporting(false);
-        }
-    }, [project, isExporting]);
 
     useEffect(() => {
         const endTransaction = () => {
@@ -1829,12 +1797,9 @@ export default function EditorPage() {
                     undoLabel={t('undo')}
                     redoLabel={t('redo')}
                     layersLabel={t('layers')}
-                    exportLabel={t('export')}
                     saveLabel={t('save')}
                     layersDrawerOpen={layersDrawerOpen}
                     onOpenLayers={() => setLayersDrawerOpen(true)}
-                    onExport={handleExportJpg}
-                    isExporting={isExporting}
                     onSave={() => flushPersist(project)}
                     saving={saving}
                     hasUnsavedChanges={hasUnsavedChanges}

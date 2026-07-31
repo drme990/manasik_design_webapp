@@ -278,6 +278,9 @@ function resolveFieldValue(
     if (key === 'phoneNumbers') {
       return resolveRefPhoneNumbers(orderData);
     }
+    if (key === 'referralId') {
+      return orderData.referralId;
+    }
     return undefined;
   }
   if (variableId.startsWith('custom.')) {
