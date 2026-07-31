@@ -171,6 +171,13 @@ export interface DynamicFieldLayer extends BaseLayer {
   verticalAlign?: TextVerticalAlign;
   lineHeight?: number;
   direction?: TextDirection;
+  // ── Combined fields (text only) ──────────────────────────────────
+  // When set, this layer combines multiple dynamic text fields into one
+  // text box. Each field is resolved independently, display rules are
+  // applied per field (e.g. item.quantity is hidden when qty < 2), and
+  // the visible values are joined with a space separator.
+  // The primary field is `variableId`; these are the additional fields.
+  combinedFields?: string[];
 }
 
 export type AnyLayer = TextLayer | ImageLayer | ShapeLayer | DynamicFieldLayer;

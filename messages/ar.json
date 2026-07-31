@@ -222,6 +222,7 @@
     "zoomOut": "تصغير",
     "zoomIn": "تكبير",
     "save": "حفظ",
+    "clear": "مسح",
     "export": "تصدير",
     "cancel": "إلغاء",
     "addText": "نص",
@@ -376,7 +377,13 @@
         "singleImage": "صورة واحدة",
         "collageGap": "مسافة الكولاج",
         "aspectRatio": "نسبة الصورة",
-        "borderRadius": "استدارة الزوايا"
+        "borderRadius": "استدارة الزوايا",
+        "combine": "دمج الحقول",
+        "combineTitle": "دمج الحقول الديناميكية",
+        "combinePrimary": "الحقل الأساسي",
+        "combinePrimaryHint": "أساسي",
+        "combineAdditional": "حقول إضافية للدمج",
+        "combineHint": "كل حقل يُعرض بقواعده الخاصة. الحقول المخفية تترك مكانها للحقول الأخرى."
       }
     },
     "modals": {

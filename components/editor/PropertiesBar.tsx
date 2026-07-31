@@ -33,6 +33,7 @@ import {
     LuLanguages,
     LuPipette,
     LuRectangleHorizontal,
+    LuCombine,
 } from 'react-icons/lu';
 import { TbBorderCorners } from 'react-icons/tb';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
@@ -118,6 +119,8 @@ export interface PropertiesBarProps {
     setTextEditDrawerOpen: (v: boolean) => void;
     setCollageEditOpen: (v: boolean) => void;
     setIsCropOpen: (v: boolean) => void;
+    combineDrawerOpen: boolean;
+    setCombineDrawerOpen: (v: boolean) => void;
     replaceImageInputRef: RefObject<HTMLInputElement | null>;
     onDuplicateLayer: (id: string) => void;
     onDeleteLayer: (id: string) => void;
@@ -138,6 +141,8 @@ export default function PropertiesBar({
     setTextEditDrawerOpen,
     setCollageEditOpen,
     setIsCropOpen,
+    combineDrawerOpen,
+    setCombineDrawerOpen,
     replaceImageInputRef,
     onDuplicateLayer,
     onDeleteLayer,
@@ -478,6 +483,13 @@ export default function PropertiesBar({
                                         icon={<LuALargeSmall className="h-5 w-5" />}
                                         active={false}
                                         onClick={() => { /* no-op — size is auto */ }}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.combine')}
+                                        value={l.combinedFields?.length ? `${l.combinedFields.length + 1}` : undefined}
+                                        icon={<LuCombine className="h-5 w-5" />}
+                                        active={combineDrawerOpen}
+                                        onClick={() => setCombineDrawerOpen(!combineDrawerOpen)}
                                     />
                                     <PropButton
                                         label={t('toolbars.text.color')}

@@ -6,6 +6,7 @@ import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } f
 import { cn } from '@/lib/utils/cn';
 import { resolveFontFamily } from '@/lib/constants/fonts';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
+import { ORDER_FIELD_MAP } from '@/lib/constants/order-fields';
 import ShapeRenderer from './ShapeRenderer';
 import CollageCellImage from './CollageCellImage';
 import Image from 'next/image';
@@ -586,7 +587,13 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
   const lineHeight = layer.lineHeight ?? 1.2;
   const direction = layer.direction || 'rtl';
 
-  const text = layer.placeholder;
+  // For combined fields, show all field labels joined with a space
+  // so the user sees what the combined text will look like.
+  const text = layer.combinedFields && layer.combinedFields.length > 0
+    ? [layer.variableId, ...layer.combinedFields]
+      .map((id) => ORDER_FIELD_MAP[id]?.label || ORDER_FIELD_MAP[id]?.placeholder || id)
+      .join(' ')
+    : layer.placeholder;
 
   // ── Auto-fit: binary search for the largest font that fits ────────
   // Uses the shared useAutoFitFontSize hook — instant proportional

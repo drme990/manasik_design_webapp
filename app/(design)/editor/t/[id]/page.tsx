@@ -25,6 +25,7 @@ import TopToolbar from '@/components/editor/EditorPage/TopToolbar';
 import BottomBar from '@/components/editor/EditorPage/BottomBar';
 import ShapesDrawer from '@/components/editor/EditorPage/ShapesDrawer';
 import DynamicFieldsDrawer from '@/components/editor/EditorPage/DynamicFieldsDrawer';
+import CombineFieldsDrawer from '@/components/editor/EditorPage/CombineFieldsDrawer';
 import FontDrawer from '@/components/editor/EditorPage/FontDrawer';
 import TextEditDrawer from '@/components/editor/EditorPage/TextEditDrawer';
 import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
@@ -185,6 +186,8 @@ export default function EditorPage() {
     const [collageEditOpen, setCollageEditOpen] = useState(false);
     const [addDrawerOpen, setAddDrawerOpen] = useState(false);
     const [dynamicFieldDrawerOpen, setDynamicFieldDrawerOpen] = useState(false);
+    const [combineDrawerOpen, setCombineDrawerOpen] = useState(false);
+    const [combineDrawerKey, setCombineDrawerKey] = useState(0);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     // When true, delete buttons are shown above each uploaded user shape
     const [editShapesMode, setEditShapesMode] = useState(false);
@@ -1989,6 +1992,11 @@ export default function EditorPage() {
                             setTextEditDrawerOpen={setTextEditDrawerOpen}
                             setCollageEditOpen={setCollageEditOpen}
                             setIsCropOpen={setIsCropOpen}
+                            combineDrawerOpen={combineDrawerOpen}
+                            setCombineDrawerOpen={(v) => {
+                                if (v) setCombineDrawerKey((k) => k + 1);
+                                setCombineDrawerOpen(v);
+                            }}
                             replaceImageInputRef={replaceImageInputRef}
                             onDuplicateLayer={handleDuplicateLayer}
                             onDeleteLayer={handleDeleteLayer}
@@ -2035,6 +2043,20 @@ export default function EditorPage() {
                     fields={availableOrderFields}
                     onAddField={handleAddDynamicField}
                 />
+
+                {/* Combine fields drawer — for combining multiple text dynamic fields into one */}
+                {selectedLayer && selectedLayer.type === 'dynamic_field' && (selectedLayer as DynamicFieldLayer).fieldType === 'text' && (
+                    <CombineFieldsDrawer
+                        key={combineDrawerKey}
+                        isOpen={combineDrawerOpen}
+                        onClose={() => setCombineDrawerOpen(false)}
+                        primaryFieldId={(selectedLayer as DynamicFieldLayer).variableId}
+                        combinedFieldIds={(selectedLayer as DynamicFieldLayer).combinedFields ?? []}
+                        onSave={(combinedIds) => {
+                            handleLayerChange(selectedLayer.id, { combinedFields: combinedIds.length > 0 ? combinedIds : undefined } as Partial<AnyLayer>);
+                        }}
+                    />
+                )}
 
                 {/* Layers drawer */}
                 <Drawer

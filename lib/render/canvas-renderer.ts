@@ -907,13 +907,29 @@ async function renderDynamicFieldLayer(
   layer: DynamicFieldLayer,
   orderData: OrderDataPayload,
 ): Promise<void> {
-  // Check display rules first (e.g. item.quantity hidden when qty < 2)
-  if (!shouldDisplayField(layer.variableId, orderData)) return;
-
-  const resolvedValue = resolveFieldValue(layer.variableId, orderData);
-  // Skip if data is missing/empty/none — don't render placeholders
-  if (isEmptyValue(resolvedValue)) return;
-  const value: string = resolvedValue!; // definite string for closures below
+  // ── Resolve the text value (single or combined fields) ────────────
+  // For combined fields, each field is resolved independently, display
+  // rules applied per field, and visible values joined with a space.
+  // The layer is skipped only if ALL fields are hidden/empty.
+  let value: string;
+  if (layer.fieldType === 'text' && layer.combinedFields && layer.combinedFields.length > 0) {
+    const allIds = [layer.variableId, ...layer.combinedFields];
+    const parts: string[] = [];
+    for (const varId of allIds) {
+      if (!shouldDisplayField(varId, orderData)) continue;
+      const v = resolveFieldValue(varId, orderData);
+      if (isEmptyValue(v)) continue;
+      parts.push(v!);
+    }
+    if (parts.length === 0) return; // all fields hidden
+    value = parts.join(' ');
+  } else {
+    // Single field — check display rules first
+    if (!shouldDisplayField(layer.variableId, orderData)) return;
+    const resolvedValue = resolveFieldValue(layer.variableId, orderData);
+    if (isEmptyValue(resolvedValue)) return;
+    value = resolvedValue!;
+  }
 
   // Background color
   if (layer.backgroundColor) {

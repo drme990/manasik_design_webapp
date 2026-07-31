@@ -317,6 +317,49 @@ function inflateTextDynamicField(
   layer: DynamicFieldLayer,
   orderData: OrderDataPayload,
 ): TextLayer {
+  // ── Combined fields: resolve each field independently, apply display
+  //    rules per field, join visible values with a space separator.
+  //    The layer is hidden only if ALL fields are hidden/empty.
+  if (layer.combinedFields && layer.combinedFields.length > 0) {
+    const allIds = [layer.variableId, ...layer.combinedFields];
+    const parts: string[] = [];
+    for (const varId of allIds) {
+      const value = resolveFieldValue(varId, orderData);
+      const display = shouldDisplayField(varId, orderData);
+      if (!display) continue;
+      if (isEmptyValue(value)) continue;
+      parts.push(value!);
+    }
+    const hasAnyValue = parts.length > 0;
+    return {
+      id: generateId(),
+      type: 'text',
+      name: layer.name,
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+      visible: layer.visible && hasAnyValue,
+      locked: layer.locked,
+      text: hasAnyValue ? parts.join(' ') : layer.placeholder,
+      fontFamily: layer.fontFamily || 'Expo Arabic',
+      fontWeight: layer.fontWeight || 700,
+      fontSize: layer.fontSize,
+      color: layer.color,
+      bold: layer.bold ?? true,
+      italic: layer.italic ?? false,
+      align: layer.align || 'center',
+      verticalAlign: layer.verticalAlign || 'middle',
+      lineHeight: layer.lineHeight ?? 1.2,
+      direction: layer.direction || 'rtl',
+      autoFit: true,
+    };
+  }
+
+  // ── Single field (original behavior) ──────────────────────────────
   const value = resolveFieldValue(layer.variableId, orderData);
   const display = shouldDisplayField(layer.variableId, orderData);
   const hasValue = !isEmptyValue(value);
