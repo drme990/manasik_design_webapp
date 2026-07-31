@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
   // processed by the bundler — it needs to be loaded from node_modules
   // at runtime on Vercel serverless functions.
   serverExternalPackages: ['@napi-rs/canvas'],
-  allowedDevOrigins: ['dayana-nondepressing-probingly.ngrok-free.dev', '192.168.1.16'],
+  allowedDevOrigins: ['192.168.1.16'],
 };
 
 export default nextConfig;

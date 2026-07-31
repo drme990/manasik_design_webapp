@@ -156,7 +156,8 @@ export default function EditorPage() {
     const deleteLayerRef = useRef<(id: string) => void>(() => { });
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const canvasContainerRef = useRef<HTMLDivElement | null>(null);
-    const [bottomBarHeight, setBottomBarHeight] = useState(0);
+    // FOR UNKNOWN CLIP OV 0
+    const [bottomBarHeight, setBottomBarHeight] = useState(80);
     const bottomBarObserverRef = useRef<ResizeObserver | null>(null);
     // Callback ref shared by whichever bottom bar is mounted (canvas-bg bar or
     // properties bar — they're mutually exclusive) so we can reserve exactly
@@ -1810,7 +1811,8 @@ export default function EditorPage() {
                     {/* Center: canvas — always centered, fits to screen */}
                     <div
                         ref={canvasContainerRef}
-                        className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none transition-[padding] duration-200 ease-out"
+                        // FOR UNKNOWN CLIP
+                        className="relative flex flex-1 items-center justify-center overflow-hidden bg-canvas-bg touch-none"
                         style={{ paddingBottom: bottomBarHeight }}
                     >
                         {/* Undo/redo tip — briefly shown at top center of the canvas */}
@@ -1824,7 +1826,8 @@ export default function EditorPage() {
                         )}
                         {zoom > 0 && (
                             <div
-                                className="shadow-2xl transition-[width,height] duration-150 ease-out"
+                                // FOR UNKNOWN CLIP
+                                className="shadow-2xl"
                                 style={{
                                     width: project.canvasWidth * zoom,
                                     height: project.canvasHeight * zoom,
