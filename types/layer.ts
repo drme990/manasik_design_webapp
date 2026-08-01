@@ -178,6 +178,18 @@ export interface DynamicFieldLayer extends BaseLayer {
   // the visible values are joined with a space separator.
   // The primary field is `variableId`; these are the additional fields.
   combinedFields?: string[];
+  /** Layout direction for combined fields: 'row' (side by side) or
+   *  'column' (stacked vertically). Defaults to 'row'. */
+  combineDirection?: 'row' | 'column';
+  /** Per-field style overrides for combined fields. Keys are variableIds
+   *  (including the primary `variableId`). Only the properties that are
+   *  set here override the layer-level (global) values. */
+  combinedFieldStyles?: Record<string, {
+    color?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+  }>;
 }
 
 export type AnyLayer = TextLayer | ImageLayer | ShapeLayer | DynamicFieldLayer;

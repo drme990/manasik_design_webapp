@@ -377,6 +377,9 @@ export async function captureProjectThumbnailBlob(
       ),
       cacheBust: true,
       fetchRequestInit: { mode: 'cors' } as RequestInit,
+      // Skip fonts — they're already loaded in the browser and re-fetching
+      // them can cause CORS issues that block the entire capture.
+      skipFonts: true,
     });
   } catch (error) {
     console.error('Failed to capture project thumbnail:', error);

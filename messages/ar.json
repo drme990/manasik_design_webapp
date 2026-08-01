@@ -383,7 +383,17 @@
         "combinePrimary": "الحقل الأساسي",
         "combinePrimaryHint": "أساسي",
         "combineAdditional": "حقول إضافية للدمج",
-        "combineHint": "كل حقل يُعرض بقواعده الخاصة. الحقول المخفية تترك مكانها للحقول الأخرى."
+        "combineHint": "كل حقل يُعرض بقواعده الخاصة. الحقول المخفية تترك مكانها للحقول الأخرى.",
+        "combineDirection": "اتجاه الدمج",
+        "combineDirectionRow": "صف",
+        "combineDirectionColumn": "عمود",
+        "combineFieldsBar": "حقول الدمج",
+        "combineFieldGlobal": "عام",
+        "combineFieldColor": "اللون",
+        "combineFieldFont": "الخط",
+        "combineFieldBold": "عريض",
+        "combineFieldItalic": "مائل",
+        "combineFieldReset": "إعادة تعيين"
       }
     },
     "modals": {

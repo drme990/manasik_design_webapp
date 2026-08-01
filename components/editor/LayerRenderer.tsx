@@ -145,31 +145,19 @@ function useAutoFitFontSize(
     const boxH = el.clientHeight;
     if (boxW <= 0 || boxH <= 0) return;
 
-    // Bounded binary search: start from a narrow range around the estimate
-    // instead of [1, max(boxW,boxH)]. This needs only ~6 iterations to
-    // converge (vs 20 for a full search), minimizing layout reflows.
-    const estimate = renderSize;
-    let lo = Math.max(1, Math.floor(estimate * 0.6));
-    let hi = Math.ceil(estimate * 1.4);
-    // Make sure the range actually contains the answer — if the estimate
-    // is way off, expand the range (rare, e.g. first render or text change)
+    // Full-range binary search over [1, max(boxW, boxH)] to find the
+    // largest font size where the text fits within the box. This matches
+    // the server-side renderer's approach and guarantees the optimal size
+    // is found regardless of the initial estimate. ~10 iterations for a
+    // 1000px box — fast enough to avoid visible flicker.
+    let lo = 1;
+    let hi = Math.ceil(Math.max(boxW, boxH));
     let best = lo;
-    for (let i = 0; i < 8; i++) {
+    while (lo <= hi) {
       const mid = (lo + hi) / 2;
       el.style.fontSize = `${mid}px`;
       const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
-      if (fits) { best = mid; lo = mid; } else { hi = mid; }
-    }
-    // If even the upper bound fits, the estimate was too low — search up
-    if (best >= hi - 1) {
-      lo = hi;
-      hi = Math.ceil(Math.max(boxW, boxH));
-      for (let i = 0; i < 6; i++) {
-        const mid = (lo + hi) / 2;
-        el.style.fontSize = `${mid}px`;
-        const fits = el.scrollWidth <= boxW && el.scrollHeight <= boxH;
-        if (fits) { best = mid; lo = mid; } else { hi = mid; }
-      }
+      if (fits) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
     }
     el.style.fontSize = '';
     const result = Math.max(1, Math.floor(best));
@@ -382,7 +370,17 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
 
 function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick, onRetryUpload }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean; onRetryUpload?: (id: string) => void }) {
   // Use thumbnail for galleries/lists when available (smaller payload)
-  const displayUri = (useThumbnail && layer.thumbnailUri) ? layer.thumbnailUri : layer.uri;
+  let displayUri = (useThumbnail && layer.thumbnailUri) ? layer.thumbnailUri : layer.uri;
+  // Safety: if uri is a JSON-encoded array of URLs (e.g. reservation.photo
+  // with multiple pictures), extract the first URL.
+  if (displayUri && displayUri.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(displayUri);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        displayUri = parsed[0] as string;
+      }
+    } catch { /* not JSON, use as-is */ }
+  }
   // Collage rendering
   if (layer.collage) {
     const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
@@ -505,6 +503,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
         src={displayUri}
         alt="Layer"
         draggable={false}
+        unoptimized
         className="pointer-events-none select-none"
         style={{
           width: layer.naturalWidth * layer.imageScale,
@@ -587,10 +586,19 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
   const lineHeight = layer.lineHeight ?? 1.2;
   const direction = layer.direction || 'rtl';
 
+  const hasCombined = layer.combinedFields && layer.combinedFields.length > 0;
+  const combineDirection = layer.combineDirection ?? 'row';
+  const fieldStyles = layer.combinedFieldStyles ?? {};
+
+  // All field IDs for combined fields
+  const allFieldIds = hasCombined
+    ? [layer.variableId, ...layer.combinedFields!]
+    : [];
+
   // For combined fields, show all field labels joined with a space
   // so the user sees what the combined text will look like.
-  const text = layer.combinedFields && layer.combinedFields.length > 0
-    ? [layer.variableId, ...layer.combinedFields]
+  const text = hasCombined
+    ? allFieldIds
       .map((id) => ORDER_FIELD_MAP[id]?.label || ORDER_FIELD_MAP[id]?.placeholder || id)
       .join(' ')
     : layer.placeholder;
@@ -605,6 +613,17 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
     layer.height || 100,
     [text, layer.width, layer.height, fontFamily, fontWeight, bold, italic, align, lineHeight, direction],
   );
+
+  // Helper: get effective style for a specific field
+  const getFieldStyle = (varId: string) => {
+    const fs = fieldStyles[varId] ?? {};
+    return {
+      color: fs.color ?? layer.color,
+      fontFamily: resolveFontFamily(fs.fontFamily ?? fontFamily),
+      fontWeight: (fs.bold ?? bold) ? 700 : (fontWeight || 400),
+      fontStyle: (fs.italic ?? italic) ? 'italic' as const : 'normal' as const,
+    };
+  };
 
   return (
     <div
@@ -644,7 +663,41 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
           fontSize: `${fontSize}px`,
         }}
       >
-        {text}
+        {hasCombined ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: combineDirection === 'column' ? 'column' : 'row',
+              alignItems: combineDirection === 'column'
+                ? (align === 'center' ? 'center' : align === 'left' ? 'flex-start' : 'flex-end')
+                : 'baseline',
+              justifyContent: align === 'center' ? 'center' : align === 'left' ? 'flex-start' : 'flex-end',
+              gap: combineDirection === 'column' ? '0' : '0.3em',
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            {allFieldIds.map((varId) => {
+              const fs = getFieldStyle(varId);
+              const label = ORDER_FIELD_MAP[varId]?.label || ORDER_FIELD_MAP[varId]?.placeholder || varId;
+              return (
+                <span
+                  key={varId}
+                  style={{
+                    color: fs.color,
+                    fontFamily: fs.fontFamily,
+                    fontWeight: fs.fontWeight,
+                    fontStyle: fs.fontStyle,
+                  }}
+                >
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          text
+        )}
       </div>
     </div>
   );

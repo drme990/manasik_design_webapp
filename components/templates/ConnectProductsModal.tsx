@@ -8,11 +8,11 @@ import Button from '@/components/ui/Button';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import {
     listBookingProducts,
-    updateBookingProduct,
-    createBookingProduct,
+    bulkUpdateBookingProducts,
+    type BulkChangeInput,
 } from '@/lib/store/booking-templates';
 import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
-import type { BookingProduct, BookingProductUpdateInput, Project } from '@/types';
+import type { BookingProduct, Project } from '@/types';
 
 interface ConnectProductsModalProps {
     isOpen: boolean;
@@ -53,11 +53,11 @@ export default function ConnectProductsModal({
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [search, setSearch] = useState('');
-    // Staged changes: map of bookingProductId → new slot value
-    // (only contains entries that differ from the original)
+    // Staged changes keyed by backendProductId → new slot value (string | null)
+    // null = unassign, string = assign template ID. Only entries that differ
+    // from the original value are included. No network calls happen on toggle —
+    // everything is batched into a single request on Save.
     const [stagedChanges, setStagedChanges] = useState<Record<string, string | null>>({});
-    // Newly created booking products (not yet persisted) keyed by backendProductId
-    const [pendingCreates, setPendingCreates] = useState<Record<string, BookingProduct>>({});
 
     const templateType = template?.templateType ?? 'text';
     const slotKey = templateType === 'image' ? 'imageTemplateId' : 'templateId';
@@ -70,7 +70,6 @@ export default function ConnectProductsModal({
         const load = async () => {
             setLoading(true);
             setStagedChanges({});
-            setPendingCreates({});
             setSearch('');
             const [products, backend] = await Promise.all([
                 listBookingProducts(),
@@ -87,17 +86,16 @@ export default function ConnectProductsModal({
         };
     }, [isOpen, template]);
 
-    // Find the booking product for a backend product (incl. pending creates)
+    // Find the booking product for a backend product
     const getBookingForBackend = (backendId: string): BookingProduct | undefined => {
-        if (pendingCreates[backendId]) return pendingCreates[backendId];
         return bookingProducts.find((bp) => bp.backendProductId === backendId);
     };
 
     // The current effective value of the slot for a product (incl. staged)
     const getEffectiveSlotValue = (backendId: string): string | null | undefined => {
+        if (backendId in stagedChanges) return stagedChanges[backendId];
         const bp = getBookingForBackend(backendId);
         if (!bp) return undefined;
-        if (bp.id in stagedChanges) return stagedChanges[bp.id];
         return bp[slotKey as 'templateId'];
     };
 
@@ -116,35 +114,14 @@ export default function ConnectProductsModal({
     const hasOtherSlot = (backendId: string): boolean => {
         const bp = getBookingForBackend(backendId);
         if (!bp) return false;
-        // Read the original (non-staged) value for the other slot — we
-        // don't stage changes to the other slot in this modal.
         return !!bp[otherSlotKey as 'templateId'];
     };
 
-    const handleToggle = async (backend: BackendProduct) => {
+    const handleToggle = (backend: BackendProduct) => {
         if (!template) return;
-        let bp = getBookingForBackend(backend.id);
-        // Auto-create the booking product if it doesn't exist yet.
-        // We create it immediately so we have an ID to stage changes against.
-        if (!bp) {
-            try {
-                bp = await createBookingProduct({
-                    backendProductId: backend.id,
-                    backendSlug: backend.slug,
-                    name: backend.name,
-                    imageUri: backend.imageUri,
-                    defaultCanvas: { width: 1080, height: 1080 },
-                });
-                setPendingCreates((prev) => ({ ...prev, [backend.id]: bp! }));
-                setBookingProducts((prev) => [...prev, bp!]);
-            } catch (err) {
-                console.error('Failed to create booking product:', err);
-                return;
-            }
-        }
         const currentVal = getEffectiveSlotValue(backend.id);
         const newVal = currentVal === template.id ? null : template.id;
-        setStagedChanges((prev) => ({ ...prev, [bp!.id]: newVal }));
+        setStagedChanges((prev) => ({ ...prev, [backend.id]: newVal }));
     };
 
     // Filtered + searched backend products
@@ -164,28 +141,33 @@ export default function ConnectProductsModal({
         }
         setSaving(true);
         try {
-            // Apply all staged changes in parallel
-            const entries = Object.entries(stagedChanges);
-            const results = await Promise.all(
-                entries.map(([bpId, newSlotValue]) =>
-                    updateBookingProduct(bpId, {
-                        [slotKey]: newSlotValue,
-                    } as Partial<BookingProductUpdateInput>).then(
-                        (updated) => ({ bpId, updated }),
-                    ),
-                ),
+            // Build bulk change list from staged changes (keyed by backendProductId)
+            const changes: BulkChangeInput[] = Object.entries(stagedChanges).map(
+                ([backendId, value]) => {
+                    const bp = getBookingForBackend(backendId);
+                    const backend = backendProducts.find((b) => b.id === backendId);
+                    return {
+                        bookingProductId: bp?.id,
+                        backendProductId: bp ? undefined : backendId,
+                        backendSlug: bp ? undefined : backend?.slug,
+                        name: bp ? undefined : backend?.name,
+                        imageUri: bp ? undefined : backend?.imageUri,
+                        value,
+                    };
+                },
             );
-            // Merge results back into bookingProducts state
+            // Single request for all changes
+            const updatedProducts = await bulkUpdateBookingProducts(slotKey, changes);
+            // Merge returned products into state
             const updatedMap = new Map<string, BookingProduct>();
-            for (const { bpId, updated } of results) {
-                if (updated) updatedMap.set(bpId, updated);
-            }
-            const refreshed = bookingProducts.map((bp) =>
-                updatedMap.get(bp.id) ?? bp,
-            );
+            for (const p of updatedProducts) updatedMap.set(p.id, p);
+            const refreshed = [
+                ...bookingProducts.map((bp) => updatedMap.get(bp.id) ?? bp),
+                // Add newly created products not already in state
+                ...updatedProducts.filter((p) => !bookingProducts.some((bp) => bp.id === p.id)),
+            ];
             setBookingProducts(refreshed);
             setStagedChanges({});
-            setPendingCreates({});
             onSaved?.(refreshed);
             onClose();
         } catch (err) {
@@ -197,9 +179,7 @@ export default function ConnectProductsModal({
 
     const handleClose = () => {
         if (saving) return;
-        // Discard staged changes on close
         setStagedChanges({});
-        setPendingCreates({});
         onClose();
     };
 

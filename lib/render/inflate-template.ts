@@ -411,47 +411,145 @@ function shouldDisplayField(
 function inflateTextDynamicField(
   layer: DynamicFieldLayer,
   orderData: OrderDataPayload,
-): TextLayer {
+): TextLayer | TextLayer[] {
   // ── Combined fields: resolve each field independently, apply display
   //    rules per field, join visible values with a space separator.
   //    The layer is hidden only if ALL fields are hidden/empty.
   if (layer.combinedFields && layer.combinedFields.length > 0) {
     const allIds = [layer.variableId, ...layer.combinedFields];
-    const parts: string[] = [];
+    const fieldStyles = layer.combinedFieldStyles ?? {};
+    const combineDirection = layer.combineDirection ?? 'row';
+
+    // Resolve each field and keep track of which ones are visible
+    const visibleParts: { varId: string; value: string }[] = [];
     for (const varId of allIds) {
       const value = resolveFieldValue(varId, orderData);
       const display = shouldDisplayField(varId, orderData);
       if (!display) continue;
       if (isEmptyValue(value)) continue;
-      parts.push(value!);
+      visibleParts.push({ varId, value: value! });
     }
-    const hasAnyValue = parts.length > 0;
-    return {
-      id: generateId(),
-      type: 'text',
-      name: layer.name,
-      x: layer.x,
-      y: layer.y,
-      width: layer.width,
-      height: layer.height,
-      rotation: layer.rotation,
-      opacity: layer.opacity,
-      zIndex: layer.zIndex,
-      visible: layer.visible && hasAnyValue,
-      locked: layer.locked,
-      text: hasAnyValue ? parts.join(' ') : layer.placeholder,
-      fontFamily: layer.fontFamily || 'Expo Arabic',
-      fontWeight: layer.fontWeight || 700,
-      fontSize: layer.fontSize,
-      color: layer.color,
-      bold: layer.bold ?? true,
-      italic: layer.italic ?? false,
-      align: layer.align || 'center',
-      verticalAlign: layer.verticalAlign || 'middle',
-      lineHeight: layer.lineHeight ?? 1.2,
-      direction: layer.direction || 'rtl',
-      autoFit: true,
-    };
+
+    const hasAnyValue = visibleParts.length > 0;
+
+    // If no field has individual style overrides, use the original
+    // single-layer approach (join with space or newline).
+    const hasIndividualStyles = Object.keys(fieldStyles).length > 0;
+
+    if (!hasIndividualStyles) {
+      const separator = combineDirection === 'column' ? '\n' : ' ';
+      return {
+        id: generateId(),
+        type: 'text',
+        name: layer.name,
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        visible: layer.visible && hasAnyValue,
+        locked: layer.locked,
+        text: hasAnyValue ? visibleParts.map((p) => p.value).join(separator) : layer.placeholder,
+        fontFamily: layer.fontFamily || 'Expo Arabic',
+        fontWeight: layer.fontWeight || 700,
+        fontSize: layer.fontSize,
+        color: layer.color,
+        bold: layer.bold ?? true,
+        italic: layer.italic ?? false,
+        align: layer.align || 'center',
+        verticalAlign: layer.verticalAlign || 'middle',
+        lineHeight: layer.lineHeight ?? 1.2,
+        direction: layer.direction || 'rtl',
+        autoFit: true,
+      };
+    }
+
+    // ── Individual styles: create one text layer per visible field ──
+    // For 'row' direction, layers are side by side (equal width).
+    // For 'column' direction, layers are stacked vertically (equal height).
+    if (!hasAnyValue) {
+      // Return a single hidden layer
+      return {
+        id: generateId(),
+        type: 'text',
+        name: layer.name,
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        visible: false,
+        locked: layer.locked,
+        text: layer.placeholder,
+        fontFamily: layer.fontFamily || 'Expo Arabic',
+        fontWeight: layer.fontWeight || 700,
+        fontSize: layer.fontSize,
+        color: layer.color,
+        bold: layer.bold ?? true,
+        italic: layer.italic ?? false,
+        align: layer.align || 'center',
+        verticalAlign: layer.verticalAlign || 'middle',
+        lineHeight: layer.lineHeight ?? 1.2,
+        direction: layer.direction || 'rtl',
+        autoFit: true,
+      };
+    }
+
+    const count = visibleParts.length;
+    const layers: TextLayer[] = visibleParts.map((part, i) => {
+      const fs = fieldStyles[part.varId] ?? {};
+      const fieldFontFamily = fs.fontFamily ?? layer.fontFamily ?? 'Expo Arabic';
+      const fieldBold = fs.bold ?? layer.bold ?? true;
+      const fieldItalic = fs.italic ?? layer.italic ?? false;
+      const fieldColor = fs.color ?? layer.color;
+
+      // Position within the original layer bounds
+      let subX: number, subY: number, subW: number, subH: number;
+      if (combineDirection === 'column') {
+        subX = layer.x;
+        subY = layer.y + (layer.height / count) * i;
+        subW = layer.width;
+        subH = layer.height / count;
+      } else {
+        subX = layer.x + (layer.width / count) * i;
+        subY = layer.y;
+        subW = layer.width / count;
+        subH = layer.height;
+      }
+
+      return {
+        id: generateId(),
+        type: 'text',
+        name: `${layer.name} (${part.varId})`,
+        x: subX,
+        y: subY,
+        width: subW,
+        height: subH,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        visible: layer.visible,
+        locked: layer.locked,
+        text: part.value,
+        fontFamily: fieldFontFamily,
+        fontWeight: layer.fontWeight || 700,
+        fontSize: layer.fontSize,
+        color: fieldColor,
+        bold: fieldBold,
+        italic: fieldItalic,
+        align: layer.align || 'center',
+        verticalAlign: layer.verticalAlign || 'middle',
+        lineHeight: layer.lineHeight ?? 1.2,
+        direction: layer.direction || 'rtl',
+        autoFit: true,
+      };
+    });
+
+    return layers;
   }
 
   // ── Single field (original behavior) ──────────────────────────────
@@ -495,12 +593,36 @@ function inflateTextDynamicField(
 }
 
 /**
+ * Parse a resolved photo value into an array of image URLs.
+ * The value can be:
+ *  - A single URL string
+ *  - A JSON-encoded array of URL strings (multiple reservation pictures)
+ *  - undefined / empty (no photo)
+ */
+function parsePhotoUrls(value: string | undefined): string[] {
+  if (!value || isEmptyValue(value)) return [];
+  const trimmed = value.trim();
+  // JSON array of URLs
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((u): u is string => typeof u === 'string' && u.length > 0);
+      }
+    } catch { /* not JSON — fall through */ }
+  }
+  // Single URL
+  return [value];
+}
+
+/**
  * Convert a dynamic image field layer to a concrete image layer.
  *
  * The new image layer inherits the dynamic field's position and size.
- * The `uri` is set to the resolved image URL. If no image was resolved,
- * the layer is hidden (visible: false) so it doesn't show a broken
- * image icon in the editor.
+ * If a single image is resolved, `uri` is set to that URL.
+ * If multiple images are resolved (e.g. reservation.photo with multiple
+ * pictures), the layer becomes a collage containing all images.
+ * If no image is resolved, the layer is hidden (visible: false).
  *
  * Natural dimensions default to the layer's display dimensions — the
  * editor will measure the actual image on load and update them.
@@ -510,9 +632,18 @@ function inflateImageDynamicField(
   orderData: OrderDataPayload,
 ): ImageLayer {
   const value = resolveFieldValue(layer.variableId, orderData);
-  const hasValue = !isEmptyValue(value);
+  const urls = parsePhotoUrls(value);
+  const hasValue = urls.length > 0;
 
-  return {
+  // Pick a collage layout that fits the number of images
+  function pickCollageLayout(count: number): string {
+    if (count <= 1) return '1';
+    if (count === 2) return '2h';
+    if (count === 3) return '3h';
+    return '4grid';
+  }
+
+  const baseImageLayer: ImageLayer = {
     id: generateId(),
     type: 'image',
     name: layer.name,
@@ -523,11 +654,9 @@ function inflateImageDynamicField(
     rotation: layer.rotation,
     opacity: layer.opacity,
     zIndex: layer.zIndex,
-    // Hide the layer if no image was resolved — the user can manually
-    // upload one in the editor if needed.
     visible: layer.visible && hasValue,
     locked: layer.locked,
-    uri: hasValue ? value! : '',
+    uri: hasValue ? urls[0] : '',
     naturalWidth: layer.imageWidth || layer.width,
     naturalHeight: layer.imageHeight || layer.height,
     maskWidth: layer.width,
@@ -541,6 +670,26 @@ function inflateImageDynamicField(
     flipX: false,
     flipY: false,
   };
+
+  // Multiple images → create a collage
+  if (urls.length > 1) {
+    const layoutId = pickCollageLayout(urls.length);
+    baseImageLayer.collage = {
+      uris: urls,
+      layout: layoutId,
+      cells: urls.map((uri) => ({
+        uri,
+        offsetX: 0,
+        offsetY: 0,
+        scale: 1,
+      })),
+      gap: layer.collageGap ?? 4,
+      bgColor: '#000000',
+      containerRadius: layer.borderRadius || 0,
+    };
+  }
+
+  return baseImageLayer;
 }
 
 /**
@@ -550,7 +699,7 @@ function inflateImageDynamicField(
 function inflateLayer(
   layer: AnyLayer,
   orderData: OrderDataPayload,
-): AnyLayer {
+): AnyLayer | AnyLayer[] {
   if (layer.type === 'dynamic_field') {
     if (layer.fieldType === 'image') {
       return inflateImageDynamicField(layer, orderData);
@@ -601,10 +750,13 @@ export function inflateTemplateToDesign(
   const productNamePart = options.productName ? ` — ${options.productName}` : '';
   const name = `${options.orderNumber}${itemSuffix}${productNamePart} — ${template.name}`;
 
-  // Inflate all layers — convert dynamic fields to concrete text/image layers
-  const inflatedLayers = template.layers.map((layer) =>
-    inflateLayer(layer, data),
-  );
+  // Inflate all layers — convert dynamic fields to concrete text/image layers.
+  // A single dynamic field can inflate into multiple layers (combined fields
+  // with individual styles), so we flatten the result.
+  const inflatedLayers = template.layers.flatMap((layer) => {
+    const result = inflateLayer(layer, data);
+    return Array.isArray(result) ? result : [result];
+  });
 
   return {
     ...template,

@@ -244,20 +244,21 @@ export default function EditorPage() {
                 router.replace(`/editor/t/${id}`);
                 return;
             }
-            // Strip autoFit from text layers — in the design editor,
-            // inflated dynamic text fields should behave like normal text
-            // layers (font size directly controllable, box grows with
-            // text). autoFit is only for the template editor.
-            // Mark stripped layers with _needsInitialFit so the
-            // LayerRenderer knows to shrink the box to fit the text on
-            // the first measurement (the box was sized for autoFit and
-            // is much bigger than the actual text at layer.fontSize).
+            // Keep autoFit on text layers — dynamic field text should
+            // always auto-fill the box (font size calculated to fit the
+            // box dimensions). The useAutoFitFontSize hook in
+            // LayerRenderer uses a full-range binary search (matching
+            // the server-side renderer) so the editor displays the same
+            // font size as the generated JPG.
             if (p && p.layers) {
                 let modified = false;
                 const layers = p.layers.map((l) => {
                     if (l.type === 'text' && l.autoFit) {
                         modified = true;
-                        return { ...l, autoFit: undefined, _needsInitialFit: true };
+                        // Clear _needsInitialFit so the box doesn't shrink
+                        // — the box stays at the template size and the font
+                        // auto-fits to fill it.
+                        return { ...l, _needsInitialFit: false };
                     }
                     return l;
                 });
@@ -347,9 +348,10 @@ export default function EditorPage() {
         // in Canvas) WITHOUT clearing selectedLayerId — clearing it would
         // flicker the PropertiesBar off and on.
         setIsExporting(true);
-        // Wait one tick so the selection outline is actually removed from
-        // the DOM before we capture the snapshot.
-        await new Promise((r) => setTimeout(r, 80));
+        // Wait a bit so the selection outline is actually removed from
+        // the DOM and any pending image loads (e.g. collage cells) have
+        // a chance to complete before we capture the snapshot.
+        await new Promise((r) => setTimeout(r, 200));
         try {
             return await captureProjectThumbnailBlob(canvasRef.current, bgColor);
         } catch {

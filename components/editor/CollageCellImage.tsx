@@ -91,6 +91,7 @@ export default function CollageCellImage({
       alt=""
       draggable={false}
       onLoad={handleLoad}
+      unoptimized
       className={cn('pointer-events-none h-full w-full select-none', className)}
       style={{
         objectFit: 'scale-down' as const,

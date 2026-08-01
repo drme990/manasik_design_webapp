@@ -34,6 +34,7 @@ import {
     LuPipette,
     LuRectangleHorizontal,
     LuCombine,
+    LuRows3,
 } from 'react-icons/lu';
 import { TbBorderCorners } from 'react-icons/tb';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
@@ -121,6 +122,11 @@ export interface PropertiesBarProps {
     setIsCropOpen: (v: boolean) => void;
     combineDrawerOpen?: boolean;
     setCombineDrawerOpen?: (v: boolean) => void;
+    /** When a combined dynamic field is selected, this is the sub-field ID
+     *  being edited (null = global, string = specific field). */
+    selectedCombineFieldId?: string | null;
+    /** Updates a single style property for a specific combined field. */
+    onCombineFieldStyleChange?: (varId: string, updates: Record<string, unknown>) => void;
     replaceImageInputRef: RefObject<HTMLInputElement | null>;
     onDuplicateLayer: (id: string) => void;
     onDeleteLayer: (id: string) => void;
@@ -143,6 +149,8 @@ export default function PropertiesBar({
     setIsCropOpen,
     combineDrawerOpen,
     setCombineDrawerOpen,
+    selectedCombineFieldId,
+    onCombineFieldStyleChange,
     replaceImageInputRef,
     onDuplicateLayer,
     onDeleteLayer,
@@ -463,89 +471,179 @@ export default function PropertiesBar({
                     const nextVAlign: TextLayer['verticalAlign'] = curVAlign === 'bottom' ? 'middle' : curVAlign === 'middle' ? 'top' : 'bottom';
                     const curDirection = l.direction || 'rtl';
                     const isText = l.fieldType === 'text';
+
+                    // When a specific combined field is selected, only show
+                    // the 4 per-field controls: font, color, bold, italic.
+                    if (isText && selectedCombineFieldId) {
+                        const cfId = selectedCombineFieldId;
+                        const cfStyles = l.combinedFieldStyles ?? {};
+                        const cfStyle = cfStyles[cfId] ?? {};
+                        const effColor = cfStyle.color ?? l.color;
+                        const effFont = cfStyle.fontFamily ?? l.fontFamily ?? 'Expo Arabic';
+                        const effBold = cfStyle.bold ?? l.bold ?? true;
+                        const effItalic = cfStyle.italic ?? l.italic ?? false;
+                        return (
+                            <>
+                                <PropButton
+                                    label={t('toolbars.text.font')}
+                                    value={effFont}
+                                    icon={<LuType className="h-5 w-5" />}
+                                    active={fontDrawerOpen}
+                                    onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
+                                />
+                                <PropButton
+                                    label={t('toolbars.text.color')}
+                                    swatch={effColor}
+                                    icon={<LuPalette className="h-5 w-5" />}
+                                    active={colorPickerProp === 'df.combineFieldColor'}
+                                    onClick={() => setColorPickerProp(colorPickerProp === 'df.combineFieldColor' ? null : 'df.combineFieldColor')}
+                                />
+                                <PropToggle
+                                    label={t('toolbars.text.bold')}
+                                    icon={<LuBold className="h-5 w-5" />}
+                                    active={effBold}
+                                    onClick={() => {
+                                        if (onCombineFieldStyleChange) {
+                                            onCombineFieldStyleChange(cfId, { bold: !effBold });
+                                        }
+                                    }}
+                                />
+                                <PropToggle
+                                    label={t('toolbars.text.italic')}
+                                    icon={<LuItalic className="h-5 w-5" />}
+                                    active={effItalic}
+                                    onClick={() => {
+                                        if (onCombineFieldStyleChange) {
+                                            onCombineFieldStyleChange(cfId, { italic: !effItalic });
+                                        }
+                                    }}
+                                />
+                            </>
+                        );
+                    }
+
                     return (
                         <>
                             {/* Text-only properties (font, bold, italic, align, etc.)
                                 Font SIZE is intentionally excluded — it's auto-calculated
                                 to fill the box based on the text content. */}
-                            {isText && (
-                                <>
-                                    <PropButton
-                                        label={t('toolbars.text.font')}
-                                        value={l.fontFamily || 'Expo Arabic'}
-                                        icon={<LuType className="h-5 w-5" />}
-                                        active={fontDrawerOpen}
-                                        onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
-                                    />
-                                    <PropButton
-                                        label={t('toolbars.dynamicField.autoSize')}
-                                        value="AUTO"
-                                        icon={<LuALargeSmall className="h-5 w-5" />}
-                                        active={false}
-                                        onClick={() => { /* no-op — size is auto */ }}
-                                    />
-                                    {setCombineDrawerOpen && (
+                            {isText && (() => {
+                                const cfId = selectedCombineFieldId;
+                                const cfStyles = l.combinedFieldStyles ?? {};
+                                const cfStyle = cfId ? (cfStyles[cfId] ?? {}) : null;
+                                const effColor = cfStyle?.color ?? l.color;
+                                const effFont = cfStyle?.fontFamily ?? l.fontFamily ?? 'Expo Arabic';
+                                const effBold = cfStyle?.bold ?? l.bold ?? true;
+                                const effItalic = cfStyle?.italic ?? l.italic ?? false;
+                                return (
+                                    <>
                                         <PropButton
-                                            label={t('toolbars.dynamicField.combine')}
-                                            value={l.combinedFields?.length ? `${l.combinedFields.length + 1}` : undefined}
-                                            icon={<LuCombine className="h-5 w-5" />}
-                                            active={combineDrawerOpen}
-                                            onClick={() => setCombineDrawerOpen(!combineDrawerOpen)}
+                                            label={t('toolbars.text.font')}
+                                            value={effFont}
+                                            icon={<LuType className="h-5 w-5" />}
+                                            active={fontDrawerOpen}
+                                            onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
                                         />
-                                    )}
-                                    <PropButton
-                                        label={t('toolbars.text.color')}
-                                        swatch={l.color}
-                                        icon={<LuPalette className="h-5 w-5" />}
-                                        active={colorPickerProp === 'df.color'}
-                                        onClick={() => setColorPickerProp(colorPickerProp === 'df.color' ? null : 'df.color')}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.text.bold')}
-                                        icon={<LuBold className="h-5 w-5" />}
-                                        active={l.bold ?? true}
-                                        onClick={() => onLayerChange(l.id, { bold: !(l.bold ?? true) } as Partial<AnyLayer>)}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.text.italic')}
-                                        icon={<LuItalic className="h-5 w-5" />}
-                                        active={l.italic ?? false}
-                                        onClick={() => onLayerChange(l.id, { italic: !(l.italic ?? false) } as Partial<AnyLayer>)}
-                                    />
-                                    <PropButton
-                                        label={t('toolbars.text.lineHeight')}
-                                        value={l.lineHeight ?? 1.2}
-                                        icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
-                                        active={activeProp === 'df.lineHeight'}
-                                        onClick={() => setActiveProp(activeProp === 'df.lineHeight' ? null : 'df.lineHeight')}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.text.align')}
-                                        icon={<AlignIcon className="h-5 w-5" />}
-                                        active={false}
-                                        onClick={() => onLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.text.vAlign')}
-                                        icon={<VAlignIcon className="h-5 w-5" />}
-                                        active={false}
-                                        onClick={() => onLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
-                                    />
-                                    <PropToggle
-                                        label={t('toolbars.text.direction')}
-                                        icon={
-                                            curDirection === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
-                                                curDirection === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
-                                                    <LuLanguages className="h-5 w-5" />
+                                        <PropButton
+                                            label={t('toolbars.dynamicField.autoSize')}
+                                            value="AUTO"
+                                            icon={<LuALargeSmall className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => { /* no-op — size is auto */ }}
+                                        />
+                                        {
+                                            setCombineDrawerOpen && (
+                                                <PropButton
+                                                    label={t('toolbars.dynamicField.combine')}
+                                                    value={l.combinedFields?.length ? `${l.combinedFields.length + 1}` : undefined}
+                                                    icon={<LuCombine className="h-5 w-5" />}
+                                                    active={combineDrawerOpen}
+                                                    onClick={() => setCombineDrawerOpen(!combineDrawerOpen)}
+                                                />
+                                            )
                                         }
-                                        active={false}
-                                        onClick={() => {
-                                            const next = curDirection === 'auto' ? 'rtl' : curDirection === 'rtl' ? 'ltr' : 'auto';
-                                            onLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
-                                        }}
-                                    />
-                                </>
-                            )}
+                                        {
+                                            l.combinedFields && l.combinedFields.length > 0 && (
+                                                <PropToggle
+                                                    label={t('toolbars.dynamicField.combineDirection')}
+                                                    icon={
+                                                        (l.combineDirection ?? 'row') === 'column'
+                                                            ? <LuColumns3 className="h-5 w-5" />
+                                                            : <LuRows3 className="h-5 w-5" />
+                                                    }
+                                                    active={(l.combineDirection ?? 'row') === 'column'}
+                                                    onClick={() => onLayerChange(l.id, {
+                                                        combineDirection: (l.combineDirection ?? 'row') === 'row' ? 'column' : 'row',
+                                                    } as Partial<AnyLayer>)}
+                                                />
+                                            )
+                                        }
+                                        <PropButton
+                                            label={t('toolbars.text.color')}
+                                            swatch={effColor}
+                                            icon={<LuPalette className="h-5 w-5" />}
+                                            active={colorPickerProp === (cfId ? 'df.combineFieldColor' : 'df.color')}
+                                            onClick={() => setColorPickerProp(colorPickerProp === (cfId ? 'df.combineFieldColor' : 'df.color') ? null : (cfId ? 'df.combineFieldColor' : 'df.color'))}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.bold')}
+                                            icon={<LuBold className="h-5 w-5" />}
+                                            active={effBold}
+                                            onClick={() => {
+                                                if (cfId && onCombineFieldStyleChange) {
+                                                    onCombineFieldStyleChange(cfId, { bold: !effBold });
+                                                } else {
+                                                    onLayerChange(l.id, { bold: !effBold } as Partial<AnyLayer>);
+                                                }
+                                            }}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.italic')}
+                                            icon={<LuItalic className="h-5 w-5" />}
+                                            active={effItalic}
+                                            onClick={() => {
+                                                if (cfId && onCombineFieldStyleChange) {
+                                                    onCombineFieldStyleChange(cfId, { italic: !effItalic });
+                                                } else {
+                                                    onLayerChange(l.id, { italic: !effItalic } as Partial<AnyLayer>);
+                                                }
+                                            }}
+                                        />
+                                        <PropButton
+                                            label={t('toolbars.text.lineHeight')}
+                                            value={l.lineHeight ?? 1.2}
+                                            icon={<LuAlignVerticalJustifyCenter className="h-5 w-5" />}
+                                            active={activeProp === 'df.lineHeight'}
+                                            onClick={() => setActiveProp(activeProp === 'df.lineHeight' ? null : 'df.lineHeight')}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.align')}
+                                            icon={<AlignIcon className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => onLayerChange(l.id, { align: nextAlign } as Partial<AnyLayer>)}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.vAlign')}
+                                            icon={<VAlignIcon className="h-5 w-5" />}
+                                            active={false}
+                                            onClick={() => onLayerChange(l.id, { verticalAlign: nextVAlign } as Partial<AnyLayer>)}
+                                        />
+                                        <PropToggle
+                                            label={t('toolbars.text.direction')}
+                                            icon={
+                                                curDirection === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
+                                                    curDirection === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
+                                                        <LuLanguages className="h-5 w-5" />
+                                            }
+                                            active={false}
+                                            onClick={() => {
+                                                const next = curDirection === 'auto' ? 'rtl' : curDirection === 'rtl' ? 'ltr' : 'auto';
+                                                onLayerChange(l.id, { direction: next } as Partial<AnyLayer>);
+                                            }}
+                                        />
+                                    </>
+                                );
+                            })()}
                             {/* Image-only properties (aspect ratio + rounded corners) */}
                             {!isText && (
                                 <>
@@ -591,20 +689,24 @@ export default function PropertiesBar({
 
                 <div className="h-10 w-px shrink-0 bg-stroke" />
 
-                {/* Actions */}
-                <PropToggle
-                    label={t('duplicate')}
-                    icon={<LuCopy className="h-5 w-5" />}
-                    active={false}
-                    onClick={() => onDuplicateLayer(selectedLayer.id)}
-                />
-                <PropToggle
-                    label={t('delete')}
-                    icon={<LuTrash2 className="h-5 w-5 text-error" />}
-                    active={false}
-                    onClick={() => onDeleteLayer(selectedLayer.id)}
-                />
+                {/* Actions — hidden when editing a specific combined field */}
+                {!selectedCombineFieldId && (
+                    <>
+                        <PropToggle
+                            label={t('duplicate')}
+                            icon={<LuCopy className="h-5 w-5" />}
+                            active={false}
+                            onClick={() => onDuplicateLayer(selectedLayer.id)}
+                        />
+                        <PropToggle
+                            label={t('delete')}
+                            icon={<LuTrash2 className="h-5 w-5 text-error" />}
+                            active={false}
+                            onClick={() => onDeleteLayer(selectedLayer.id)}
+                        />
+                    </>
+                )}
             </div>
-        </div>
+        </div >
     );
 }

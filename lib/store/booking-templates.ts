@@ -63,6 +63,34 @@ export async function updateBookingProduct(id: string, updates: BookingProductUp
   return updated;
 }
 
+/**
+ * Bulk update — applies many template-slot changes in a single request.
+ * Each change either updates an existing booking product (by ID) or
+ * creates a new one (by backendProductId) and sets the slot value.
+ */
+export interface BulkChangeInput {
+  bookingProductId?: string;
+  backendProductId?: string;
+  backendSlug?: string;
+  name?: string;
+  imageUri?: string;
+  value: string | null;
+}
+
+export async function bulkUpdateBookingProducts(
+  slotKey: 'templateId' | 'imageTemplateId',
+  changes: BulkChangeInput[],
+): Promise<BookingProduct[]> {
+  const result = await fetchWithAuth('/api/booking-products', {
+    method: 'PATCH',
+    body: JSON.stringify({ slotKey, changes }),
+  });
+  const products = (result.data || []) as BookingProduct[];
+  for (const p of products) cache.setItem(p);
+  cache.invalidateList();
+  return products;
+}
+
 export async function deleteBookingProduct(id: string): Promise<void> {
   await fetchWithAuth(`/api/booking-products/${id}`, { method: 'DELETE' });
   cache.removeItem(id);

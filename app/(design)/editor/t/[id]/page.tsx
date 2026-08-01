@@ -26,6 +26,7 @@ import BottomBar from '@/components/editor/EditorPage/BottomBar';
 import ShapesDrawer from '@/components/editor/EditorPage/ShapesDrawer';
 import DynamicFieldsDrawer from '@/components/editor/EditorPage/DynamicFieldsDrawer';
 import CombineFieldsDrawer from '@/components/editor/EditorPage/CombineFieldsDrawer';
+import CombineFieldsBottomBar from '@/components/editor/EditorPage/CombineFieldsBottomBar';
 import FontDrawer from '@/components/editor/EditorPage/FontDrawer';
 import TextEditDrawer from '@/components/editor/EditorPage/TextEditDrawer';
 import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
@@ -71,6 +72,7 @@ const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
     'shape.strokeColor': 'strokeColor',
     'df.color': 'textColor',
     'df.strokeColor': 'strokeColor',
+    'df.combineFieldColor': 'combineFieldColor',
 };
 
 const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
@@ -81,6 +83,7 @@ const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
     'shape.strokeColor': 'shape',
     'df.color': 'dynamicField',
     'df.strokeColor': 'dynamicField',
+    'df.combineFieldColor': 'dynamicField',
 };
 
 function getColorPickerValue(layer: AnyLayer, prop: string): string {
@@ -90,6 +93,7 @@ function getColorPickerValue(layer: AnyLayer, prop: string): string {
     if (prop === 'shape.strokeColor') return (layer as ShapeLayer).strokeColor;
     if (prop === 'df.color') return (layer as DynamicFieldLayer).color;
     if (prop === 'df.strokeColor') return (layer as DynamicFieldLayer).borderColor ?? '#cccccc';
+    if (prop === 'df.combineFieldColor') return (layer as DynamicFieldLayer).color;
     return '#000000';
 }
 
@@ -189,6 +193,9 @@ export default function EditorPage() {
     const [dynamicFieldDrawerOpen, setDynamicFieldDrawerOpen] = useState(false);
     const [combineDrawerOpen, setCombineDrawerOpen] = useState(false);
     const [combineDrawerKey, setCombineDrawerKey] = useState(0);
+    /** When a combined dynamic field is selected, this tracks which sub-field
+     *  the PropertiesBar should edit: null = global (layer-level), string = specific field. */
+    const [selectedCombineFieldId, setSelectedCombineFieldId] = useState<string | null>(null);
     const [layersDrawerOpen, setLayersDrawerOpen] = useState(false);
     // When true, delete buttons are shown above each uploaded user shape
     const [editShapesMode, setEditShapesMode] = useState(false);
@@ -230,6 +237,7 @@ export default function EditorPage() {
         setColorPickerProp(null);
         setFontDrawerOpen(false);
         setTextEditDrawerOpen(false);
+        setSelectedCombineFieldId(null);
     }, [selectedLayerId]);
 
     useEffect(() => {
@@ -335,9 +343,10 @@ export default function EditorPage() {
         // in Canvas) WITHOUT clearing selectedLayerId — clearing it would
         // flicker the PropertiesBar off and on.
         setIsExporting(true);
-        // Wait one tick so the selection outline is actually removed from
-        // the DOM before we capture the snapshot.
-        await new Promise((r) => setTimeout(r, 80));
+        // Wait a bit so the selection outline is actually removed from
+        // the DOM and any pending image loads (e.g. collage cells) have
+        // a chance to complete before we capture the snapshot.
+        await new Promise((r) => setTimeout(r, 200));
         try {
             return await captureProjectThumbnailBlob(canvasRef.current, bgColor);
         } catch {
@@ -1717,6 +1726,13 @@ export default function EditorPage() {
                                 collage: { ...imgLayer.collage, bgColor: pickedColor },
                             } as Partial<AnyLayer>);
                         }
+                    } else if (prop === 'df.combineFieldColor' && selectedCombineFieldId) {
+                        const dfLayer = selectedLayer as DynamicFieldLayer;
+                        const current = dfLayer.combinedFieldStyles ?? {};
+                        const existing = current[selectedCombineFieldId] ?? {};
+                        handleLayerChange(selectedLayer.id, {
+                            combinedFieldStyles: { ...current, [selectedCombineFieldId]: { ...existing, color: pickedColor } },
+                        } as Partial<AnyLayer>);
                     } else {
                         handleLayerChange(selectedLayer.id, getColorPickerUpdate(prop, pickedColor));
                     }
@@ -1965,6 +1981,16 @@ export default function EditorPage() {
                                 if (v) setCombineDrawerKey((k) => k + 1);
                                 setCombineDrawerOpen(v);
                             }}
+                            selectedCombineFieldId={selectedCombineFieldId}
+                            onCombineFieldStyleChange={(varId, updates) => {
+                                if (!selectedLayer) return;
+                                const dfLayer = selectedLayer as DynamicFieldLayer;
+                                const current = dfLayer.combinedFieldStyles ?? {};
+                                const existing = current[varId] ?? {};
+                                handleLayerChange(selectedLayer.id, {
+                                    combinedFieldStyles: { ...current, [varId]: { ...existing, ...updates } },
+                                } as Partial<AnyLayer>);
+                            }}
                             replaceImageInputRef={replaceImageInputRef}
                             onDuplicateLayer={handleDuplicateLayer}
                             onDeleteLayer={handleDeleteLayer}
@@ -2022,6 +2048,25 @@ export default function EditorPage() {
                         combinedFieldIds={(selectedLayer as DynamicFieldLayer).combinedFields ?? []}
                         onSave={(combinedIds) => {
                             handleLayerChange(selectedLayer.id, { combinedFields: combinedIds.length > 0 ? combinedIds : undefined } as Partial<AnyLayer>);
+                        }}
+                    />
+                )}
+
+                {/* Combine fields bottom bar — field selector below the PropertiesBar */}
+                {selectedLayer && selectedLayer.type === 'dynamic_field' && (selectedLayer as DynamicFieldLayer).fieldType === 'text' && (selectedLayer as DynamicFieldLayer).combinedFields && (selectedLayer as DynamicFieldLayer).combinedFields!.length > 0 && (
+                    <CombineFieldsBottomBar
+                        layer={selectedLayer as DynamicFieldLayer}
+                        selectedFieldId={selectedCombineFieldId}
+                        onSelectField={setSelectedCombineFieldId}
+                        onResetField={(varId) => {
+                            const dfLayer = selectedLayer as DynamicFieldLayer;
+                            const current = dfLayer.combinedFieldStyles ?? {};
+                            if (!(varId in current)) return;
+                            const newStyles = { ...current };
+                            delete newStyles[varId];
+                            handleLayerChange(selectedLayer.id, {
+                                combinedFieldStyles: Object.keys(newStyles).length > 0 ? newStyles : undefined,
+                            } as Partial<AnyLayer>);
                         }}
                     />
                 )}
@@ -2445,6 +2490,15 @@ export default function EditorPage() {
                             }
                             return;
                         }
+                        if (colorPickerProp === 'df.combineFieldColor' && selectedCombineFieldId) {
+                            const dfLayer = selectedLayer as DynamicFieldLayer;
+                            const current = dfLayer.combinedFieldStyles ?? {};
+                            const existing = current[selectedCombineFieldId] ?? {};
+                            handleLayerChange(selectedLayer.id, {
+                                combinedFieldStyles: { ...current, [selectedCombineFieldId]: { ...existing, color: c } },
+                            } as Partial<AnyLayer>);
+                            return;
+                        }
                         handleLayerChange(selectedLayer.id, getColorPickerUpdate(colorPickerProp, c));
                     }}
                 />
@@ -2457,7 +2511,16 @@ export default function EditorPage() {
                     selectedLayer={selectedLayer}
                     onSelectFont={(family, weight) => {
                         if (selectedLayer) {
-                            handleLayerChange(selectedLayer.id, { fontFamily: family, fontWeight: weight } as Partial<AnyLayer>);
+                            if (selectedCombineFieldId) {
+                                const dfLayer = selectedLayer as DynamicFieldLayer;
+                                const current = dfLayer.combinedFieldStyles ?? {};
+                                const existing = current[selectedCombineFieldId] ?? {};
+                                handleLayerChange(selectedLayer.id, {
+                                    combinedFieldStyles: { ...current, [selectedCombineFieldId]: { ...existing, fontFamily: family } },
+                                } as Partial<AnyLayer>);
+                            } else {
+                                handleLayerChange(selectedLayer.id, { fontFamily: family, fontWeight: weight } as Partial<AnyLayer>);
+                            }
                         }
                         setFontDrawerOpen(false);
                     }}

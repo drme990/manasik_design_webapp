@@ -9,6 +9,7 @@ import type {
   ShapeLayer,
   DynamicFieldLayer,
 } from '@/types';
+import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -586,18 +587,7 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     const maxWidth = layer.width - padding;
     const maxHeight = layer.height - padding;
     const scaledMaxWidth = maxWidth * RENDER_SCALE;
-    const charCount = Math.max(1, layer.text.length);
     const lineHeightRatio = layer.lineHeight || 1.2;
-
-    // Formula-based initial estimate (matching client-side CSS formula).
-    // Accounts for potential word wrapping by estimating the number of
-    // lines based on text length and fill ratio.
-    const AVG_CHAR_WIDTH = 0.52;
-    const FILL_RATIO = 0.92;
-    const widthBased = (layer.width * FILL_RATIO) / (charCount * AVG_CHAR_WIDTH);
-    const estimatedLines = Math.min(5, Math.max(1, Math.ceil(charCount * AVG_CHAR_WIDTH / FILL_RATIO)));
-    const heightBased = layer.height / (estimatedLines * lineHeightRatio);
-    const estimate = Math.min(widthBased, heightBased);
 
     function doesFit(size: number): boolean {
       ctx.font = buildFontStringWithSize(layer, size);
@@ -611,10 +601,11 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       return true;
     }
 
-    // Binary search around the estimate to find the exact best size.
-    // Start with a range of ±50% around the estimate for fast convergence.
-    let lo = Math.max(4, Math.floor(estimate * 0.5));
-    let hi = Math.min(Math.floor(maxHeight), Math.ceil(estimate * 1.5));
+    // Binary search over the FULL range [4, maxHeight] to find the
+    // largest font size that fits. This is only ~log2(500) ≈ 9 iterations
+    // and guarantees we don't miss the optimal size due to a bad estimate.
+    let lo = 4;
+    let hi = Math.floor(maxHeight);
     let best = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -693,7 +684,7 @@ async function renderImageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promise<
 
   // Collage layers — render each cell
   if (layer.collage) {
-    renderCollageLayer(ctx, layer);
+    await renderCollageLayer(ctx, layer);
     return;
   }
 
@@ -750,8 +741,9 @@ async function renderImageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promise<
 }
 
 /**
- * Render a collage layer — multiple image cells in a grid layout.
- * Each cell shows its own image, positioned according to the layout.
+ * Render a collage layer — multiple image cells in a layout.
+ * Uses the same COLLAGE_LAYOUTS definitions as the client-side editor
+ * so the server-rendered output matches what the user sees in the editor.
  */
 async function renderCollageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promise<void> {
   if (!layer.collage) return;
@@ -767,29 +759,29 @@ async function renderCollageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promis
     ctx.fillRect(0, 0, layer.width, layer.height);
   }
 
-  // We need the layout cell definitions to know positions.
-  // Since we can't import the COLLAGE_LAYOUTS constant (it's in a
-  // client-side constants file), we'll use a simple proportional
-  // layout based on the number of cells.
-  // For now, render cells in a simple grid. The exact layout matching
-  // is a known limitation — the server-side renderer uses a basic grid.
-  const cellCount = cells.length;
-  if (cellCount === 0) return;
+  if (cells.length === 0) return;
 
-  // Simple grid: 1 col for 1-2 cells, 2 cols for 3-4, etc.
-  const cols = cellCount <= 2 ? 1 : 2;
-  const rows = Math.ceil(cellCount / cols);
-  const cellW = (layer.width - gap * (cols + 1)) / cols;
-  const cellH = (layer.height - gap * (rows + 1)) / rows;
+  // Find the layout definition matching the collage's layout ID.
+  // Fall back to the first layout that matches the cell count.
+  const layout =
+    COLLAGE_LAYOUTS.find((l) => l.id === layer.collage!.layout) ||
+    COLLAGE_LAYOUTS.find((l) => l.cells.length === cells.length);
+  if (!layout) return;
 
-  for (let i = 0; i < cellCount && i < cells.length; i++) {
+  const layoutCells = layout.cells;
+
+  for (let i = 0; i < cells.length && i < layoutCells.length; i++) {
     const cell = cells[i];
     if (!cell?.uri) continue;
 
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const cellX = gap + col * (cellW + gap);
-    const cellY = gap + row * (cellH + gap);
+    const def = layoutCells[i];
+    // Cell position/size from the layout definition (normalized 0-1),
+    // scaled to the layer's pixel dimensions. The gap is applied as
+    // padding inside each cell (matching the client-side rendering).
+    const cellX = def.x * layer.width + gap / 2;
+    const cellY = def.y * layer.height + gap / 2;
+    const cellW = def.w * layer.width - gap;
+    const cellH = def.h * layer.height - gap;
 
     try {
       const img = await loadImageFromUrl(cell.uri);
@@ -1002,25 +994,9 @@ async function renderDynamicFieldLayer(
   // For combined fields, each field is resolved independently, display
   // rules applied per field, and visible values joined with a space.
   // The layer is skipped only if ALL fields are hidden/empty.
-  let value: string;
-  if (layer.fieldType === 'text' && layer.combinedFields && layer.combinedFields.length > 0) {
-    const allIds = [layer.variableId, ...layer.combinedFields];
-    const parts: string[] = [];
-    for (const varId of allIds) {
-      if (!shouldDisplayField(varId, orderData)) continue;
-      const v = resolveFieldValue(varId, orderData);
-      if (isEmptyValue(v)) continue;
-      parts.push(v!);
-    }
-    if (parts.length === 0) return; // all fields hidden
-    value = parts.join(' ');
-  } else {
-    // Single field — check display rules first
-    if (!shouldDisplayField(layer.variableId, orderData)) return;
-    const resolvedValue = resolveFieldValue(layer.variableId, orderData);
-    if (isEmptyValue(resolvedValue)) return;
-    value = resolvedValue!;
-  }
+  const fieldStyles = layer.combinedFieldStyles ?? {};
+  const combineDirection = layer.combineDirection ?? 'row';
+  const hasIndividualStyles = Object.keys(fieldStyles).length > 0;
 
   // Background color
   if (layer.backgroundColor) {
@@ -1034,30 +1010,233 @@ async function renderDynamicFieldLayer(
   }
 
   if (layer.fieldType === 'image') {
-    // Image dynamic field — draw the resolved image URL
-    try {
-      const img = await loadImageFromUrl(value);
-      ctx.save();
-      if (layer.borderRadius && layer.borderRadius > 0) {
-        roundedRectPath(ctx, 0, 0, layer.width, layer.height, layer.borderRadius);
-        ctx.clip();
-      }
-      drawImageCover(ctx, img, 0, 0, layer.width, layer.height);
-      ctx.restore();
-    } catch {
-      // Image failed — skip
+    // Single field — check display rules first
+    if (!shouldDisplayField(layer.variableId, orderData)) return;
+    const resolvedValue = resolveFieldValue(layer.variableId, orderData);
+    if (isEmptyValue(resolvedValue)) return;
+    const value = resolvedValue!;
+
+    // Parse the value — could be a single URL or a JSON array of URLs
+    // (multiple reservation pictures). Multiple images → render as grid.
+    let imageUrls: string[] = [value];
+    if (value.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          imageUrls = parsed.filter((u): u is string => typeof u === 'string' && u.length > 0);
+        }
+      } catch { /* not JSON — use as single URL */ }
     }
-  } else {
-    // Text dynamic field — the font size is NOT taken from the saved
-    // layer.fontSize. Instead, we calculate the largest font size that
-    // makes the text FILL the box without overflowing.
-    //
-    // The box size is fixed. The text size is determined purely by:
-    // box width + height, and the text content. The saved fontSize is
-    // just a reference, not the rendered size.
-    //
-    // Uses the dynamic field's text properties (fontFamily, bold, italic,
-    // align, lineHeight, direction) with sensible defaults.
+
+    const gap = 4;
+    if (imageUrls.length > 1) {
+      // Multiple images — render as a collage using the same layout
+      // definitions as the editor. Pick a layout matching the image count.
+      const layout = COLLAGE_LAYOUTS.find((l) => l.cells.length === imageUrls.length);
+      if (layout) {
+        // Fill background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, layer.width, layer.height);
+
+        for (let i = 0; i < imageUrls.length && i < layout.cells.length; i++) {
+          const def = layout.cells[i];
+          const cellX = def.x * layer.width + gap / 2;
+          const cellY = def.y * layer.height + gap / 2;
+          const cellW = def.w * layer.width - gap;
+          const cellH = def.h * layer.height - gap;
+          try {
+            const img = await loadImageFromUrl(imageUrls[i]);
+            ctx.save();
+            if (layer.borderRadius && layer.borderRadius > 0) {
+              roundedRectPath(ctx, cellX, cellY, cellW, cellH, layer.borderRadius);
+              ctx.clip();
+            } else {
+              ctx.beginPath();
+              ctx.rect(cellX, cellY, cellW, cellH);
+              ctx.clip();
+            }
+            drawImageCover(ctx, img, cellX, cellY, cellW, cellH);
+            ctx.restore();
+          } catch {
+            // Image failed — skip this cell
+          }
+        }
+      } else {
+        // Fallback: simple grid for counts without a matching layout
+        const cols = imageUrls.length <= 2 ? 1 : 2;
+        const rows = Math.ceil(imageUrls.length / cols);
+        const cellW = (layer.width - gap * (cols + 1)) / cols;
+        const cellH = (layer.height - gap * (rows + 1)) / rows;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, layer.width, layer.height);
+        for (let i = 0; i < imageUrls.length; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const cellX = gap + col * (cellW + gap);
+          const cellY = gap + row * (cellH + gap);
+          try {
+            const img = await loadImageFromUrl(imageUrls[i]);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(cellX, cellY, cellW, cellH);
+            ctx.clip();
+            drawImageCover(ctx, img, cellX, cellY, cellW, cellH);
+            ctx.restore();
+          } catch { /* skip */ }
+        }
+      }
+    } else {
+      // Single image — draw cover
+      try {
+        const img = await loadImageFromUrl(imageUrls[0]);
+        ctx.save();
+        if (layer.borderRadius && layer.borderRadius > 0) {
+          roundedRectPath(ctx, 0, 0, layer.width, layer.height, layer.borderRadius);
+          ctx.clip();
+        }
+        drawImageCover(ctx, img, 0, 0, layer.width, layer.height);
+        ctx.restore();
+      } catch {
+        // Image failed — skip
+      }
+    }
+  } else if (layer.combinedFields && layer.combinedFields.length > 0 && hasIndividualStyles) {
+    // ── Combined fields with individual styles: render each field ──
+    // separately with its own font/color/bold/italic, positioned in
+    // row or column layout within the layer bounds.
+    const allIds = [layer.variableId, ...layer.combinedFields];
+    const visibleParts: { varId: string; value: string }[] = [];
+    for (const varId of allIds) {
+      if (!shouldDisplayField(varId, orderData)) continue;
+      const v = resolveFieldValue(varId, orderData);
+      if (isEmptyValue(v)) continue;
+      visibleParts.push({ varId, value: v! });
+    }
+    if (visibleParts.length === 0) return; // all fields hidden
+
+    const count = visibleParts.length;
+    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldAlign = layer.align || 'center';
+    const fieldVAlign = layer.verticalAlign || 'middle';
+    const fieldDirection = layer.direction || 'rtl';
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, layer.width, layer.height);
+    ctx.clip();
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < count; i++) {
+      const part = visibleParts[i];
+      const fs = fieldStyles[part.varId] ?? {};
+      const fieldFontFamily = fs.fontFamily ?? layer.fontFamily ?? 'Expo Arabic';
+      const fieldFontWeight = (fs.bold ?? layer.bold ?? true) ? 700 : (layer.fontWeight || 400);
+      const fieldItalic = fs.italic ?? layer.italic ?? false;
+      const fieldColor = fs.color ?? layer.color;
+
+      // Sub-box dimensions for this field
+      let subX: number, subY: number, subW: number, subH: number;
+      if (combineDirection === 'column') {
+        subX = 0;
+        subY = (layer.height / count) * i;
+        subW = layer.width;
+        subH = layer.height / count;
+      } else {
+        subX = (layer.width / count) * i;
+        subY = 0;
+        subW = layer.width / count;
+        subH = layer.height;
+      }
+
+      // Auto-fit font size for this sub-box
+      const padding = 8;
+      const maxWidth = subW - padding;
+      const maxHeight = subH - padding;
+      const scaledMaxWidth = maxWidth * RENDER_SCALE;
+
+      function buildSubFont(size: number): string {
+        const style = fieldItalic ? 'italic ' : '';
+        return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+      }
+
+      function doesSubFit(size: number): boolean {
+        ctx.font = buildSubFont(size);
+        const lines = wrapText(ctx, part.value, scaledMaxWidth);
+        if (lines.length === 0) return true;
+        const totalHeight = lines.length * size * fieldLineHeight;
+        if (totalHeight > maxHeight) return false;
+        for (const line of lines) {
+          if (ctx.measureText(line).width > scaledMaxWidth) return false;
+        }
+        return true;
+      }
+
+      // Binary search over the FULL range [4, maxHeight] to find the
+      // largest font size that fills the sub-box.
+      let lo = 4;
+      let hi = Math.floor(maxHeight);
+      let bestSize = lo;
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (doesSubFit(mid)) {
+          bestSize = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+
+      ctx.font = buildSubFont(bestSize);
+      ctx.fillStyle = fieldColor;
+
+      const lines = wrapText(ctx, part.value, scaledMaxWidth);
+      const lineHeight = bestSize * fieldLineHeight;
+      const totalHeight = lines.length * lineHeight;
+
+      let startY = subY;
+      if (fieldVAlign === 'middle') {
+        startY = subY + (subH - totalHeight) / 2;
+      } else if (fieldVAlign === 'bottom') {
+        startY = subY + subH - totalHeight;
+      }
+
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        const y = startY + li * lineHeight;
+        const lineWidth = ctx.measureText(line).width;
+
+        let x = subX;
+        if (fieldAlign === 'center') {
+          x = subX + (subW - lineWidth / RENDER_SCALE) / 2;
+        } else if (fieldAlign === 'right') {
+          x = subX + subW - lineWidth / RENDER_SCALE;
+        }
+
+        if (fieldDirection === 'rtl' && fieldAlign === 'left') {
+          x = subX + subW - lineWidth / RENDER_SCALE;
+        }
+
+        ctx.fillText(line, x, y);
+      }
+    }
+
+    ctx.restore();
+  } else if (layer.combinedFields && layer.combinedFields.length > 0) {
+    // ── Combined fields without individual styles (original behavior) ──
+    // but respecting combineDirection for separator.
+    const allIds = [layer.variableId, ...layer.combinedFields];
+    const parts: string[] = [];
+    for (const varId of allIds) {
+      if (!shouldDisplayField(varId, orderData)) continue;
+      const v = resolveFieldValue(varId, orderData);
+      if (isEmptyValue(v)) continue;
+      parts.push(v!);
+    }
+    if (parts.length === 0) return; // all fields hidden
+    const separator = combineDirection === 'column' ? '\n' : ' ';
+    const value = parts.join(separator);
+
+    // Text dynamic field — auto-fit font size
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
     const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
     const fieldItalic = layer.italic ?? false;
@@ -1070,15 +1249,6 @@ async function renderDynamicFieldLayer(
     const maxWidth = layer.width - padding;
     const maxHeight = layer.height - padding;
     const scaledMaxWidth = maxWidth * RENDER_SCALE;
-    const charCount = Math.max(1, value.length);
-
-    // Formula-based initial estimate (matching client-side CSS)
-    const AVG_CHAR_WIDTH = 0.52;
-    const FILL_RATIO = 0.92;
-    const widthBased = (layer.width * FILL_RATIO) / (charCount * AVG_CHAR_WIDTH);
-    const estimatedLines = Math.min(5, Math.max(1, Math.ceil(charCount * AVG_CHAR_WIDTH / FILL_RATIO)));
-    const heightBased = layer.height / (estimatedLines * fieldLineHeight);
-    const estimate = Math.min(widthBased, heightBased);
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1097,9 +1267,10 @@ async function renderDynamicFieldLayer(
       return true;
     }
 
-    // Binary search around the estimate for fast convergence
-    let lo = Math.max(4, Math.floor(estimate * 0.5));
-    let hi = Math.min(Math.floor(maxHeight), Math.ceil(estimate * 1.5));
+    // Binary search over the FULL range [4, maxHeight] to find the
+    // largest font size that fills the box.
+    let lo = 4;
+    let hi = Math.floor(maxHeight);
     let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -1111,7 +1282,99 @@ async function renderDynamicFieldLayer(
       }
     }
 
-    // Draw the text centered in the box, wrapped to fit
+    ctx.font = buildFieldFont(bestSize);
+    ctx.fillStyle = layer.color;
+    ctx.textBaseline = 'top';
+
+    const lines = wrapText(ctx, value, scaledMaxWidth);
+    const lineHeight = bestSize * fieldLineHeight;
+    const totalHeight = lines.length * lineHeight;
+
+    let startY = 0;
+    if (fieldVAlign === 'middle') {
+      startY = (layer.height - totalHeight) / 2;
+    } else if (fieldVAlign === 'bottom') {
+      startY = layer.height - totalHeight;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, layer.width, layer.height);
+    ctx.clip();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const y = startY + i * lineHeight;
+      const lineWidth = ctx.measureText(line).width;
+
+      let x = 0;
+      if (fieldAlign === 'center') {
+        x = (layer.width - lineWidth) / 2;
+      } else if (fieldAlign === 'right') {
+        x = layer.width - lineWidth;
+      }
+
+      if (fieldDirection === 'rtl' && fieldAlign === 'left') {
+        x = layer.width - lineWidth;
+      }
+
+      ctx.fillText(line, x, y);
+    }
+
+    ctx.restore();
+  } else {
+    // Single text field — check display rules first
+    if (!shouldDisplayField(layer.variableId, orderData)) return;
+    const resolvedValue = resolveFieldValue(layer.variableId, orderData);
+    if (isEmptyValue(resolvedValue)) return;
+    const value = resolvedValue!;
+
+    // Text dynamic field — auto-fit font size
+    const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
+    const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
+    const fieldItalic = layer.italic ?? false;
+    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldAlign = layer.align || 'center';
+    const fieldVAlign = layer.verticalAlign || 'middle';
+    const fieldDirection = layer.direction || 'rtl';
+
+    const padding = 8;
+    const maxWidth = layer.width - padding;
+    const maxHeight = layer.height - padding;
+    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+
+    function buildFieldFont(size: number): string {
+      const style = fieldItalic ? 'italic ' : '';
+      return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+    }
+
+    function doesFontSizeFit(size: number): boolean {
+      ctx.font = buildFieldFont(size);
+      const lines = wrapText(ctx, value, scaledMaxWidth);
+      if (lines.length === 0) return true;
+      const totalHeight = lines.length * size * fieldLineHeight;
+      if (totalHeight > maxHeight) return false;
+      for (const line of lines) {
+        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+      }
+      return true;
+    }
+
+    // Binary search over the FULL range [4, maxHeight] to find the
+    // largest font size that fills the box.
+    let lo = 4;
+    let hi = Math.floor(maxHeight);
+    let bestSize = lo;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (doesFontSizeFit(mid)) {
+        bestSize = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
     ctx.font = buildFieldFont(bestSize);
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
