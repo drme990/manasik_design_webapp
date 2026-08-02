@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useLayoutEffect, useState, useMemo } from 'react';
+import { useRef, useLayoutEffect, useState, useMemo, useEffect } from 'react';
 import { LuRefreshCw, LuLoaderCircle, LuImage } from 'react-icons/lu';
 import type { AnyLayer, TextLayer, ImageLayer, ShapeLayer, DynamicFieldLayer } from '@/types';
 import { cn } from '@/lib/utils/cn';
@@ -122,11 +122,17 @@ function useAutoFitFontSize(
   boxWidth: number,
   boxHeight: number,
   deps: React.DependencyList,
+  onConverged?: (size: number) => void,
 ): number {
   // State holds the last binary-searched font size + the box dimensions it
   // was measured against. Used to compute a proportional estimate during
   // render when the box changes (before the binary search runs).
   const [measured, setMeasured] = useState({ w: 0, h: 0, size: 16 });
+
+  // Keep the callback in a ref so the layout effect always calls the
+  // latest version without re-triggering on every render.
+  const onConvergedRef = useRef(onConverged);
+  useEffect(() => { onConvergedRef.current = onConverged; });
 
   // Instant proportional estimate — computed during render from STATE.
   // When the box dimensions change, scale the last known font size by the
@@ -162,6 +168,10 @@ function useAutoFitFontSize(
     el.style.fontSize = '';
     const result = Math.max(1, Math.floor(best));
     setMeasured({ w: boxW, h: boxH, size: result });
+    // Notify the caller synchronously (before paint) with the calculated
+    // size. This is used by the design editor to "bake" the auto-fit size
+    // into the layer's fontSize and remove autoFit.
+    if (onConvergedRef.current) onConvergedRef.current(result);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
@@ -175,6 +185,8 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   const lastMeasuredRef = useRef({ w: 0, h: 0 });
   // Track previous fontSize to detect resize vs content change
   const prevFontSizeRef = useRef(layer.fontSize);
+  // Track whether we've already baked the auto-fit size into the layer
+  const bakedAutoFitRef = useRef(false);
 
   const hasBoxWidth = layer.boxWidth !== undefined && layer.boxWidth > 0;
   const isAutoFit = layer.autoFit === true;
@@ -183,12 +195,31 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   // Uses the shared useAutoFitFontSize hook which returns an instant
   // proportional estimate during resize, then refines via binary search
   // in a requestAnimationFrame callback (smooth, no flicker).
+  //
+  // The onConverged callback "bakes" the calculated font size into the
+  // layer: sets fontSize to the calculated value, removes autoFit, and
+  // sets boxWidth to the layer's width so the normal text path wraps
+  // text at the box boundary. This runs synchronously inside the hook's
+  // useLayoutEffect (before paint) with the correct calculated value.
+  // After baking, the text renders via the normal text path with a
+  // concrete font size — resizing the box re-flows the text but keeps
+  // the font size fixed, just like a normal text layer.
   const autoFitFontSize = useAutoFitFontSize(
     autoFitTextRef,
     layer.text || '',
     layer.width || 100,
     layer.height || 100,
     [isAutoFit, layer.text, layer.width, layer.height, layer.fontFamily, layer.bold, layer.italic, layer.align, layer.lineHeight, layer.direction],
+    isAutoFit && onLayerChange ? (size: number) => {
+      if (bakedAutoFitRef.current || size <= 1) return;
+      bakedAutoFitRef.current = true;
+      onLayerChange(layer.id, {
+        fontSize: Math.round(size),
+        autoFit: undefined,
+        _needsInitialFit: false,
+        boxWidth: layer.width,
+      }, false);
+    } : undefined,
   );
 
   // Measure actual text content and resize the layer box to fit tightly.

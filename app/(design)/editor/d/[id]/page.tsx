@@ -244,20 +244,17 @@ export default function EditorPage() {
                 router.replace(`/editor/t/${id}`);
                 return;
             }
-            // Keep autoFit on text layers — dynamic field text should
-            // always auto-fill the box (font size calculated to fit the
-            // box dimensions). The useAutoFitFontSize hook in
-            // LayerRenderer uses a full-range binary search (matching
-            // the server-side renderer) so the editor displays the same
-            // font size as the generated JPG.
+            // Keep autoFit on text layers for the initial render. The
+            // useAutoFitFontSize hook in LayerRenderer calculates the
+            // optimal font size (matching the server renderer), then
+            // "bakes" it into the layer: sets fontSize to the calculated
+            // value and removes autoFit. After that, the text behaves as
+            // a normal text layer — concrete font size, box stays fixed.
             if (p && p.layers) {
                 let modified = false;
                 const layers = p.layers.map((l) => {
                     if (l.type === 'text' && l.autoFit) {
                         modified = true;
-                        // Clear _needsInitialFit so the box doesn't shrink
-                        // — the box stays at the template size and the font
-                        // auto-fits to fill it.
                         return { ...l, _needsInitialFit: false };
                     }
                     return l;

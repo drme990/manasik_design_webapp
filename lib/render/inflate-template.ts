@@ -438,6 +438,16 @@ function inflateTextDynamicField(
 
     if (!hasIndividualStyles) {
       const separator = combineDirection === 'column' ? '\n' : ' ';
+      const direction = layer.direction || 'rtl';
+      // Prepend RLM (U+200F) for RTL text so the bidi algorithm uses
+      // RTL as the base direction. This ensures numbers (e.g. quantity)
+      // appear on the right side where an Arabic reader expects them,
+      // preserving the field order as defined in the template.
+      const rlm = '\u200F';
+      const joinedText = visibleParts.map((p) => p.value).join(separator);
+      const textValue = hasAnyValue
+        ? (direction === 'rtl' ? rlm + joinedText : joinedText)
+        : layer.placeholder;
       return {
         id: generateId(),
         type: 'text',
@@ -451,7 +461,7 @@ function inflateTextDynamicField(
         zIndex: layer.zIndex,
         visible: layer.visible && hasAnyValue,
         locked: layer.locked,
-        text: hasAnyValue ? visibleParts.map((p) => p.value).join(separator) : layer.placeholder,
+        text: textValue,
         fontFamily: layer.fontFamily || 'Expo Arabic',
         fontWeight: layer.fontWeight || 700,
         fontSize: layer.fontSize,
@@ -500,6 +510,8 @@ function inflateTextDynamicField(
     }
 
     const count = visibleParts.length;
+    const direction = layer.direction || 'rtl';
+    const rlm = '\u200F';
     const layers: TextLayer[] = visibleParts.map((part, i) => {
       const fs = fieldStyles[part.varId] ?? {};
       const fieldFontFamily = fs.fontFamily ?? layer.fontFamily ?? 'Expo Arabic';
@@ -534,7 +546,7 @@ function inflateTextDynamicField(
         zIndex: layer.zIndex,
         visible: layer.visible,
         locked: layer.locked,
-        text: part.value,
+        text: direction === 'rtl' ? rlm + part.value : part.value,
         fontFamily: fieldFontFamily,
         fontWeight: layer.fontWeight || 700,
         fontSize: layer.fontSize,
@@ -556,6 +568,13 @@ function inflateTextDynamicField(
   const value = resolveFieldValue(layer.variableId, orderData);
   const display = shouldDisplayField(layer.variableId, orderData);
   const hasValue = !isEmptyValue(value);
+  const direction = layer.direction || 'rtl';
+  // Prepend RLM (U+200F) for RTL text so the bidi algorithm uses
+  // RTL as the base direction (same as combined fields above).
+  const rlm = '\u200F';
+  const textValue = hasValue
+    ? (direction === 'rtl' ? rlm + value! : value!)
+    : layer.placeholder;
 
   return {
     id: generateId(),
@@ -571,7 +590,7 @@ function inflateTextDynamicField(
     // Hide if: layer was manually hidden, display rule says no, or no data
     visible: layer.visible && display && hasValue,
     locked: layer.locked,
-    text: hasValue ? value! : layer.placeholder,
+    text: textValue,
     // Use the dynamic field's text properties, with sensible defaults
     fontFamily: layer.fontFamily || 'Expo Arabic',
     fontWeight: layer.fontWeight || 700,

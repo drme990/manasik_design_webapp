@@ -40,9 +40,12 @@ export interface TextLayer extends BaseLayer {
    * box (grow or shrink) based on the text content + box dimensions.
    * The saved fontSize is ignored. Only used in the template editor
    * (/editor/t/) for dynamic field text layers. In the design editor
-   * (/editor/d/), autoFit is always stripped so inflated text layers
-   * behave like normal text (font size directly controllable, box
-   * grows with text).
+   * (/editor/d/), autoFit is kept for the initial render so the
+   * useAutoFitFontSize hook can calculate the optimal font size, then
+   * it's "baked" into the layer synchronously (fontSize set to the
+   * calculated value, autoFit removed, boxWidth set to the layer width)
+   * so the text behaves like normal text with a concrete font size that
+   * wraps at the box boundary.
    */
   autoFit?: boolean;
   /**

@@ -62,8 +62,9 @@ interface OrderDataPayload {
  * Render scale factor — the canvas is created at RENDER_SCALE times the
  * project's logical dimensions for sharper output (like a retina display).
  * The context is scaled by this factor, so all drawing code uses logical
- * coordinates. NOTE: ctx.measureText() returns values in SCALED pixels,
- * so width comparisons must multiply by RENDER_SCALE.
+ * coordinates. ctx.measureText() returns values in CSS pixels (logical,
+ * NOT scaled by the transform), so width comparisons use logical widths
+ * directly — no RENDER_SCALE multiplication needed.
  *
  * 3x gives noticeably sharper text + images than 2x, especially for
  * Arabic text with diacritics. The output JPEG is larger but still
@@ -545,7 +546,9 @@ function wrapText(
       continue;
     }
 
-    // Word-wrap
+    // Word-wrap with character-level fallback (matches CSS
+    // word-break: break-word + overflow-wrap: anywhere used in the
+    // editor's DOM rendering).
     const words = paragraph.split(' ');
     let currentLine = '';
 
@@ -554,8 +557,24 @@ function wrapText(
       if (ctx.measureText(testLine).width <= maxWidth) {
         currentLine = testLine;
       } else {
+        // Current line + word doesn't fit — push current line
         if (currentLine) lines.push(currentLine);
-        currentLine = word;
+        // If the word itself doesn't fit, break it character by character
+        if (ctx.measureText(word).width > maxWidth) {
+          let charLine = '';
+          for (const ch of word) {
+            const testChar = charLine + ch;
+            if (ctx.measureText(testChar).width <= maxWidth) {
+              charLine = testChar;
+            } else {
+              if (charLine) lines.push(charLine);
+              charLine = ch;
+            }
+          }
+          currentLine = charLine;
+        } else {
+          currentLine = word;
+        }
       }
     }
     if (currentLine) lines.push(currentLine);
@@ -583,29 +602,31 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   let renderFontSize = layer.fontSize;
 
   if (layer.autoFit) {
-    const padding = 8;
-    const maxWidth = layer.width - padding;
-    const maxHeight = layer.height - padding;
-    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+    // No padding — match the DOM editor which uses clientWidth/clientHeight
+    // directly (the auto-fit div has no padding).
+    const maxWidth = layer.width;
+    const maxHeight = layer.height;
     const lineHeightRatio = layer.lineHeight || 1.2;
 
     function doesFit(size: number): boolean {
       ctx.font = buildFontStringWithSize(layer, size);
-      const lines = wrapText(ctx, layer.text, scaledMaxWidth);
+      const lines = wrapText(ctx, layer.text, maxWidth);
       if (lines.length === 0) return true;
+      // Match the DOM: CSS line-height produces line boxes of
+      // size * lineHeightRatio. scrollHeight in the browser reflects
+      // these line boxes, so we use the same formula.
       const totalHeight = lines.length * size * lineHeightRatio;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+        if (ctx.measureText(line).width > maxWidth) return false;
       }
       return true;
     }
 
-    // Binary search over the FULL range [4, maxHeight] to find the
-    // largest font size that fits. This is only ~log2(500) ≈ 9 iterations
-    // and guarantees we don't miss the optimal size due to a bad estimate.
-    let lo = 4;
-    let hi = Math.floor(maxHeight);
+    // Binary search over the FULL range [1, max(boxW, boxH)] — matches
+    // the client-side useAutoFitFontSize hook exactly.
+    let lo = 1;
+    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
     let best = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -621,19 +642,21 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
 
   ctx.font = buildFontStringWithSize(layer, renderFontSize);
 
-  // Determine wrapping width (scaled for measureText).
-  // For autoFit layers, wrap to the box width (minus padding).
+  // Determine wrapping width for measureText (which returns CSS pixels,
+  // unaffected by the context transform — no RENDER_SCALE needed).
+  // For autoFit layers, wrap to the full box width (no padding, matching
+  // the DOM editor which uses clientWidth directly).
   // For regular text layers, wrap to boxWidth if set, or no wrapping.
-  let wrapWidthScaled: number;
+  let wrapWidth: number;
   if (layer.autoFit) {
-    const padding = 8;
-    wrapWidthScaled = (layer.width - padding) * RENDER_SCALE;
+    wrapWidth = layer.width;
   } else {
-    const wrapWidthLogical = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
-    wrapWidthScaled = wrapWidthLogical > 0 ? wrapWidthLogical * RENDER_SCALE : 0;
+    wrapWidth = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
   }
 
-  const lines = wrapText(ctx, layer.text, wrapWidthScaled);
+  const lines = wrapText(ctx, layer.text, wrapWidth);
+  // Line height matches the DOM: CSS line-height = size * lineHeightRatio.
+  // The browser's scrollHeight reflects these line boxes.
   const lineHeight = renderFontSize * (layer.lineHeight || 1.2);
   const totalHeight = lines.length * lineHeight;
 
@@ -653,7 +676,11 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const y = startY + i * lineHeight;
+    // Center the em box within the line box (matching CSS line-height
+    // behavior). textBaseline 'top' draws at the em box top; adding
+    // (lineHeight - fontSize) / 2 leaves space above for Arabic
+    // diacritics that extend past the em box.
+    const y = startY + i * lineHeight + (lineHeight - renderFontSize) / 2;
     const lineWidth = ctx.measureText(line).width;
 
     let x = 0;
@@ -1105,12 +1132,15 @@ async function renderDynamicFieldLayer(
     // separately with its own font/color/bold/italic, positioned in
     // row or column layout within the layer bounds.
     const allIds = [layer.variableId, ...layer.combinedFields];
+    const fieldDirection = layer.direction || 'rtl';
     const visibleParts: { varId: string; value: string }[] = [];
+    const rlm = '\u200F';
     for (const varId of allIds) {
       if (!shouldDisplayField(varId, orderData)) continue;
       const v = resolveFieldValue(varId, orderData);
       if (isEmptyValue(v)) continue;
-      visibleParts.push({ varId, value: v! });
+      // Prepend RLM for RTL so bidi uses RTL base direction
+      visibleParts.push({ varId, value: (fieldDirection === 'rtl' ? rlm : '') + v! });
     }
     if (visibleParts.length === 0) return; // all fields hidden
 
@@ -1118,7 +1148,6 @@ async function renderDynamicFieldLayer(
     const fieldLineHeight = layer.lineHeight ?? 1.2;
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
-    const fieldDirection = layer.direction || 'rtl';
 
     ctx.save();
     ctx.beginPath();
@@ -1148,11 +1177,9 @@ async function renderDynamicFieldLayer(
         subH = layer.height;
       }
 
-      // Auto-fit font size for this sub-box
-      const padding = 8;
-      const maxWidth = subW - padding;
-      const maxHeight = subH - padding;
-      const scaledMaxWidth = maxWidth * RENDER_SCALE;
+      // Auto-fit font size for this sub-box — no padding, matching DOM.
+      const maxWidth = subW;
+      const maxHeight = subH;
 
       function buildSubFont(size: number): string {
         const style = fieldItalic ? 'italic ' : '';
@@ -1161,20 +1188,19 @@ async function renderDynamicFieldLayer(
 
       function doesSubFit(size: number): boolean {
         ctx.font = buildSubFont(size);
-        const lines = wrapText(ctx, part.value, scaledMaxWidth);
+        const lines = wrapText(ctx, part.value, maxWidth);
         if (lines.length === 0) return true;
         const totalHeight = lines.length * size * fieldLineHeight;
         if (totalHeight > maxHeight) return false;
         for (const line of lines) {
-          if (ctx.measureText(line).width > scaledMaxWidth) return false;
+          if (ctx.measureText(line).width > maxWidth) return false;
         }
         return true;
       }
 
-      // Binary search over the FULL range [4, maxHeight] to find the
-      // largest font size that fills the sub-box.
-      let lo = 4;
-      let hi = Math.floor(maxHeight);
+      // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+      let lo = 1;
+      let hi = Math.ceil(Math.max(maxWidth, maxHeight));
       let bestSize = lo;
       while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
@@ -1189,7 +1215,7 @@ async function renderDynamicFieldLayer(
       ctx.font = buildSubFont(bestSize);
       ctx.fillStyle = fieldColor;
 
-      const lines = wrapText(ctx, part.value, scaledMaxWidth);
+      const lines = wrapText(ctx, part.value, maxWidth);
       const lineHeight = bestSize * fieldLineHeight;
       const totalHeight = lines.length * lineHeight;
 
@@ -1202,18 +1228,18 @@ async function renderDynamicFieldLayer(
 
       for (let li = 0; li < lines.length; li++) {
         const line = lines[li];
-        const y = startY + li * lineHeight;
+        const y = startY + li * lineHeight + (lineHeight - bestSize) / 2;
         const lineWidth = ctx.measureText(line).width;
 
         let x = subX;
         if (fieldAlign === 'center') {
-          x = subX + (subW - lineWidth / RENDER_SCALE) / 2;
+          x = subX + (subW - lineWidth) / 2;
         } else if (fieldAlign === 'right') {
-          x = subX + subW - lineWidth / RENDER_SCALE;
+          x = subX + subW - lineWidth;
         }
 
         if (fieldDirection === 'rtl' && fieldAlign === 'left') {
-          x = subX + subW - lineWidth / RENDER_SCALE;
+          x = subX + subW - lineWidth;
         }
 
         ctx.fillText(line, x, y);
@@ -1225,6 +1251,7 @@ async function renderDynamicFieldLayer(
     // ── Combined fields without individual styles (original behavior) ──
     // but respecting combineDirection for separator.
     const allIds = [layer.variableId, ...layer.combinedFields];
+    const fieldDirection = layer.direction || 'rtl';
     const parts: string[] = [];
     for (const varId of allIds) {
       if (!shouldDisplayField(varId, orderData)) continue;
@@ -1234,7 +1261,10 @@ async function renderDynamicFieldLayer(
     }
     if (parts.length === 0) return; // all fields hidden
     const separator = combineDirection === 'column' ? '\n' : ' ';
-    const value = parts.join(separator);
+    // Prepend RLM (U+200F) for RTL so the bidi algorithm uses RTL base
+    // direction, keeping field order correct for Arabic readers.
+    const rlm = '\u200F';
+    const value = (fieldDirection === 'rtl' ? rlm : '') + parts.join(separator);
 
     // Text dynamic field — auto-fit font size
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
@@ -1243,12 +1273,10 @@ async function renderDynamicFieldLayer(
     const fieldLineHeight = layer.lineHeight ?? 1.2;
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
-    const fieldDirection = layer.direction || 'rtl';
 
-    const padding = 8;
-    const maxWidth = layer.width - padding;
-    const maxHeight = layer.height - padding;
-    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+    // No padding — match the DOM editor which uses clientWidth/clientHeight.
+    const maxWidth = layer.width;
+    const maxHeight = layer.height;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1257,20 +1285,19 @@ async function renderDynamicFieldLayer(
 
     function doesFontSizeFit(size: number): boolean {
       ctx.font = buildFieldFont(size);
-      const lines = wrapText(ctx, value, scaledMaxWidth);
+      const lines = wrapText(ctx, value, maxWidth);
       if (lines.length === 0) return true;
       const totalHeight = lines.length * size * fieldLineHeight;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+        if (ctx.measureText(line).width > maxWidth) return false;
       }
       return true;
     }
 
-    // Binary search over the FULL range [4, maxHeight] to find the
-    // largest font size that fills the box.
-    let lo = 4;
-    let hi = Math.floor(maxHeight);
+    // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+    let lo = 1;
+    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
     let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -1286,7 +1313,7 @@ async function renderDynamicFieldLayer(
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
 
-    const lines = wrapText(ctx, value, scaledMaxWidth);
+    const lines = wrapText(ctx, value, maxWidth);
     const lineHeight = bestSize * fieldLineHeight;
     const totalHeight = lines.length * lineHeight;
 
@@ -1304,7 +1331,7 @@ async function renderDynamicFieldLayer(
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const y = startY + i * lineHeight;
+      const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
       const lineWidth = ctx.measureText(line).width;
 
       let x = 0;
@@ -1327,7 +1354,11 @@ async function renderDynamicFieldLayer(
     if (!shouldDisplayField(layer.variableId, orderData)) return;
     const resolvedValue = resolveFieldValue(layer.variableId, orderData);
     if (isEmptyValue(resolvedValue)) return;
-    const value = resolvedValue!;
+    // Prepend RLM (U+200F) for RTL so the bidi algorithm uses RTL base
+    // direction (same as combined fields above).
+    const fieldDir = layer.direction || 'rtl';
+    const rlm = '\u200F';
+    const value = (fieldDir === 'rtl' ? rlm : '') + resolvedValue!;
 
     // Text dynamic field — auto-fit font size
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
@@ -1338,10 +1369,9 @@ async function renderDynamicFieldLayer(
     const fieldVAlign = layer.verticalAlign || 'middle';
     const fieldDirection = layer.direction || 'rtl';
 
-    const padding = 8;
-    const maxWidth = layer.width - padding;
-    const maxHeight = layer.height - padding;
-    const scaledMaxWidth = maxWidth * RENDER_SCALE;
+    // No padding — match the DOM editor which uses clientWidth/clientHeight.
+    const maxWidth = layer.width;
+    const maxHeight = layer.height;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1350,20 +1380,19 @@ async function renderDynamicFieldLayer(
 
     function doesFontSizeFit(size: number): boolean {
       ctx.font = buildFieldFont(size);
-      const lines = wrapText(ctx, value, scaledMaxWidth);
+      const lines = wrapText(ctx, value, maxWidth);
       if (lines.length === 0) return true;
       const totalHeight = lines.length * size * fieldLineHeight;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > scaledMaxWidth) return false;
+        if (ctx.measureText(line).width > maxWidth) return false;
       }
       return true;
     }
 
-    // Binary search over the FULL range [4, maxHeight] to find the
-    // largest font size that fills the box.
-    let lo = 4;
-    let hi = Math.floor(maxHeight);
+    // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+    let lo = 1;
+    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
     let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -1379,7 +1408,7 @@ async function renderDynamicFieldLayer(
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
 
-    const lines = wrapText(ctx, value, scaledMaxWidth);
+    const lines = wrapText(ctx, value, maxWidth);
     const lineHeight = bestSize * fieldLineHeight;
     const totalHeight = lines.length * lineHeight;
 
@@ -1397,7 +1426,7 @@ async function renderDynamicFieldLayer(
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const y = startY + i * lineHeight;
+      const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
       const lineWidth = ctx.measureText(line).width;
 
       let x = 0;
