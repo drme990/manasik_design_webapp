@@ -66,11 +66,11 @@ interface OrderDataPayload {
  * NOT scaled by the transform), so width comparisons use logical widths
  * directly — no RENDER_SCALE multiplication needed.
  *
- * 3x gives noticeably sharper text + images than 2x, especially for
- * Arabic text with diacritics. The output JPEG is larger but still
- * well within R2's limits.
+ * 1x gives good quality for Arabic text + diacritics while keeping the
+ * output file size reasonable. 3x was too large for the order design
+ * images.
  */
-const RENDER_SCALE = 3;
+const RENDER_SCALE = 1;
 
 // ─── Font registration ────────────────────────────────────────────────────
 

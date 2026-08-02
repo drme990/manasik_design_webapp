@@ -81,7 +81,7 @@ const RESERVATION_FIELDS: OrderField[] = [
   { id: 'reservation.intention', label: 'النية', type: 'text', placeholder: 'عقيقة', category: 'reservation' },
   { id: 'reservation.sacrificeFor', label: 'اسم الشخص المؤدى عنه', type: 'text', placeholder: 'اسم الشخص', category: 'reservation' },
   { id: 'reservation.gender', label: 'الجنس', type: 'text', placeholder: 'ذكر', category: 'reservation' },
-  { id: 'reservation.isAlive', label: 'الحالة', type: 'text', placeholder: 'حي', category: 'reservation' },
+  { id: 'reservation.isAlive', label: 'حي', type: 'text', placeholder: 'حي', category: 'reservation' },
   { id: 'reservation.shortDuaa', label: 'دعاء مختصر', type: 'text', placeholder: 'دعاء مختصر', category: 'reservation' },
   { id: 'reservation.photo', label: 'صورة العميل', type: 'image', placeholder: 'صورة العميل', category: 'reservation' },
   { id: 'reservation.executionDate', label: 'تاريخ التنفيذ', type: 'text', placeholder: 'تاريخ التنفيذ', category: 'reservation' },
@@ -115,7 +115,7 @@ const REFERRAL_ID_FIELD: OrderField = {
 const GENDER_FIELDS: OrderField[] = [
   { id: 'custom.genderLetter', label: 'الجنس (حرف)', type: 'text', placeholder: 'M', category: 'custom' },
   { id: 'custom.genderIcon', label: 'الجنس (أيقونة)', type: 'text', placeholder: '♂', category: 'custom' },
-  { id: 'custom.deceased', label: 'المغفور له', type: 'text', placeholder: 'المغفور له بإذن الله', category: 'custom' },
+  { id: 'custom.deceased', label: 'الحالة', type: 'text', placeholder: 'المغفور له بإذن الله', category: 'custom' },
 ];
 
 /**

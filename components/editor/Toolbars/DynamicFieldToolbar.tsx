@@ -152,12 +152,6 @@ export default function DynamicFieldToolbar({ layer, onChange, onSliderStart, cl
             />
           </div>
 
-          {/* Font size is AUTO — not user-settable. The text size is
-              calculated to fill the box based on the text content. */}
-          <div className="rounded-lg border border-dashed border-stroke bg-background px-4 py-2.5 text-center text-sm text-secondary">
-            {t('autoSize')}
-          </div>
-
           <SliderField
             label={tText('lineHeight')}
             value={layer.lineHeight ?? 1.2}

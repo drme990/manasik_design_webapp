@@ -362,7 +362,6 @@
         "text": "نص",
         "image": "صورة",
         "fontSize": "حجم الخط",
-        "autoSize": "حجم الخط تلقائي (يملأ الصندوق)",
         "textColor": "لون النص",
         "backgroundColor": "لون الخلفية",
         "imageFit": "ملء الصورة",

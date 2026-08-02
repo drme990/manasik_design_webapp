@@ -160,7 +160,7 @@ export default function PropertiesBar({
 
     return (
         <div ref={bottomBarRef} className="absolute bottom-0 left-0 right-0 z-20 border-t border-stroke bg-toolbar-bg" dir='ltr'>
-            <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto px-2 py-1.5">
+            <div className="no-scrollbar flex h-20 items-center gap-1 overflow-x-auto overflow-y-hidden px-2 py-1.5">
 
                 {/* Text layer */}
                 {selectedLayer.type === 'text' && (() => {
@@ -543,13 +543,6 @@ export default function PropertiesBar({
                                             icon={<LuType className="h-5 w-5" />}
                                             active={fontDrawerOpen}
                                             onClick={() => setFontDrawerOpen(!fontDrawerOpen)}
-                                        />
-                                        <PropButton
-                                            label={t('toolbars.dynamicField.autoSize')}
-                                            value="AUTO"
-                                            icon={<LuALargeSmall className="h-5 w-5" />}
-                                            active={false}
-                                            onClick={() => { /* no-op — size is auto */ }}
                                         />
                                         {
                                             setCombineDrawerOpen && (

@@ -72,7 +72,7 @@ export default function DynamicFieldsDrawer({
 function groupFieldsByCategory(
     fields: OrderField[],
 ): { category: OrderFieldCategory; label: string; fields: OrderField[] }[] {
-    const order: OrderFieldCategory[] = ['order', 'reservation', 'custom'];
+    const order: OrderFieldCategory[] = ['custom', 'reservation', 'order'];
     const labels: Record<OrderFieldCategory, string> = {
         order: 'حقول الطلب',
         reservation: 'حقول الحجز',
