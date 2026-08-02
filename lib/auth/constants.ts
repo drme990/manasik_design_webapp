@@ -17,5 +17,9 @@ export const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
  * When unset (local dev), the cookie is scoped to the current host.
  */
 export function getCookieDomain(): string | undefined {
+    // Only scope the cookie to the parent domain in production.
+    // In local dev (localhost), setting Domain=.manasik.net causes the
+    // browser to silently reject the cookie, breaking login.
+    if (process.env.NODE_ENV !== 'production') return undefined;
     return process.env.COOKIE_DOMAIN || undefined;
 }

@@ -112,6 +112,15 @@ export default function Drawer({
 
   useEffect(() => {
     if (!isOpen) return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -198,7 +207,7 @@ export default function Drawer({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-5" data-lenis-prevent>{children}</div>
 
         {footer && (
           <div className="flex gap-3 border-t border-stroke px-6 py-4">

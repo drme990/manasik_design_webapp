@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { LuX } from 'react-icons/lu';
 import Button from './Button';
 import { cn } from '@/lib/utils/cn';
@@ -28,6 +28,16 @@ export default function Modal({
   hideCloseButton = false,
 }: ModalProps) {
   const t = useTranslations('ui');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const sizeClasses = {
@@ -79,7 +89,7 @@ export default function Modal({
             )}
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-5" data-lenis-prevent>{children}</div>
         {footer && (
           <div className="flex shrink-0 justify-end gap-3 border-t border-stroke px-6 py-4">
             {footer}
