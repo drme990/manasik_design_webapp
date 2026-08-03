@@ -348,14 +348,18 @@ export async function uploadImagesWithProgress(
 // without blocking navigation.
 // ---------------------------------------------------------------------------
 
-const PROJECT_THUMBNAIL_MAX_WIDTH = 600; // px — cap width for card previews
-const PROJECT_THUMBNAIL_QUALITY = 0.75; // WebP quality — good enough for cards
+const PROJECT_THUMBNAIL_QUALITY = 0.5; // WebP quality
+const PROJECT_THUMBNAIL_TARGET_WIDTH = 400; // px — small enough for cards, ~100-200KB
 
 /**
  * Capture a DOM element as a compressed WebP thumbnail blob.
  * This is a local (non-network) operation — it must be called while the
  * element is still mounted in the DOM, but does not need to be awaited
  * before navigating away since it doesn't touch the network.
+ *
+ * Uses the same capture approach as the export function (toJpeg) but
+ * with a lower pixelRatio to produce a smaller image (~400px wide).
+ * This keeps file size under ~200KB while matching the editor view.
  *
  * @param element  The canvas DOM element to capture (the design preview)
  * @param bgColor  Background color (for transparent areas)
@@ -366,20 +370,21 @@ export async function captureProjectThumbnailBlob(
   bgColor: string
 ): Promise<Blob | null> {
   try {
-    // Use html-to-image to capture the canvas element
     const { toBlob } = await import('html-to-image');
+    // Scale down the capture to ~400px wide. pixelRatio < 1 produces
+    // a smaller image without the text-clipping issues that width/height
+    // overrides caused (html-to-image renders at full res then scales).
+    const pixelRatio = Math.min(
+      PROJECT_THUMBNAIL_TARGET_WIDTH / element.offsetWidth,
+      1
+    );
     return await toBlob(element, {
       quality: PROJECT_THUMBNAIL_QUALITY,
       backgroundColor: bgColor || '#ffffff',
-      pixelRatio: Math.min(
-        PROJECT_THUMBNAIL_MAX_WIDTH / element.offsetWidth,
-        1
-      ),
+      pixelRatio,
       cacheBust: true,
       fetchRequestInit: { mode: 'cors' } as RequestInit,
-      // Skip fonts — they're already loaded in the browser and re-fetching
-      // them can cause CORS issues that block the entire capture.
-      skipFonts: true,
+      // skipFonts: true,
     });
   } catch (error) {
     console.error('Failed to capture project thumbnail:', error);

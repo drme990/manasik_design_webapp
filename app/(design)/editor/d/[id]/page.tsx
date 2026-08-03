@@ -348,7 +348,7 @@ export default function EditorPage() {
         // Wait a bit so the selection outline is actually removed from
         // the DOM and any pending image loads (e.g. collage cells) have
         // a chance to complete before we capture the snapshot.
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 300));
         try {
             return await captureProjectThumbnailBlob(canvasRef.current, bgColor);
         } catch {
