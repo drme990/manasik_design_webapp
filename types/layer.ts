@@ -49,6 +49,22 @@ export interface TextLayer extends BaseLayer {
    */
   autoFit?: boolean;
   /**
+   * Styled spans for text layers inflated from combined dynamic fields.
+   * Each span carries its own color/font/weight/style so per-field
+   * styling is preserved in the generated design. The `text` field
+   * contains the plain joined text (for search/measure fallbacks);
+   * `spans` carries the per-segment styling. When present, the canvas
+   * renderer draws each span with its own style instead of using the
+   * layer-level color for the whole string.
+   */
+  spans?: Array<{
+    text: string;
+    color?: string;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+  }>;
+  /**
    * Internal flag set by the design editor when stripping autoFit from
    * an inflated dynamic text layer. Tells the LayerRenderer to shrink
    * the box to fit the text on the first measurement (the box was

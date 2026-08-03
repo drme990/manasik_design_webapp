@@ -436,18 +436,44 @@ function inflateTextDynamicField(
     // single-layer approach (join with space or newline).
     const hasIndividualStyles = Object.keys(fieldStyles).length > 0;
 
-    if (!hasIndividualStyles) {
-      const separator = combineDirection === 'column' ? '\n' : ' ';
+    // For 'row' direction, ALWAYS join into a single text layer — even
+    // with individual styles. Splitting into equal-width sub-boxes causes
+    // bad text wrapping (each sub-box wraps independently). Instead, the
+    // text flows naturally as one block. Per-field styling (color/font/
+    // bold/italic) is preserved via the `spans` array on the text layer,
+    // which the canvas renderer uses to draw each segment with its own
+    // style while keeping the text flowing inline.
+    if (!hasIndividualStyles || combineDirection !== 'column') {
+      const separator = combineDirection === 'column' ? '\n' : '  ';
       const direction = layer.direction || 'rtl';
-      // Prepend RLM (U+200F) for RTL text so the bidi algorithm uses
-      // RTL as the base direction. This ensures numbers (e.g. quantity)
-      // appear on the right side where an Arabic reader expects them,
-      // preserving the field order as defined in the template.
       const rlm = '\u200F';
+
+      // Always keep the original field order in `layer.text` so the
+      // editor (which uses `direction: rtl` CSS) displays fields in the
+      // correct visual order. The canvas renderer handles RTL ordering
+      // in its drawing code (reversing line segments for RTL).
       const joinedText = visibleParts.map((p) => p.value).join(separator);
       const textValue = hasAnyValue
         ? (direction === 'rtl' ? rlm + joinedText : joinedText)
         : layer.placeholder;
+
+      // Build spans array for per-field styling (row direction only).
+      // Spans keep the ORIGINAL field order — the canvas renderer's RTL
+      // drawing code handles visual ordering (first span on the right).
+      const spans = (hasAnyValue && hasIndividualStyles && combineDirection !== 'column')
+        ? visibleParts.map((part) => {
+          const fs = fieldStyles[part.varId] ?? {};
+          const rlmPrefix = direction === 'rtl' ? rlm : '';
+          return {
+            text: rlmPrefix + part.value,
+            color: fs.color ?? layer.color,
+            fontFamily: fs.fontFamily ?? layer.fontFamily ?? 'Expo Arabic',
+            bold: fs.bold ?? layer.bold ?? true,
+            italic: fs.italic ?? layer.italic ?? false,
+          };
+        })
+        : undefined;
+
       return {
         id: generateId(),
         type: 'text',
@@ -462,6 +488,7 @@ function inflateTextDynamicField(
         visible: layer.visible && hasAnyValue,
         locked: layer.locked,
         text: textValue,
+        spans,
         fontFamily: layer.fontFamily || 'Expo Arabic',
         fontWeight: layer.fontWeight || 700,
         fontSize: layer.fontSize,
@@ -476,9 +503,8 @@ function inflateTextDynamicField(
       };
     }
 
-    // ── Individual styles: create one text layer per visible field ──
-    // For 'row' direction, layers are side by side (equal width).
-    // For 'column' direction, layers are stacked vertically (equal height).
+    // ── Column direction with individual styles: one text layer per ──
+    // visible field, stacked vertically (equal height each).
     if (!hasAnyValue) {
       // Return a single hidden layer
       return {
@@ -519,19 +545,11 @@ function inflateTextDynamicField(
       const fieldItalic = fs.italic ?? layer.italic ?? false;
       const fieldColor = fs.color ?? layer.color;
 
-      // Position within the original layer bounds
-      let subX: number, subY: number, subW: number, subH: number;
-      if (combineDirection === 'column') {
-        subX = layer.x;
-        subY = layer.y + (layer.height / count) * i;
-        subW = layer.width;
-        subH = layer.height / count;
-      } else {
-        subX = layer.x + (layer.width / count) * i;
-        subY = layer.y;
-        subW = layer.width / count;
-        subH = layer.height;
-      }
+      // Column direction: stack vertically, each field gets equal height
+      const subX = layer.x;
+      const subY = layer.y + (layer.height / count) * i;
+      const subW = layer.width;
+      const subH = layer.height / count;
 
       return {
         id: generateId(),

@@ -620,32 +620,25 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
   const hasCombined = layer.combinedFields && layer.combinedFields.length > 0;
   const combineDirection = layer.combineDirection ?? 'row';
   const fieldStyles = layer.combinedFieldStyles ?? {};
+  const hasIndividualStyles = Object.keys(fieldStyles).length > 0;
 
   // All field IDs for combined fields
   const allFieldIds = hasCombined
     ? [layer.variableId, ...layer.combinedFields!]
     : [];
 
-  // For combined fields, show all field labels joined with a space
-  // so the user sees what the combined text will look like.
+  // For combined fields, show all field labels joined together so the
+  // user sees what the combined text will look like. The separator
+  // respects the combine direction:
+  //   row    → space (fields flow inline on one line, wrap naturally)
+  //   column → newline (fields stacked vertically, each on its own line)
   const text = hasCombined
     ? allFieldIds
       .map((id) => ORDER_FIELD_MAP[id]?.label || ORDER_FIELD_MAP[id]?.placeholder || id)
-      .join(' ')
+      .join(combineDirection === 'column' ? '\n' : '  ')
     : layer.placeholder;
 
-  // ── Auto-fit: binary search for the largest font that fits ────────
-  // Uses the shared useAutoFitFontSize hook — instant proportional
-  // estimate during resize, refined via binary search in rAF.
-  const fontSize = useAutoFitFontSize(
-    textRef,
-    text,
-    layer.width || 100,
-    layer.height || 100,
-    [text, layer.width, layer.height, fontFamily, fontWeight, bold, italic, align, lineHeight, direction],
-  );
-
-  // Helper: get effective style for a specific field
+  // Helper: get effective style for a specific field (per-field overrides)
   const getFieldStyle = (varId: string) => {
     const fs = fieldStyles[varId] ?? {};
     return {
@@ -655,6 +648,73 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
       fontStyle: (fs.italic ?? italic) ? 'italic' as const : 'normal' as const,
     };
   };
+
+  // ── Auto-fit: binary search for the largest font that fits ────────
+  // Uses the shared useAutoFitFontSize hook — instant proportional
+  // estimate during resize, refined via binary search in rAF.
+  // The hook measures scrollWidth/scrollHeight of the textRef div,
+  // which reflects the actual rendered content (inline spans with
+  // per-field styles), so the font size is accurate regardless of
+  // whether we render plain text or styled spans.
+  const fontSize = useAutoFitFontSize(
+    textRef,
+    text,
+    layer.width || 100,
+    layer.height || 100,
+    [text, layer.width, layer.height, fontFamily, fontWeight, bold, italic, align, lineHeight, direction],
+  );
+
+  // Build the content: if combined fields have individual styles,
+  // render each field as a styled span (inline for row, block for column).
+  // Otherwise, render plain text.
+  const content = (hasCombined && hasIndividualStyles) ? (
+    combineDirection === 'column' ? (
+      // Column: each field on its own line, with per-field style
+      allFieldIds.map((varId) => {
+        const fs = getFieldStyle(varId);
+        const label = ORDER_FIELD_MAP[varId]?.label || ORDER_FIELD_MAP[varId]?.placeholder || varId;
+        return (
+          <span
+            key={varId}
+            style={{
+              color: fs.color,
+              fontFamily: fs.fontFamily,
+              fontWeight: fs.fontWeight,
+              fontStyle: fs.fontStyle,
+              display: 'block',
+              textAlign: align,
+            }}
+          >
+            {label}
+          </span>
+        );
+      })
+    ) : (
+      // Row: inline flowing text, each field is a styled span separated
+      // by a space. The browser handles wrapping naturally.
+      allFieldIds.map((varId, idx) => {
+        const fs = getFieldStyle(varId);
+        const label = ORDER_FIELD_MAP[varId]?.label || ORDER_FIELD_MAP[varId]?.placeholder || varId;
+        return (
+          <span key={varId}>
+            {idx > 0 && '  '}
+            <span
+              style={{
+                color: fs.color,
+                fontFamily: fs.fontFamily,
+                fontWeight: fs.fontWeight,
+                fontStyle: fs.fontStyle,
+              }}
+            >
+              {label}
+            </span>
+          </span>
+        );
+      })
+    )
+  ) : (
+    text
+  );
 
   return (
     <div
@@ -694,41 +754,7 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
           fontSize: `${fontSize}px`,
         }}
       >
-        {hasCombined ? (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: combineDirection === 'column' ? 'column' : 'row',
-              alignItems: combineDirection === 'column'
-                ? (align === 'center' ? 'center' : align === 'left' ? 'flex-start' : 'flex-end')
-                : 'baseline',
-              justifyContent: align === 'center' ? 'center' : align === 'left' ? 'flex-start' : 'flex-end',
-              gap: combineDirection === 'column' ? '0' : '0.3em',
-              width: '100%',
-              height: '100%',
-            }}
-          >
-            {allFieldIds.map((varId) => {
-              const fs = getFieldStyle(varId);
-              const label = ORDER_FIELD_MAP[varId]?.label || ORDER_FIELD_MAP[varId]?.placeholder || varId;
-              return (
-                <span
-                  key={varId}
-                  style={{
-                    color: fs.color,
-                    fontFamily: fs.fontFamily,
-                    fontWeight: fs.fontWeight,
-                    fontStyle: fs.fontStyle,
-                  }}
-                >
-                  {label}
-                </span>
-              );
-            })}
-          </div>
-        ) : (
-          text
-        )}
+        {content}
       </div>
     </div>
   );

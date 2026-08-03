@@ -803,7 +803,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       return;
     }
 
-    // Height/width drag — adjust one dimension by dragging
+    // Height/width drag — adjust one dimension by dragging.
+    // For dynamic field layers, the box size changes and the auto-fit
+    // hook recalculates the font size to fill the new space. The stored
+    // fontSize is just a placeholder — auto-fit overrides it at render.
     const hw = hwDragStateRef.current;
     if (hw) {
       e.preventDefault();
@@ -854,6 +857,23 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
         // Keep center fixed: shift position by half the size change
         newX = resize.startXPos + (resize.startWidth - rawWidth) / 2;
         newY = resize.startYPos + (resize.startHeight - rawHeight) / 2;
+      } else {
+        // Free resize — adjust width/height independently based on which
+        // edge is being dragged. For dynamic field layers, the box size
+        // changes and the auto-fit hook recalculates the font size to fill
+        // the new space. The stored fontSize is just a placeholder.
+        if (direction.includes('e')) {
+          rawWidth = Math.max(minSize, resize.startWidth + deltaX);
+        } else if (direction.includes('w')) {
+          rawWidth = Math.max(minSize, resize.startWidth - deltaX);
+          newX = resize.startXPos + (resize.startWidth - rawWidth);
+        }
+        if (direction.includes('s')) {
+          rawHeight = Math.max(minSize, resize.startHeight + deltaY);
+        } else if (direction.includes('n')) {
+          rawHeight = Math.max(minSize, resize.startHeight - deltaY);
+          newY = resize.startYPos + (resize.startHeight - rawHeight);
+        }
       }
 
       // Clamp: ensure at least 10% of the layer stays visible inside the canvas

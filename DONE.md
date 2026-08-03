@@ -108,6 +108,13 @@ The editor is split into two routes based on project kind:
 - Export canvas as JPG (high quality, 2x pixel ratio, via `html-to-image`)
 - Export canvas as PNG
 - Thumbnail auto-generation (debounced, 3s after last edit) with cache-busting URLs
+- **Thumbnail capture reliability** — thumbnails are captured via `html-to-image` with these fixes:
+  - **No text clipping** — capture uses `pixelRatio: 1` with no `width`/`height`/`style` overrides, matching the export function. This ensures the full unscaled canvas is captured without clipping text.
+  - **Reduced file size** — `pixelRatio` is dynamically calculated (`PROJECT_THUMBNAIL_TARGET_WIDTH / element.offsetWidth`) to scale down the final image after rendering at full resolution. Quality is set to `PROJECT_THUMBNAIL_QUALITY` (0.5).
+  - **Missing background images (CORS)** — in production, R2 didn't have CORS headers, so `html-to-image` couldn't read background images. Fixed via:
+    1. **R2 CORS configuration** — `scripts/set-r2-cors.ts` programmatically configures R2 bucket CORS rules (GET/HEAD from any origin, PUT/POST/DELETE from app domains).
+    2. **Server-side image proxy** — `app/api/proxy-image/route.ts` fetches images server-side (bypassing CORS) and returns them with `Access-Control-Allow-Origin: *`. Only allows URLs from `storage.manasik.net` and `localhost`.
+    3. **Preloading + proxy fallback** — `imageUrlToDataUrl` (used in `captureProjectThumbnailBlob`) tries direct `fetch` with `mode: 'cors'`, falls back to the `/api/proxy-image` route on CORS error, and returns the original URL as a last resort. Also handles `<img>` elements inside the captured DOM.
 
 ### Layers
 
@@ -190,7 +197,15 @@ The editor is split into two routes based on project kind:
   - **Custom dynamic fields**:
     - `ref.phoneNumbers` — multi-line list of all referral phone numbers (from the `referrals` collection), with the order's ref first. Default refs (MNK-D, GHD-D) map to m1. Duplicate phone numbers are deduplicated.
     - `custom.genderLetter` — gender as a single letter: "M" (male), "F" (female), "M,F" (both). Reads `reservation.gender` from DB (Arabic: "ذكر", "انثى", "ذكور و اناث").
-    - `custom.genderIcon` — gender as a Unicode symbol: "♂" (male), "♀" (female), "♂♀" (both).
+    - `custom.genderIcon` — gender as a Unicode symbol: "♂" (male), "♀" (female), "♀♂" (both). Order is female-first to match RTL visual order.
+  - **Gender symbol rendering in canvas** — the registered fonts (Expo Arabic, Satoshi) don't include the ♂ ♀ Unicode glyphs. The canvas renderer uses Arial (system font) as a fallback for these symbols, matching the browser's system font fallback behavior in the editor. Both `measureGenderSymbol()` and `fillTextOrSymbol()` temporarily switch to Arial for measuring/drawing gender symbols, then restore the original font.
+  - **Combined fields** — multiple text dynamic fields can be combined into one layer:
+    - **CombineFieldsDrawer** — pick additional fields to combine with the primary field, grouped by category (حقول مخصصة / حقول الحجز / حقول الطلب) — same grouping as the DynamicFieldsDrawer
+    - **Individual styles per field** — each combined field can have its own font family, bold, italic, and color overrides via `combinedFieldStyles`
+    - **Combine direction** — row (side by side) or column (stacked vertically)
+    - **CombineFieldsBottomBar** — tab bar below the properties bar for selecting individual fields to style them independently; "Global" tab styles all fields at once
+    - **Display rules per field** — each combined field is independently checked for visibility (empty/missing data → hidden); the layer is hidden only if ALL fields are hidden
+    - **Inflate + render** — `inflate-template.ts` splits combined fields with individual styles into separate text layers; `canvas-renderer.ts` renders them with per-field auto-fit font sizing
 - Layer selection (click to select, properties bar shows layer-specific controls)
 - Layer manipulation — drag to move, resize handles, rotate handle, nudge with arrow keys
 - Layer ordering — drag-and-drop reordering in the layer list (react-dnd), z-index management
@@ -228,6 +243,8 @@ The editor is split into two routes based on project kind:
 - **Leave modal** — prompts on unsaved changes (save/discard/cancel), with inline rename for new projects
 - **Image crop modal** — full-screen crop tool with draggable/resizeable crop rectangle, undo crop
 - **Collage edit modal** — full-page drawer for per-cell image editing (pan, zoom, rotate, swap, replace, add, remove)
+- **Combine fields drawer** — pick additional text dynamic fields to combine into one layer, grouped by category (حقول مخصصة / حقول الحجز / حقول الطلب); primary field is fixed, additional fields are toggle on/off; save/clear buttons
+- **Combine fields bottom bar** — tab bar below the properties bar for selecting individual combined fields to style them independently; "Global" tab styles all fields at once; per-field reset button (LuRotateCw) appears when a field has style overrides
 
 ### Color Picker
 
@@ -343,6 +360,22 @@ The editor is split into two routes based on project kind:
   - Called automatically by the store's `saveProject()` when the saved project has `source: 'order'`
   - Fire-and-forget (errors logged, don't fail the save)
 
+- **Delete designs callback** `POST /api/orders/delete-designs` — called by the backend when an admin regenerates designs for an order:
+  - Authenticated via the same shared secret (`x-callback-secret` header)
+  - Receives `{ projectIds: string[] }` — the design instance project IDs to delete
+  - For each project, collects all R2 keys to delete: order design JPG (`orderDesignUrl`), thumbnail (`design/thumbnails/{projectId}.webp`), background image, layer image URIs (image layers, collage cells, shape layers)
+  - Deletes project documents from MongoDB
+  - Deletes all R2 assets in the background (best-effort, non-blocking)
+  - Returns `{ success: true, data: { deleted: number } }`
+
+- **R2 cleanup on project delete** — `DELETE /api/projects/[id]` collects all R2 keys associated with a project via `collectProjectR2Keys()` and deletes them in the background:
+  - Project thumbnail (`design/thumbnails/{projectId}.webp`)
+  - Background image + background thumbnail
+  - All image layer URIs (original, thumbnail, collage cells)
+  - All shape layer URIs (original, thumbnail)
+  - Keys are deduplicated to avoid deleting the same file twice
+  - Best-effort: R2 deletion failures don't prevent the project from being deleted from MongoDB
+
 ## Template Rendering Pipeline
 
 - `lib/render/canvas-renderer.ts` — server-side renderer that produces JPG images from projects using **@napi-rs/canvas** (native Rust canvas engine, no browser needed):
@@ -362,16 +395,31 @@ The editor is split into two routes based on project kind:
 - **Conditional display** — `shouldDisplayField()` hides fields based on rules (e.g. quantity >= 2); `isEmptyValue()` hides fields with no data
 - **Formatting** — `reservation.sacrificeFor` formats multiple names with "و" prefix on each line after the first
 - **Vercel-compatible** — `@napi-rs/canvas` ships pre-built native binaries for Vercel's AWS Lambda runtime. No Chrome, no Puppeteer, no external services, no environment variables needed.
-- `next.config.ts` adds `@napi-rs/canvas` to `serverExternalPackages`
+- `next.config.ts` adds `@napi-rs/canvas` to `serverexternalPackages`
 - Handles text layers (with full styling), image layers (R2 URLs), shape layers, and dynamic field layers
-- Known limitations: collage layers use a simplified grid layout (not the exact editor layout); regular text layers don't auto-shrink (only dynamic field text does)
+- **Collage rendering** — `renderCollageLayer` in `canvas-renderer.ts` renders collage image layers server-side:
+  - Each cell is drawn with `drawImageCover` (object-fit: cover) into its computed sub-rectangle
+  - Cell pan/zoom/rotation transforms are applied per-cell
+  - Gap between cells and container corner radius are respected
+  - `renderImageLayer` properly awaits `renderCollageLayer` (was missing `await`, causing blank collage cells in exports)
+  - Collage images are preloaded as data URLs before rendering to avoid async fetch issues
+- **Combined field rendering** — `canvas-renderer.ts` renders combined dynamic fields with individual styles:
+  - Each field gets its own sub-box (row = side by side, column = stacked)
+  - Per-field font family, weight, italic, and color overrides are applied
+  - Auto-fit font sizing is computed per sub-box (binary search)
+  - Fields are independently checked for visibility (empty/hidden fields are skipped)
+- Known limitations: regular text layers don't auto-shrink (only dynamic field text does)
 
 ## Image & File Storage
 
 - **R2 (Cloudflare)** for all image/font/shape file storage
-- `uploadToR2()` / `deleteFromR2()` helpers
+- `uploadToR2()` / `deleteFromR2()` / `deleteMultipleFromR2()` helpers
 - Thumbnail storage at `design/thumbnails/{projectId}.webp` with cache-busting `?v=timestamp`
+- Order design storage at `design/orders-design/{orderNumber}[-{itemIndex}].jpg` with `Cache-Control: no-cache`
 - Image proxy (`/api/image-proxy`) — same-origin proxy for CORS-safe image fetching
+- **Image proxy for thumbnails** (`/api/proxy-image`) — server-side proxy that fetches images from R2 and returns them with `Access-Control-Allow-Origin: *`, bypassing CORS for `html-to-image` thumbnail capture. Only allows `storage.manasik.net` and `localhost`.
+- **R2 CORS configuration** (`scripts/set-r2-cors.ts`) — programmatically configures R2 bucket CORS rules (GET/HEAD from any origin, PUT/POST/DELETE from app domains)
+- **R2 cleanup on delete** — `collectProjectR2Keys()` gathers all R2 keys for a project (thumbnail, background, layer images, collage cells, shapes) and `deleteMultipleFromR2()` deletes them in the background (best-effort)
 - Upload progress tracking for large images
 - Instant preview pattern — blob: URL for immediate UI, R2 upload in background
 - Blob: URI stripping before persistence (client-only URLs never saved to DB)
@@ -409,6 +457,8 @@ The editor is split into two routes based on project kind:
 - `POST /api/projects/[id]/thumbnail` — upload project thumbnail to R2
 - `POST /api/projects/[id]/re-render` — re-render an order design to JPG + overwrite R2 image (admin-only)
 - `POST /api/orders/generate-design` — callback endpoint for the backend admin panel to generate a design for an order (shared-secret auth)
+- `POST /api/orders/delete-designs` — callback endpoint to delete design instance projects + their R2 assets (shared-secret auth)
+- `GET /api/proxy-image?url=...` — server-side image proxy for CORS-safe image fetching (only allows `storage.manasik.net` and `localhost`)
 - `GET/POST /api/pdf-projects` — list/create PDF projects
 - `GET/PATCH/DELETE /api/pdf-projects/[id]` — get/update/delete a PDF project
 - `GET/POST /api/booking-products` — list/create booking products
@@ -430,10 +480,27 @@ The design app integrates with the separate admin panel (`admin_panel`) for orde
 
 - **SSO** — admins logged into the admin panel are automatically authenticated in the design app via the shared JWT cookie (see Authentication section above)
 - **"Create Design" button** (admin panel) — calls the backend, which calls `POST /api/orders/generate-design` on this app to generate a design for an order item
+- **"Regenerate Design" button** (admin panel) — deletes all existing designs for the order (R2 images + design app projects + thumbnails) and generates fresh ones:
+  1. Admin panel calls `DELETE /api/orders/{id}/designs` on the backend
+  2. Backend calls `POST /api/orders/delete-designs` on this app with all projectIds
+  3. Design app deletes project documents + all R2 assets (order design JPG, thumbnails, layer images)
+  4. Backend clears `designUrls` on the order
+  5. Admin panel calls `POST /api/orders/{id}/generate-design` to create fresh designs
+  6. Table refreshes with new design URLs
 - **"Edit Design" button** (admin panel) — opens `{DESIGN_APP_URL}/editor/d/{projectId}` in a new tab; SSO authenticates the admin automatically; the admin edits the design instance (not the template)
-- **"View Design" button** (admin panel) — opens a preview modal showing the design JPG (no new tab)
+- **"View Design" button** (admin panel) — opens the OrderGalleryModal showing the design JPG(s) with thumbnail navigation, download, and edit actions
+- **"Download Design" button** (admin panel) — downloads the design JPG with cache-busting (`?v=timestamp`); shows a spinning refresh icon and is disabled during download to prevent spam clicks
 - **Design icon in orders table** (admin panel) — always shows `LuPalette` icon; dimmed (`text-secondary/50`) when no design exists, primary color when a design exists; clicking it opens the preview modal
+- **Design column actions** (admin panel) — when a design exists, three buttons appear below the palette icon: download (LuDownload), regenerate (LuRefreshCw), edit (LuPencil). When no design exists, a single create button (LuSparkles) appears instead.
 - **Re-render on save** — when the admin saves an order design in the editor, the design app automatically re-renders it to JPG and overwrites the old R2 image (same URL), so the admin panel always shows the latest version without any explicit refresh
+- **OrderGalleryModal** (admin panel) — gallery lightbox for viewing order designs and photos:
+  - Supports 'photo' and 'design' modes
+  - Multiple items with thumbnail navigation strip and counter ("1 / 3")
+  - Keyboard navigation (←/→ arrow keys)
+  - Designs sorted: text variant first, then image variant
+  - Cache-busting on design URLs
+  - Download button with loading state (spinning icon + disabled during download)
+  - Edit button (only for design items with a projectId)
 
 ### Environment Variables
 

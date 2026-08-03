@@ -587,6 +587,89 @@ function buildFontStringWithSize(layer: TextLayer, size: number): string {
 }
 
 /**
+ * Build a font string for a span (per-field style override).
+ * Falls back to the layer-level values for properties the span doesn't set.
+ */
+function buildSpanFontString(span: { fontFamily?: string; bold?: boolean; italic?: boolean }, layer: TextLayer, size: number): string {
+  const style = (span.italic ?? layer.italic) ? 'italic ' : '';
+  const weight = (span.bold ?? layer.bold) ? 700 : (layer.fontWeight || 400);
+  const family = span.fontFamily ?? layer.fontFamily;
+  return `${style}${weight} ${size}px '${family}'`;
+}
+
+/**
+ * Wrap text with per-span styling into lines.
+ * Each returned line is an array of segments, where each segment has
+ * its own text + style info (color, font, bold, italic). Word wrapping
+ * tracks the actual width used on the current line so words from
+ * different spans wrap correctly when the line fills up.
+ *
+ * Returns: Array of lines, each line = Array of { text, span } segments.
+ */
+function wrapTextWithSpans(
+  ctx: SKRSContext2D,
+  spans: Array<{ text: string; color?: string; fontFamily?: string; bold?: boolean; italic?: boolean }>,
+  layer: TextLayer,
+  size: number,
+  maxWidth: number,
+): Array<Array<{ text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }>> {
+  type Seg = { text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } };
+  const lines: Array<Array<Seg>> = [];
+  let currentLine: Array<Seg> = [];
+  let currentWidth = 0;
+  const spaceW = ctx.measureText(' ').width;
+
+  for (const span of spans) {
+    ctx.font = buildSpanFontString(span, layer, size);
+    // Split into words, filter empty strings from double-space separators
+    const words = span.text.split(' ').filter((w) => w !== '');
+
+    for (const word of words) {
+      const wordW = ctx.measureText(word).width;
+      // Need a space gap if there's already content on the current line
+      const gapW = currentWidth > 0 ? spaceW : 0;
+
+      if (currentWidth + gapW + wordW <= maxWidth) {
+        // Word fits on current line — merge into last segment if same span,
+        // otherwise create a new segment
+        const lastSeg = currentLine.length > 0 ? currentLine[currentLine.length - 1] : null;
+        if (lastSeg && lastSeg.span === span) {
+          lastSeg.text += ' ' + word;
+        } else {
+          currentLine.push({ text: word, span });
+        }
+        currentWidth += gapW + wordW;
+      } else {
+        // Word doesn't fit — flush current line, start a new one
+        if (currentLine.length > 0) lines.push(currentLine);
+
+        if (wordW > maxWidth) {
+          // Word itself doesn't fit — character-level break
+          let charText = '';
+          for (const ch of word) {
+            const test = charText + ch;
+            if (ctx.measureText(test).width <= maxWidth) {
+              charText = test;
+            } else {
+              if (charText) lines.push([{ text: charText, span }]);
+              charText = ch;
+            }
+          }
+          currentLine = charText ? [{ text: charText, span }] : [];
+          currentWidth = charText ? ctx.measureText(charText).width : 0;
+        } else {
+          currentLine = [{ text: word, span }];
+          currentWidth = wordW;
+        }
+      }
+    }
+  }
+  if (currentLine.length > 0) lines.push(currentLine);
+
+  return lines;
+}
+
+/**
  * Wrap text into lines that fit within `maxWidth`.
  * Uses ctx.measureText() to check line widths.
  */
@@ -612,8 +695,9 @@ function wrapText(
 
     // Word-wrap with character-level fallback (matches CSS
     // word-break: break-word + overflow-wrap: anywhere used in the
-    // editor's DOM rendering).
-    const words = paragraph.split(' ');
+    // editor's DOM rendering). Filter empty strings from double-space
+    // separators so wrapping measures real words only.
+    const words = paragraph.split(' ').filter((w) => w !== '');
     let currentLine = '';
 
     for (const word of words) {
@@ -650,6 +734,8 @@ function wrapText(
 function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   if (!layer.text) return;
 
+  const hasSpans = layer.spans && layer.spans.length > 0;
+
   ctx.fillStyle = layer.color;
   ctx.textBaseline = 'top';
 
@@ -657,28 +743,37 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   // When autoFit is true (text layers inflated from dynamic fields),
   // the font size is calculated to FILL the box. The saved fontSize
   // is ignored — the size is determined by box dimensions + text content.
-  //
-  // Uses the same formula as the client-side CSS container queries:
-  //   Width:  fontSize = (boxWidth * 0.9) / (charCount * 0.55)
-  //   Height: fontSize = boxHeight / lineHeight
-  // Then binary-searches to fine-tune (the formula is an approximation;
-  // binary search verifies it actually fits with word wrapping).
   let renderFontSize = layer.fontSize;
 
   if (layer.autoFit) {
-    // No padding — match the DOM editor which uses clientWidth/clientHeight
-    // directly (the auto-fit div has no padding).
     const maxWidth = layer.width;
     const maxHeight = layer.height;
     const lineHeightRatio = layer.lineHeight || 1.2;
 
     function doesFit(size: number): boolean {
+      if (hasSpans) {
+        // Measure with spans — each span uses its own font for measuring
+        const spanLines = wrapTextWithSpans(ctx, layer.spans!, layer, size, maxWidth);
+        if (spanLines.length === 0) return true;
+        const totalHeight = spanLines.length * size * lineHeightRatio;
+        if (totalHeight > maxHeight) return false;
+        // Check each line's total width (segment widths + gaps between them)
+        const gapW = ctx.measureText(' ').width;
+        for (const lineSegs of spanLines) {
+          let lineW = 0;
+          for (let s = 0; s < lineSegs.length; s++) {
+            const seg = lineSegs[s];
+            ctx.font = buildSpanFontString(seg.span, layer, size);
+            lineW += ctx.measureText(seg.text).width;
+            if (s > 0) lineW += gapW;
+          }
+          if (lineW > maxWidth) return false;
+        }
+        return true;
+      }
       ctx.font = buildFontStringWithSize(layer, size);
       const lines = wrapText(ctx, layer.text, maxWidth);
       if (lines.length === 0) return true;
-      // Match the DOM: CSS line-height produces line boxes of
-      // size * lineHeightRatio. scrollHeight in the browser reflects
-      // these line boxes, so we use the same formula.
       const totalHeight = lines.length * size * lineHeightRatio;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
@@ -689,8 +784,6 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       return true;
     }
 
-    // Binary search over the FULL range [1, max(boxW, boxH)] — matches
-    // the client-side useAutoFitFontSize hook exactly.
     let lo = 1;
     let hi = Math.ceil(Math.max(maxWidth, maxHeight));
     let best = lo;
@@ -706,13 +799,7 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     renderFontSize = best;
   }
 
-  ctx.font = buildFontStringWithSize(layer, renderFontSize);
-
-  // Determine wrapping width for measureText (which returns CSS pixels,
-  // unaffected by the context transform — no RENDER_SCALE needed).
-  // For autoFit layers, wrap to the full box width (no padding, matching
-  // the DOM editor which uses clientWidth directly).
-  // For regular text layers, wrap to boxWidth if set, or no wrapping.
+  // Determine wrapping width
   let wrapWidth: number;
   if (layer.autoFit) {
     wrapWidth = layer.width;
@@ -720,10 +807,27 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     wrapWidth = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
   }
 
-  const lines = wrapText(ctx, layer.text, wrapWidth);
-  // Line height matches the DOM: CSS line-height = size * lineHeightRatio.
-  // The browser's scrollHeight reflects these line boxes.
   const lineHeight = renderFontSize * (layer.lineHeight || 1.2);
+
+  // ── Build lines (span-aware or plain) ────────────────────────────
+  type LineSeg = { text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } };
+  let lines: Array<LineSeg[]>;
+
+  if (hasSpans) {
+    lines = wrapTextWithSpans(ctx, layer.spans!, layer, renderFontSize, wrapWidth);
+  } else {
+    // Plain text — wrap into lines, then split each line into word segments
+    // so the RTL drawing code can order words right-to-left.
+    ctx.font = buildFontStringWithSize(layer, renderFontSize);
+    const plainLines = wrapText(ctx, layer.text, wrapWidth);
+    lines = plainLines.map((line) => {
+      // Split the line into words — each word becomes a segment.
+      // The RTL drawing code will position them right-to-left.
+      const words = line.split(' ').filter((w) => w !== '');
+      return words.map((w) => ({ text: w, span: {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }));
+    });
+  }
+
   const totalHeight = lines.length * lineHeight;
 
   // Vertical alignment within the layer box
@@ -741,31 +845,65 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   ctx.clip();
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // Center the em box within the line box (matching CSS line-height
-    // behavior). textBaseline 'top' draws at the em box top; adding
-    // (lineHeight - fontSize) / 2 leaves space above for Arabic
-    // diacritics that extend past the em box.
+    const lineSegs = lines[i];
     const y = startY + i * lineHeight + (lineHeight - renderFontSize) / 2;
-    const sym = getGenderSymbol(line);
-    const lineWidth = sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(line).width;
 
+    // Calculate total line width (sum of segment widths + gaps between them)
+    const spaceGap = ctx.measureText(' ').width;
+    let lineWidth = 0;
+    for (let s = 0; s < lineSegs.length; s++) {
+      const seg = lineSegs[s];
+      ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
+      const segText = seg.text;
+      const sym = getGenderSymbol(segText);
+      lineWidth += sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(segText).width;
+      if (s > 0) lineWidth += spaceGap; // gap between segments
+    }
+
+    // Horizontal alignment — compute starting x
     let x = 0;
     if (layer.align === 'center') {
       x = (layer.width - lineWidth) / 2;
     } else if (layer.align === 'right') {
       x = layer.width - lineWidth;
     }
-
-    // Handle RTL direction — for Arabic text, the canvas still draws
-    // LTR by default. The font itself handles RTL shaping, but we need
-    // to flip the x position for right-aligned text in RTL mode.
     if (layer.direction === 'rtl' && layer.align === 'left') {
-      // In RTL with "left" align, text should start from the right
       x = layer.width - lineWidth;
     }
 
-    fillTextOrSymbol(ctx, line, x, y, renderFontSize, layer.color, ctx.font);
+    // Draw each segment with its own font/color.
+    // For RTL, draw from right to left so the first span (field 1)
+    // appears on the right and subsequent spans flow leftward —
+    // matching the natural Arabic reading order.
+    // (spaceGap is already computed above for the line width calculation)
+
+    if (layer.direction === 'rtl') {
+      // RTL: start from the right edge of the line, draw leftward
+      let drawX = x + lineWidth;
+      for (let s = 0; s < lineSegs.length; s++) {
+        const seg = lineSegs[s];
+        ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
+        const segColor = seg.span.color ?? layer.color;
+        const sym = getGenderSymbol(seg.text);
+        const segW = sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(seg.text).width;
+        // Add gap before this segment (except the first on the line)
+        if (s > 0) drawX -= spaceGap;
+        drawX -= segW;
+        fillTextOrSymbol(ctx, seg.text, drawX, y, renderFontSize, segColor, ctx.font);
+      }
+    } else {
+      // LTR: start from the left, draw rightward
+      for (let s = 0; s < lineSegs.length; s++) {
+        const seg = lineSegs[s];
+        ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
+        const segColor = seg.span.color ?? layer.color;
+        const sym = getGenderSymbol(seg.text);
+        // Add gap before this segment (except the first on the line)
+        if (s > 0) x += spaceGap;
+        fillTextOrSymbol(ctx, seg.text, x, y, renderFontSize, segColor, ctx.font);
+        x += sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(seg.text).width;
+      }
+    }
   }
 
   ctx.restore();
@@ -1194,10 +1332,12 @@ async function renderDynamicFieldLayer(
         // Image failed — skip
       }
     }
-  } else if (layer.combinedFields && layer.combinedFields.length > 0 && hasIndividualStyles) {
-    // ── Combined fields with individual styles: render each field ──
-    // separately with its own font/color/bold/italic, positioned in
-    // row or column layout within the layer bounds.
+  } else if (layer.combinedFields && layer.combinedFields.length > 0 && hasIndividualStyles && combineDirection === 'column') {
+    // ── Column direction with individual styles: render each field ──
+    // separately with its own font/color/bold/italic, stacked vertically
+    // (equal height each). Row direction with individual styles falls
+    // through to the joined-text path below — text flows naturally as a
+    // single block instead of being split into equal-width sub-boxes.
     const allIds = [layer.variableId, ...layer.combinedFields];
     const fieldDirection = layer.direction || 'rtl';
     const visibleParts: { varId: string; value: string }[] = [];
@@ -1230,19 +1370,11 @@ async function renderDynamicFieldLayer(
       const fieldItalic = fs.italic ?? layer.italic ?? false;
       const fieldColor = fs.color ?? layer.color;
 
-      // Sub-box dimensions for this field
-      let subX: number, subY: number, subW: number, subH: number;
-      if (combineDirection === 'column') {
-        subX = 0;
-        subY = (layer.height / count) * i;
-        subW = layer.width;
-        subH = layer.height / count;
-      } else {
-        subX = (layer.width / count) * i;
-        subY = 0;
-        subW = layer.width / count;
-        subH = layer.height;
-      }
+      // Column direction: stack vertically, each field gets equal height
+      const subX = 0;
+      const subY = (layer.height / count) * i;
+      const subW = layer.width;
+      const subH = layer.height / count;
 
       // Auto-fit font size for this sub-box — no padding, matching DOM.
       const maxWidth = subW;
@@ -1318,8 +1450,11 @@ async function renderDynamicFieldLayer(
 
     ctx.restore();
   } else if (layer.combinedFields && layer.combinedFields.length > 0) {
-    // ── Combined fields without individual styles (original behavior) ──
-    // but respecting combineDirection for separator.
+    // ── Combined fields (row direction, or no individual styles) ──────
+    // All visible field values are joined with a space (row) or newline
+    // (column) and rendered as a single text block that flows naturally.
+    // Row direction with individual styles also ends up here — text flow
+    // correctness is more important than per-field colors in the output.
     const allIds = [layer.variableId, ...layer.combinedFields];
     const fieldDirection = layer.direction || 'rtl';
     const parts: string[] = [];
@@ -1330,9 +1465,9 @@ async function renderDynamicFieldLayer(
       parts.push(v!);
     }
     if (parts.length === 0) return; // all fields hidden
-    const separator = combineDirection === 'column' ? '\n' : ' ';
-    // Prepend RLM (U+200F) for RTL so the bidi algorithm uses RTL base
-    // direction, keeping field order correct for Arabic readers.
+    const separator = combineDirection === 'column' ? '\n' : '  ';
+    // Keep original field order — the drawing code handles RTL ordering
+    // by drawing words right-to-left within each line.
     const rlm = '\u200F';
     const value = (fieldDirection === 'rtl' ? rlm : '') + parts.join(separator);
 
@@ -1401,11 +1536,20 @@ async function renderDynamicFieldLayer(
     ctx.rect(0, 0, layer.width, layer.height);
     ctx.clip();
 
+    const spaceGap = ctx.measureText(' ').width;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
-      const sym = getGenderSymbol(line);
-      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
+
+      // Split line into words for RTL word-level ordering
+      const words = line.split(' ').filter((w) => w !== '');
+      let lineWidth = 0;
+      for (const w of words) {
+        const sym = getGenderSymbol(w);
+        lineWidth += sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width;
+      }
+      lineWidth += (words.length - 1) * spaceGap;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1413,12 +1557,27 @@ async function renderDynamicFieldLayer(
       } else if (fieldAlign === 'right') {
         x = layer.width - lineWidth;
       }
-
       if (fieldDirection === 'rtl' && fieldAlign === 'left') {
         x = layer.width - lineWidth;
       }
 
-      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
+      // Draw words — RTL: right-to-left, LTR: left-to-right
+      if (fieldDirection === 'rtl') {
+        let drawX = x + lineWidth;
+        for (let w = 0; w < words.length; w++) {
+          const sym = getGenderSymbol(words[w]);
+          const wordW = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(words[w]).width;
+          if (w > 0) drawX -= spaceGap;
+          drawX -= wordW;
+          fillTextOrSymbol(ctx, words[w], drawX, y, bestSize, layer.color, ctx.font);
+        }
+      } else {
+        for (const w of words) {
+          const sym = getGenderSymbol(w);
+          fillTextOrSymbol(ctx, w, x, y, bestSize, layer.color, ctx.font);
+          x += (sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width) + spaceGap;
+        }
+      }
     }
 
     ctx.restore();
@@ -1499,11 +1658,19 @@ async function renderDynamicFieldLayer(
     ctx.rect(0, 0, layer.width, layer.height);
     ctx.clip();
 
+    const spaceGap = ctx.measureText(' ').width;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
-      const sym = getGenderSymbol(line);
-      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
+
+      const words = line.split(' ').filter((w) => w !== '');
+      let lineWidth = 0;
+      for (const w of words) {
+        const sym = getGenderSymbol(w);
+        lineWidth += sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width;
+      }
+      lineWidth += (words.length - 1) * spaceGap;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1511,12 +1678,26 @@ async function renderDynamicFieldLayer(
       } else if (fieldAlign === 'right') {
         x = layer.width - lineWidth;
       }
-
       if (fieldDirection === 'rtl' && fieldAlign === 'left') {
         x = layer.width - lineWidth;
       }
 
-      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
+      if (fieldDirection === 'rtl') {
+        let drawX = x + lineWidth;
+        for (let w = 0; w < words.length; w++) {
+          const sym = getGenderSymbol(words[w]);
+          const wordW = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(words[w]).width;
+          if (w > 0) drawX -= spaceGap;
+          drawX -= wordW;
+          fillTextOrSymbol(ctx, words[w], drawX, y, bestSize, layer.color, ctx.font);
+        }
+      } else {
+        for (const w of words) {
+          const sym = getGenderSymbol(w);
+          fillTextOrSymbol(ctx, w, x, y, bestSize, layer.color, ctx.font);
+          x += (sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width) + spaceGap;
+        }
+      }
     }
 
     ctx.restore();
