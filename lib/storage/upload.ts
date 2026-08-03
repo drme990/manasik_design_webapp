@@ -352,14 +352,35 @@ const PROJECT_THUMBNAIL_QUALITY = 0.5; // WebP quality
 const PROJECT_THUMBNAIL_TARGET_WIDTH = 400; // px — small enough for cards, ~100-200KB
 
 /**
+ * Fetch an image URL and convert it to a data URL.
+ * In production, R2 images may not have CORS headers, so html-to-image
+ * can't fetch them during capture. Preloading as a data URL avoids this.
+ * Falls back to the original URL if fetching fails (e.g. CORS).
+ */
+async function imageUrlToDataUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return url; // fallback — let html-to-image try its own fetch
+  }
+}
+
+/**
  * Capture a DOM element as a compressed WebP thumbnail blob.
  * This is a local (non-network) operation — it must be called while the
  * element is still mounted in the DOM, but does not need to be awaited
  * before navigating away since it doesn't touch the network.
  *
- * Uses the same capture approach as the export function (toJpeg) but
- * with a lower pixelRatio to produce a smaller image (~400px wide).
- * This keeps file size under ~200KB while matching the editor view.
+ * Preloads the element's CSS background-image as a data URL before
+ * capture, so html-to-image can embed it even when R2 doesn't return
+ * CORS headers (production). Also preloads any <img> elements inside.
  *
  * @param element  The canvas DOM element to capture (the design preview)
  * @param bgColor  Background color (for transparent areas)
@@ -371,21 +392,49 @@ export async function captureProjectThumbnailBlob(
 ): Promise<Blob | null> {
   try {
     const { toBlob } = await import('html-to-image');
-    // Scale down the capture to ~400px wide. pixelRatio < 1 produces
-    // a smaller image without the text-clipping issues that width/height
-    // overrides caused (html-to-image renders at full res then scales).
     const pixelRatio = Math.min(
       PROJECT_THUMBNAIL_TARGET_WIDTH / element.offsetWidth,
       1
     );
-    return await toBlob(element, {
-      quality: PROJECT_THUMBNAIL_QUALITY,
-      backgroundColor: bgColor || '#ffffff',
-      pixelRatio,
-      cacheBust: true,
-      fetchRequestInit: { mode: 'cors' } as RequestInit,
-      // skipFonts: true,
-    });
+
+    // ── Preload background-image as data URL ────────────────────────
+    // html-to-image can't fetch cross-origin images without CORS headers.
+    // We preload the bg image as a data URL and temporarily swap it in.
+    const computedBg = getComputedStyle(element).backgroundImage;
+    const bgUrlMatch = computedBg.match(/url\(["']?(.*?)["']?\)/);
+    const prevBgImage = element.style.backgroundImage;
+    if (bgUrlMatch && bgUrlMatch[1]) {
+      const dataUrl = await imageUrlToDataUrl(bgUrlMatch[1]);
+      element.style.backgroundImage = `url(${dataUrl})`;
+    }
+
+    // ── Preload <img> srcs inside the element as data URLs ──────────
+    const imgs = Array.from(element.querySelectorAll('img'));
+    const imgRestores: Array<{ img: HTMLImageElement; src: string }> = [];
+    await Promise.all(imgs.map(async (img) => {
+      const src = img.src;
+      if (src && !src.startsWith('data:')) {
+        const dataUrl = await imageUrlToDataUrl(src);
+        imgRestores.push({ img, src: img.src });
+        img.src = dataUrl;
+      }
+    }));
+
+    try {
+      return await toBlob(element, {
+        quality: PROJECT_THUMBNAIL_QUALITY,
+        backgroundColor: bgColor || '#ffffff',
+        pixelRatio,
+        cacheBust: true,
+        fetchRequestInit: { mode: 'cors' } as RequestInit,
+      });
+    } finally {
+      // Restore original styles
+      element.style.backgroundImage = prevBgImage;
+      for (const { img, src } of imgRestores) {
+        img.src = src;
+      }
+    }
   } catch (error) {
     console.error('Failed to capture project thumbnail:', error);
     return null;
