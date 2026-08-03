@@ -1683,7 +1683,9 @@ async function renderDynamicFieldLayer(
         ctx.font = buildSubFont(size);
         const lines = wrapText(ctx, part.value, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        // Actual visual height: (N-1) line gaps + 1 glyph height.
+        // The last line has no trailing line-height gap.
+        const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
         if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
@@ -1707,6 +1709,12 @@ async function renderDynamicFieldLayer(
           hi = mid - 1;
         }
       }
+      // Fractional refinement: try to push closer to the exact fit.
+      for (const frac of [0.75, 0.5, 0.25]) {
+        if (doesSubFit(bestSize + frac)) {
+          bestSize += frac;
+        }
+      }
 
       ctx.font = buildSubFont(bestSize);
       ctx.fillStyle = fieldColor;
@@ -1714,7 +1722,10 @@ async function renderDynamicFieldLayer(
       // Wrap at full draw width — auto-fit already ensured it fits.
       const lines = wrapText(ctx, part.value, drawWidth);
       const lineHeight = bestSize * fieldLineHeight;
-      const totalHeight = lines.length * lineHeight;
+      // Visual height: (N-1) line gaps + 1 glyph height (no trailing gap).
+      const totalHeight = lines.length > 0
+        ? (lines.length - 1) * lineHeight + bestSize
+        : 0;
 
       let startY = subY;
       if (fieldVAlign === 'middle') {
@@ -1819,7 +1830,8 @@ async function renderDynamicFieldLayer(
       if (combineDirection === 'column') {
         const lines = wrapText(ctx, value, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        // Actual visual height: (N-1) line gaps + 1 glyph height.
+        const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
         if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
@@ -1830,7 +1842,8 @@ async function renderDynamicFieldLayer(
         const fakeLayer = { ...layer } as unknown as TextLayer;
         const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        // Actual visual height: (N-1) line gaps + 1 glyph height.
+        const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
         if (totalHeight > measureHeight) return false;
         const spaceGap = ctx.measureText(' ').width;
         for (const lineSegs of lines) {
@@ -1858,6 +1871,12 @@ async function renderDynamicFieldLayer(
         lo = mid + 1;
       } else {
         hi = mid - 1;
+      }
+    }
+    // Fractional refinement: try to push closer to the exact fit.
+    for (const frac of [0.75, 0.5, 0.25]) {
+      if (doesFontSizeFit(bestSize + frac)) {
+        bestSize += frac;
       }
     }
 
@@ -1892,7 +1911,10 @@ async function renderDynamicFieldLayer(
       }
     }
 
-    const totalHeight = lines.length * lineHeight;
+    // Visual height: (N-1) line gaps + 1 glyph height (no trailing gap).
+    const totalHeight = lines.length > 0
+      ? (lines.length - 1) * lineHeight + bestSize
+      : 0;
 
     let startY = 0;
     if (fieldVAlign === 'middle') {
@@ -1991,7 +2013,9 @@ async function renderDynamicFieldLayer(
       ctx.font = buildFieldFont(size);
       const lines = wrapText(ctx, value, measureWidth);
       if (lines.length === 0) return true;
-      const totalHeight = lines.length * size * fieldLineHeight;
+      // Actual visual height: (N-1) line gaps + 1 glyph height.
+      // The last line has no trailing line-height gap.
+      const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
       if (totalHeight > measureHeight) return false;
       for (const line of lines) {
         const sym = getGenderSymbol(line);
@@ -2015,6 +2039,12 @@ async function renderDynamicFieldLayer(
         hi = mid - 1;
       }
     }
+    // Fractional refinement: try to push closer to the exact fit.
+    for (const frac of [0.75, 0.5, 0.25]) {
+      if (doesFontSizeFit(bestSize + frac)) {
+        bestSize += frac;
+      }
+    }
 
     ctx.font = buildFieldFont(bestSize);
     ctx.fillStyle = layer.color;
@@ -2023,7 +2053,10 @@ async function renderDynamicFieldLayer(
     // Wrap at the full draw width — auto-fit already ensured it fits.
     const lines = wrapText(ctx, value, drawWidth);
     const lineHeight = bestSize * fieldLineHeight;
-    const totalHeight = lines.length * lineHeight;
+    // Visual height: (N-1) line gaps + 1 glyph height (no trailing gap).
+    const totalHeight = lines.length > 0
+      ? (lines.length - 1) * lineHeight + bestSize
+      : 0;
 
     let startY = 0;
     if (fieldVAlign === 'middle') {

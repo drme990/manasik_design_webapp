@@ -265,7 +265,9 @@ function useAutoFitFontSize(
       if (fits) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
     }
     el.style.fontSize = '';
-    const result = Math.max(1, Math.floor(best));
+    // Round to 0.5px for sub-pixel accuracy — the canvas renderer also
+    // uses fractional refinement, so the editor preview should match.
+    const result = Math.max(1, Math.round(best * 2) / 2);
     setMeasured({ w: boxW, h: boxH, size: result });
     // Notify the caller synchronously (before paint) with the calculated
     // size. This is used by the design editor to "bake" the auto-fit size
