@@ -276,6 +276,11 @@ function resolveFieldValue(
     if (key === 'sacrificeFor' && raw) {
       return formatSacrificeForNames(raw);
     }
+    // shortDuaa: strip newlines — the user may enter multi-line text but
+    // it should render as a single flowing line that wraps naturally.
+    if (key === 'shortDuaa' && raw) {
+      return raw.replace(/[\r\n]+/g, ' ').trim();
+    }
     return raw;
   }
 

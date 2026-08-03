@@ -358,6 +358,11 @@ function resolveFieldValue(
     if (key === 'sacrificeFor' && raw) {
       return formatSacrificeForNames(raw);
     }
+    // shortDuaa: strip newlines — the user may enter multi-line text but
+    // it should render as a single flowing line that wraps naturally.
+    if (key === 'shortDuaa' && raw) {
+      return raw.replace(/[\r\n]+/g, ' ').trim();
+    }
     return raw;
   }
   if (variableId.startsWith('ref.')) {
@@ -746,9 +751,13 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   let renderFontSize = layer.fontSize;
 
   if (layer.autoFit) {
-    const maxWidth = layer.width;
-    const maxHeight = layer.height;
-    const lineHeightRatio = layer.lineHeight || 1.2;
+    // Safety margin: canvas measureText can be slightly inconsistent with
+    // actual fillText rendering (especially for RTL/Arabic text). Use 95%
+    // of the box dimensions to ensure the auto-fit is conservative and
+    // text never overflows.
+    const maxWidth = layer.width * 0.95;
+    const maxHeight = layer.height * 0.95;
+    const lineHeightRatio = Math.max(layer.lineHeight || 1.2, 1);
 
     function doesFit(size: number): boolean {
       if (hasSpans) {
@@ -799,15 +808,17 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     renderFontSize = best;
   }
 
-  // Determine wrapping width
+  // Determine wrapping width — for auto-fit, use the same 95% width that
+  // the auto-fit measured against. This ensures the drawing produces the
+  // exact same line breaks the auto-fit verified, preventing overflow.
   let wrapWidth: number;
   if (layer.autoFit) {
-    wrapWidth = layer.width;
+    wrapWidth = layer.width * 0.95;
   } else {
     wrapWidth = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
   }
 
-  const lineHeight = renderFontSize * (layer.lineHeight || 1.2);
+  const lineHeight = renderFontSize * Math.max(layer.lineHeight || 1.2, 1);
 
   // ── Build lines (span-aware or plain) ────────────────────────────
   type LineSeg = { text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } };
@@ -816,15 +827,13 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   if (hasSpans) {
     lines = wrapTextWithSpans(ctx, layer.spans!, layer, renderFontSize, wrapWidth);
   } else {
-    // Plain text — wrap into lines, then split each line into word segments
-    // so the RTL drawing code can order words right-to-left.
+    // Plain text — wrap into lines. Each line is drawn as a single
+    // fillText call; the canvas bidi algorithm handles internal RTL
+    // ordering (Arabic letters, parentheses) automatically.
     ctx.font = buildFontStringWithSize(layer, renderFontSize);
     const plainLines = wrapText(ctx, layer.text, wrapWidth);
     lines = plainLines.map((line) => {
-      // Split the line into words — each word becomes a segment.
-      // The RTL drawing code will position them right-to-left.
-      const words = line.split(' ').filter((w) => w !== '');
-      return words.map((w) => ({ text: w, span: {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }));
+      return [{ text: line, span: {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }];
     });
   }
 
@@ -844,6 +853,11 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   ctx.rect(0, 0, layer.width, layer.height);
   ctx.clip();
 
+  // Always use 'left' alignment so x is the left edge of the text,
+  // regardless of text direction. The canvas bidi algorithm handles
+  // internal RTL character ordering within each fillText call.
+  ctx.textAlign = 'left';
+
   for (let i = 0; i < lines.length; i++) {
     const lineSegs = lines[i];
     const y = startY + i * lineHeight + (lineHeight - renderFontSize) / 2;
@@ -860,7 +874,7 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       if (s > 0) lineWidth += spaceGap; // gap between segments
     }
 
-    // Horizontal alignment — compute starting x
+    // Horizontal alignment — compute starting x (left edge of the line)
     let x = 0;
     if (layer.align === 'center') {
       x = (layer.width - lineWidth) / 2;
@@ -872,37 +886,22 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     }
 
     // Draw each segment with its own font/color.
-    // For RTL, draw from right to left so the first span (field 1)
-    // appears on the right and subsequent spans flow leftward —
-    // matching the natural Arabic reading order.
-    // (spaceGap is already computed above for the line width calculation)
+    // For RTL with multiple spans, reverse span order so the first span
+    // (field 1) appears on the right. With textAlign='left', x is always
+    // the left edge, so positioning is consistent for both directions.
+    const drawSegs = layer.direction === 'rtl' ? [...lineSegs].reverse() : lineSegs;
 
-    if (layer.direction === 'rtl') {
-      // RTL: start from the right edge of the line, draw leftward
-      let drawX = x + lineWidth;
-      for (let s = 0; s < lineSegs.length; s++) {
-        const seg = lineSegs[s];
-        ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
-        const segColor = seg.span.color ?? layer.color;
-        const sym = getGenderSymbol(seg.text);
-        const segW = sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(seg.text).width;
-        // Add gap before this segment (except the first on the line)
-        if (s > 0) drawX -= spaceGap;
-        drawX -= segW;
-        fillTextOrSymbol(ctx, seg.text, drawX, y, renderFontSize, segColor, ctx.font);
-      }
-    } else {
-      // LTR: start from the left, draw rightward
-      for (let s = 0; s < lineSegs.length; s++) {
-        const seg = lineSegs[s];
-        ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
-        const segColor = seg.span.color ?? layer.color;
-        const sym = getGenderSymbol(seg.text);
-        // Add gap before this segment (except the first on the line)
-        if (s > 0) x += spaceGap;
-        fillTextOrSymbol(ctx, seg.text, x, y, renderFontSize, segColor, ctx.font);
-        x += sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(seg.text).width;
-      }
+    let drawX = x;
+    for (let s = 0; s < drawSegs.length; s++) {
+      const seg = drawSegs[s];
+      ctx.font = buildSpanFontString(seg.span, layer, renderFontSize);
+      const segColor = seg.span.color ?? layer.color;
+      const sym = getGenderSymbol(seg.text);
+      const segW = sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(seg.text).width;
+      // Add gap before this segment (except the first)
+      if (s > 0) drawX += spaceGap;
+      fillTextOrSymbol(ctx, seg.text, drawX, y, renderFontSize, segColor, ctx.font);
+      drawX += segW;
     }
   }
 
@@ -1340,19 +1339,18 @@ async function renderDynamicFieldLayer(
     // single block instead of being split into equal-width sub-boxes.
     const allIds = [layer.variableId, ...layer.combinedFields];
     const fieldDirection = layer.direction || 'rtl';
-    const visibleParts: { varId: string; value: string }[] = [];
     const rlm = '\u200F';
+    const visibleParts: { varId: string; value: string }[] = [];
     for (const varId of allIds) {
       if (!shouldDisplayField(varId, orderData)) continue;
       const v = resolveFieldValue(varId, orderData);
       if (isEmptyValue(v)) continue;
-      // Prepend RLM for RTL so bidi uses RTL base direction
       visibleParts.push({ varId, value: (fieldDirection === 'rtl' ? rlm : '') + v! });
     }
     if (visibleParts.length === 0) return; // all fields hidden
 
     const count = visibleParts.length;
-    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldLineHeight = Math.max(layer.lineHeight ?? 1.2, 1);
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
 
@@ -1361,6 +1359,7 @@ async function renderDynamicFieldLayer(
     ctx.rect(0, 0, layer.width, layer.height);
     ctx.clip();
     ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
 
     for (let i = 0; i < count; i++) {
       const part = visibleParts[i];
@@ -1376,9 +1375,11 @@ async function renderDynamicFieldLayer(
       const subW = layer.width;
       const subH = layer.height / count;
 
-      // Auto-fit font size for this sub-box — no padding, matching DOM.
-      const maxWidth = subW;
-      const maxHeight = subH;
+      // Auto-fit font size for this sub-box — safety margin for RTL.
+      // Use 95% for both measurement AND drawing so line breaks match.
+      const maxWidth = subW * 0.95;
+      const maxHeight = subH * 0.95;
+      const drawWidth = maxWidth;
 
       function buildSubFont(size: number): string {
         const style = fieldItalic ? 'italic ' : '';
@@ -1416,7 +1417,8 @@ async function renderDynamicFieldLayer(
       ctx.font = buildSubFont(bestSize);
       ctx.fillStyle = fieldColor;
 
-      const lines = wrapText(ctx, part.value, maxWidth);
+      // Wrap at full draw width — auto-fit already ensured it fits.
+      const lines = wrapText(ctx, part.value, drawWidth);
       const lineHeight = bestSize * fieldLineHeight;
       const totalHeight = lines.length * lineHeight;
 
@@ -1466,8 +1468,7 @@ async function renderDynamicFieldLayer(
     }
     if (parts.length === 0) return; // all fields hidden
     const separator = combineDirection === 'column' ? '\n' : '  ';
-    // Keep original field order — the drawing code handles RTL ordering
-    // by drawing words right-to-left within each line.
+    // Prepend RLM for RTL as a fallback in case ctx.direction is not supported
     const rlm = '\u200F';
     const value = (fieldDirection === 'rtl' ? rlm : '') + parts.join(separator);
 
@@ -1475,13 +1476,16 @@ async function renderDynamicFieldLayer(
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
     const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
     const fieldItalic = layer.italic ?? false;
-    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldLineHeight = Math.max(layer.lineHeight ?? 1.2, 1);
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
 
-    // No padding — match the DOM editor which uses clientWidth/clientHeight.
-    const maxWidth = layer.width;
-    const maxHeight = layer.height;
+    // Safety margin: canvas measureText can be slightly inconsistent with
+    // actual fillText rendering for RTL/Arabic text. Use 95% of the box for
+    // both auto-fit measurement AND drawing so line breaks match exactly.
+    const maxWidth = layer.width * 0.95;
+    const maxHeight = layer.height * 0.95;
+    const drawWidth = maxWidth;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1520,7 +1524,9 @@ async function renderDynamicFieldLayer(
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
 
-    const lines = wrapText(ctx, value, maxWidth);
+    // Wrap at the full draw width (not the conservative maxWidth) so text
+    // uses the full box. The auto-fit already ensured it fits at this size.
+    const lines = wrapText(ctx, value, drawWidth);
     const lineHeight = bestSize * fieldLineHeight;
     const totalHeight = lines.length * lineHeight;
 
@@ -1536,20 +1542,18 @@ async function renderDynamicFieldLayer(
     ctx.rect(0, 0, layer.width, layer.height);
     ctx.clip();
 
-    const spaceGap = ctx.measureText(' ').width;
+    // Always use 'left' so x is the left edge regardless of direction.
+    // The canvas bidi algorithm handles internal RTL ordering.
+    ctx.textAlign = 'left';
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
 
-      // Split line into words for RTL word-level ordering
-      const words = line.split(' ').filter((w) => w !== '');
-      let lineWidth = 0;
-      for (const w of words) {
-        const sym = getGenderSymbol(w);
-        lineWidth += sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width;
-      }
-      lineWidth += (words.length - 1) * spaceGap;
+      // Draw the whole line as a single fillText call — the canvas bidi
+      // algorithm handles field ordering, parentheses, and Arabic shaping.
+      const sym = getGenderSymbol(line);
+      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1561,23 +1565,7 @@ async function renderDynamicFieldLayer(
         x = layer.width - lineWidth;
       }
 
-      // Draw words — RTL: right-to-left, LTR: left-to-right
-      if (fieldDirection === 'rtl') {
-        let drawX = x + lineWidth;
-        for (let w = 0; w < words.length; w++) {
-          const sym = getGenderSymbol(words[w]);
-          const wordW = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(words[w]).width;
-          if (w > 0) drawX -= spaceGap;
-          drawX -= wordW;
-          fillTextOrSymbol(ctx, words[w], drawX, y, bestSize, layer.color, ctx.font);
-        }
-      } else {
-        for (const w of words) {
-          const sym = getGenderSymbol(w);
-          fillTextOrSymbol(ctx, w, x, y, bestSize, layer.color, ctx.font);
-          x += (sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width) + spaceGap;
-        }
-      }
+      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
     }
 
     ctx.restore();
@@ -1586,9 +1574,8 @@ async function renderDynamicFieldLayer(
     if (!shouldDisplayField(layer.variableId, orderData)) return;
     const resolvedValue = resolveFieldValue(layer.variableId, orderData);
     if (isEmptyValue(resolvedValue)) return;
-    // Prepend RLM (U+200F) for RTL so the bidi algorithm uses RTL base
-    // direction (same as combined fields above).
     const fieldDir = layer.direction || 'rtl';
+    // Prepend RLM for RTL as a fallback in case ctx.direction is not supported
     const rlm = '\u200F';
     const value = (fieldDir === 'rtl' ? rlm : '') + resolvedValue!;
 
@@ -1596,14 +1583,15 @@ async function renderDynamicFieldLayer(
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
     const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
     const fieldItalic = layer.italic ?? false;
-    const fieldLineHeight = layer.lineHeight ?? 1.2;
+    const fieldLineHeight = Math.max(layer.lineHeight ?? 1.2, 1);
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
     const fieldDirection = layer.direction || 'rtl';
 
-    // No padding — match the DOM editor which uses clientWidth/clientHeight.
-    const maxWidth = layer.width;
-    const maxHeight = layer.height;
+    // Safety margin: use 95% of the box for both auto-fit AND drawing.
+    const maxWidth = layer.width * 0.95;
+    const maxHeight = layer.height * 0.95;
+    const drawWidth = maxWidth;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1642,7 +1630,8 @@ async function renderDynamicFieldLayer(
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
 
-    const lines = wrapText(ctx, value, maxWidth);
+    // Wrap at the full draw width — auto-fit already ensured it fits.
+    const lines = wrapText(ctx, value, drawWidth);
     const lineHeight = bestSize * fieldLineHeight;
     const totalHeight = lines.length * lineHeight;
 
@@ -1658,19 +1647,17 @@ async function renderDynamicFieldLayer(
     ctx.rect(0, 0, layer.width, layer.height);
     ctx.clip();
 
-    const spaceGap = ctx.measureText(' ').width;
+    // Always use 'left' so x is the left edge regardless of direction.
+    ctx.textAlign = 'left';
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
 
-      const words = line.split(' ').filter((w) => w !== '');
-      let lineWidth = 0;
-      for (const w of words) {
-        const sym = getGenderSymbol(w);
-        lineWidth += sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width;
-      }
-      lineWidth += (words.length - 1) * spaceGap;
+      // Draw the whole line as a single unit — the canvas bidi algorithm
+      // handles RTL word ordering and parentheses correctly.
+      const sym = getGenderSymbol(line);
+      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1682,22 +1669,7 @@ async function renderDynamicFieldLayer(
         x = layer.width - lineWidth;
       }
 
-      if (fieldDirection === 'rtl') {
-        let drawX = x + lineWidth;
-        for (let w = 0; w < words.length; w++) {
-          const sym = getGenderSymbol(words[w]);
-          const wordW = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(words[w]).width;
-          if (w > 0) drawX -= spaceGap;
-          drawX -= wordW;
-          fillTextOrSymbol(ctx, words[w], drawX, y, bestSize, layer.color, ctx.font);
-        }
-      } else {
-        for (const w of words) {
-          const sym = getGenderSymbol(w);
-          fillTextOrSymbol(ctx, w, x, y, bestSize, layer.color, ctx.font);
-          x += (sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(w).width) + spaceGap;
-        }
-      }
+      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
     }
 
     ctx.restore();
