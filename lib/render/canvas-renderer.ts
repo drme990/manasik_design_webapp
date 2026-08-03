@@ -1042,7 +1042,8 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
         // Measure with spans — each span uses its own font for measuring
         const spanLines = wrapTextWithSpans(ctx, layer.spans!, layer, size, maxWidth);
         if (spanLines.length === 0) return true;
-        const totalHeight = spanLines.length * size * lineHeightRatio;
+        // First line = size, subsequent lines add size*lineHeight gap
+        const totalHeight = size + (spanLines.length - 1) * size * lineHeightRatio;
         if (totalHeight > maxHeight) return false;
         // Check each line's total width (segment widths + gaps between them)
         const gapW = ctx.measureText(' ').width;
@@ -1061,7 +1062,8 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       ctx.font = buildFontStringWithSize(layer, size);
       const lines = wrapText(ctx, layer.text, maxWidth);
       if (lines.length === 0) return true;
-      const totalHeight = lines.length * size * lineHeightRatio;
+      // First line = size, subsequent lines add size*lineHeight gap
+      const totalHeight = size + (lines.length - 1) * size * lineHeightRatio;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
         const sym = getGenderSymbol(line);
@@ -1129,7 +1131,8 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     }
   }
 
-  const totalHeight = lines.length * lineHeight;
+  // First line = font size, subsequent lines add lineHeight gap.
+  const totalHeight = renderFontSize + (lines.length - 1) * lineHeight;
 
   // Vertical alignment within the layer box
   let startY = 0;
@@ -1683,7 +1686,9 @@ async function renderDynamicFieldLayer(
         ctx.font = buildSubFont(size);
         const lines = wrapText(ctx, part.value, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        // First line takes `size` height; each additional line adds
+        // `size * lineHeight` gap. Lets single-line text fill the sub-box.
+        const totalHeight = size + (lines.length - 1) * size * fieldLineHeight;
         if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
@@ -1714,7 +1719,9 @@ async function renderDynamicFieldLayer(
       // Wrap at full draw width — auto-fit already ensured it fits.
       const lines = wrapText(ctx, part.value, drawWidth);
       const lineHeight = bestSize * fieldLineHeight;
-      const totalHeight = lines.length * lineHeight;
+      // Match the measurement formula: first line = size, subsequent lines
+      // add lineHeight gap. This ensures vertical alignment is correct.
+      const totalHeight = bestSize + (lines.length - 1) * lineHeight;
 
       let startY = subY;
       if (fieldVAlign === 'middle') {
@@ -1819,7 +1826,10 @@ async function renderDynamicFieldLayer(
       if (combineDirection === 'column') {
         const lines = wrapText(ctx, value, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        // First line takes `size` height; each additional line adds
+        // `size * lineHeight` gap. This lets single-line text fill the
+        // full box height (instead of only 1/lineHeight of it).
+        const totalHeight = size + (lines.length - 1) * size * fieldLineHeight;
         if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
@@ -1830,7 +1840,7 @@ async function renderDynamicFieldLayer(
         const fakeLayer = { ...layer } as unknown as TextLayer;
         const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, measureWidth);
         if (lines.length === 0) return true;
-        const totalHeight = lines.length * size * fieldLineHeight;
+        const totalHeight = size + (lines.length - 1) * size * fieldLineHeight;
         if (totalHeight > measureHeight) return false;
         const spaceGap = ctx.measureText(' ').width;
         for (const lineSegs of lines) {
@@ -1892,7 +1902,8 @@ async function renderDynamicFieldLayer(
       }
     }
 
-    const totalHeight = lines.length * lineHeight;
+    // First line = font size, subsequent lines add lineHeight gap.
+    const totalHeight = bestSize + (lines.length - 1) * lineHeight;
 
     let startY = 0;
     if (fieldVAlign === 'middle') {
@@ -1991,7 +2002,9 @@ async function renderDynamicFieldLayer(
       ctx.font = buildFieldFont(size);
       const lines = wrapText(ctx, value, measureWidth);
       if (lines.length === 0) return true;
-      const totalHeight = lines.length * size * fieldLineHeight;
+      // First line takes `size` height; each additional line adds
+      // `size * lineHeight` gap. Lets single-line text fill the box.
+      const totalHeight = size + (lines.length - 1) * size * fieldLineHeight;
       if (totalHeight > measureHeight) return false;
       for (const line of lines) {
         const sym = getGenderSymbol(line);
@@ -2023,7 +2036,9 @@ async function renderDynamicFieldLayer(
     // Wrap at the full draw width — auto-fit already ensured it fits.
     const lines = wrapText(ctx, value, drawWidth);
     const lineHeight = bestSize * fieldLineHeight;
-    const totalHeight = lines.length * lineHeight;
+    // Match the measurement formula: first line = size, subsequent lines
+    // add lineHeight gap. Ensures vertical alignment matches the fit check.
+    const totalHeight = bestSize + (lines.length - 1) * lineHeight;
 
     let startY = 0;
     if (fieldVAlign === 'middle') {
