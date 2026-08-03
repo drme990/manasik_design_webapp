@@ -353,23 +353,52 @@ const PROJECT_THUMBNAIL_TARGET_WIDTH = 400; // px — small enough for cards, ~1
 
 /**
  * Fetch an image URL and convert it to a data URL.
- * In production, R2 images may not have CORS headers, so html-to-image
- * can't fetch them during capture. Preloading as a data URL avoids this.
- * Falls back to the original URL if fetching fails (e.g. CORS).
+ * R2 images (storage.manasik.net) don't have CORS headers, so browser
+ * fetch fails. We always use the server-side proxy at /api/proxy-image
+ * which fetches without CORS restrictions and returns the image with
+ * permissive CORS headers.
  */
 async function imageUrlToDataUrl(url: string): Promise<string> {
+  // Already a data URL — no need to fetch
+  if (url.startsWith('data:')) return url;
+
+  // Always use the server-side proxy to avoid CORS errors entirely.
+  // The proxy fetches server-side (no CORS) and returns with
+  // Access-Control-Allow-Origin: *.
+  try {
+    const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch {
+    // Proxy failed — fall through
+  }
+
+  // Last resort: try direct fetch (may work for same-origin or
+  // CORS-enabled URLs like localhost uploads)
   try {
     const res = await fetch(url, { mode: 'cors' });
-    const blob = await res.blob();
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+    if (res.ok) {
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
   } catch {
-    return url; // fallback — let html-to-image try its own fetch
+    // Both proxy and direct fetch failed
   }
+
+  return url; // let html-to-image try its own fetch
 }
 
 /**
