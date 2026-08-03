@@ -102,7 +102,7 @@ function formatSacrificeForNames(raw: string): string {
  * "ذكور و اناث" (both). This function converts to:
  *
  *   - 'letter': "M" / "F" / "M,F"
- *   - 'icon':   "♂" / "♀" / "♂♀"
+ *   - 'icon':   "♂" / "♀" / "♀♂"
  *
  * Also handles English values ("male", "female", "males and females")
  * in case the data comes from a different source.
@@ -126,7 +126,7 @@ function resolveGenderSymbol(
   }
   // Both: "ذكور و اناث" or "males and females" or similar
   if (v.includes('ذكور') || v.includes('اناث') || v.includes('both') || v.includes('males')) {
-    return mode === 'letter' ? 'M,F' : '♂♀';
+    return mode === 'letter' ? 'M,F' : '♀♂';
   }
   return undefined;
 }

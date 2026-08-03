@@ -205,7 +205,7 @@ function formatSacrificeForNames(raw: string): string {
  * "ذكور و اناث" (both). This function converts to:
  *
  *   - 'letter': "M" / "F" / "M,F"
- *   - 'icon':   "♂" / "♀" / "♂♀"
+ *   - 'icon':   "♂" / "♀" / "♀♂"
  *
  * Also handles English values ("male", "female", "males and females").
  * Returns undefined if the gender value can't be recognized.
@@ -224,7 +224,7 @@ function resolveGenderSymbol(
     return mode === 'letter' ? 'F' : '♀';
   }
   if (v.includes('ذكور') || v.includes('اناث') || v.includes('both') || v.includes('males')) {
-    return mode === 'letter' ? 'M,F' : '♂♀';
+    return mode === 'letter' ? 'M,F' : '♀♂';
   }
   return undefined;
 }
@@ -380,7 +380,8 @@ function resolveFieldValue(
         const entry = orderData.reservationData.find((r) => r.key === 'gender');
         rawGender = entry?.value;
       }
-      return resolveGenderSymbol(rawGender, key === 'genderLetter' ? 'letter' : 'icon');
+      const resolved = resolveGenderSymbol(rawGender, key === 'genderLetter' ? 'letter' : 'icon');
+      return resolved;
     }
     if (key === 'deceased') {
       return resolveDeceasedText(orderData);
@@ -465,6 +466,69 @@ function shouldDisplayField(
     return qty >= 2;
   }
   return true;
+}
+
+// ─── Gender symbol drawing ───────────────────────────────────────────────
+
+/**
+ * Check if a string is a gender symbol (♂, ♀, ♀♂), ignoring any
+ * leading RLM (U+200F) character. Returns the stripped symbol or
+ * undefined if the string is not a gender symbol.
+ */
+function getGenderSymbol(text: string): string | undefined {
+  // Strip RLM (U+200F) and whitespace
+  const stripped = text.replace(/[\u200F\s]/g, '');
+  if (stripped === '♂' || stripped === '♀' || stripped === '♂♀' || stripped === '♀♂') {
+    return stripped;
+  }
+  return undefined;
+}
+
+/**
+ * Measure the width of a gender symbol at the given font size.
+ * Uses Arial (system font) which has the ♂ ♀ glyphs, since the
+ * registered design fonts don't include them and measureText
+ * returns 0 for unsupported glyphs.
+ */
+function measureGenderSymbol(ctx: SKRSContext2D, sym: string, size: number): number {
+  const savedFont = ctx.font;
+  ctx.font = `${size}px Arial`;
+  const w = ctx.measureText(sym).width;
+  ctx.font = savedFont;
+  return w;
+}
+
+/**
+ * Draw text or a gender symbol. If the text is a gender symbol (♂/♀/♀♂),
+ * uses a system font (Arial) which has these Unicode glyphs, since the
+ * registered design fonts (Expo Arabic, Satoshi) don't include them.
+ * Otherwise, uses ctx.fillText with the current font.
+ */
+function fillTextOrSymbol(
+  ctx: SKRSContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  originalFont: string,
+): number {
+  const sym = getGenderSymbol(text);
+  if (sym) {
+    // Use Arial (system font) which has the ♂ ♀ glyphs. This matches
+    // what the browser renders in the editor (system font fallback).
+    const weight = originalFont.includes('700') ? 'bold ' : '';
+    ctx.font = `${weight}${size}px Arial`;
+    ctx.fillStyle = color;
+    ctx.fillText(sym, x, y);
+    const w = ctx.measureText(sym).width;
+    // Restore the original font
+    ctx.font = originalFont;
+    return w;
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+  return ctx.measureText(text).width;
 }
 
 // ─── Image loading ────────────────────────────────────────────────────────
@@ -618,7 +682,9 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       const totalHeight = lines.length * size * lineHeightRatio;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > maxWidth) return false;
+        const sym = getGenderSymbol(line);
+        const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+        if (w > maxWidth) return false;
       }
       return true;
     }
@@ -681,7 +747,8 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     // (lineHeight - fontSize) / 2 leaves space above for Arabic
     // diacritics that extend past the em box.
     const y = startY + i * lineHeight + (lineHeight - renderFontSize) / 2;
-    const lineWidth = ctx.measureText(line).width;
+    const sym = getGenderSymbol(line);
+    const lineWidth = sym ? measureGenderSymbol(ctx, sym, renderFontSize) : ctx.measureText(line).width;
 
     let x = 0;
     if (layer.align === 'center') {
@@ -698,7 +765,7 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
       x = layer.width - lineWidth;
     }
 
-    ctx.fillText(line, x, y);
+    fillTextOrSymbol(ctx, line, x, y, renderFontSize, layer.color, ctx.font);
   }
 
   ctx.restore();
@@ -1193,7 +1260,9 @@ async function renderDynamicFieldLayer(
         const totalHeight = lines.length * size * fieldLineHeight;
         if (totalHeight > maxHeight) return false;
         for (const line of lines) {
-          if (ctx.measureText(line).width > maxWidth) return false;
+          const sym = getGenderSymbol(line);
+          const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+          if (w > maxWidth) return false;
         }
         return true;
       }
@@ -1229,7 +1298,8 @@ async function renderDynamicFieldLayer(
       for (let li = 0; li < lines.length; li++) {
         const line = lines[li];
         const y = startY + li * lineHeight + (lineHeight - bestSize) / 2;
-        const lineWidth = ctx.measureText(line).width;
+        const sym = getGenderSymbol(line);
+        const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
         let x = subX;
         if (fieldAlign === 'center') {
@@ -1242,7 +1312,7 @@ async function renderDynamicFieldLayer(
           x = subX + subW - lineWidth;
         }
 
-        ctx.fillText(line, x, y);
+        fillTextOrSymbol(ctx, line, x, y, bestSize, fieldColor, ctx.font);
       }
     }
 
@@ -1290,7 +1360,9 @@ async function renderDynamicFieldLayer(
       const totalHeight = lines.length * size * fieldLineHeight;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > maxWidth) return false;
+        const sym = getGenderSymbol(line);
+        const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+        if (w > maxWidth) return false;
       }
       return true;
     }
@@ -1332,7 +1404,8 @@ async function renderDynamicFieldLayer(
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
-      const lineWidth = ctx.measureText(line).width;
+      const sym = getGenderSymbol(line);
+      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1345,7 +1418,7 @@ async function renderDynamicFieldLayer(
         x = layer.width - lineWidth;
       }
 
-      ctx.fillText(line, x, y);
+      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
     }
 
     ctx.restore();
@@ -1385,7 +1458,9 @@ async function renderDynamicFieldLayer(
       const totalHeight = lines.length * size * fieldLineHeight;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
-        if (ctx.measureText(line).width > maxWidth) return false;
+        const sym = getGenderSymbol(line);
+        const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+        if (w > maxWidth) return false;
       }
       return true;
     }
@@ -1427,7 +1502,8 @@ async function renderDynamicFieldLayer(
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
-      const lineWidth = ctx.measureText(line).width;
+      const sym = getGenderSymbol(line);
+      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
       let x = 0;
       if (fieldAlign === 'center') {
@@ -1440,7 +1516,7 @@ async function renderDynamicFieldLayer(
         x = layer.width - lineWidth;
       }
 
-      ctx.fillText(line, x, y);
+      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
     }
 
     ctx.restore();

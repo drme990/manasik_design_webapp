@@ -93,7 +93,7 @@ const RESERVATION_FIELDS: OrderField[] = [
  *
  * - ref.phoneNumbers: all referral phone numbers, order's ref first
  * - custom.genderLetter: gender as a single letter (M / F / M,F)
- * - custom.genderIcon: gender as a Unicode symbol (♂ / ♀ / ♂♀)
+ * - custom.genderIcon: gender as a Unicode symbol (♂ / ♀ / ♀♂)
  *
  * The gender fields read the raw `reservation.gender` value (which is
  * stored in Arabic: "ذكر", "انثى", "ذكور و اناث") and convert it to
