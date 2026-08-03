@@ -356,8 +356,15 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
         ? { _needsInitialFit: false }
         : {};
       if (fontSizeChanged) {
-        onLayerChange(layer.id, { width: w, height: h, ...extra }, false);
+        // Font size changed via slider — resize the box to fit the new
+        // text size, keeping the center fixed. This way the text always
+        // fills the box cleanly (no clipping). The resize handles scale
+        // both box and font proportionally as a separate path.
+        const newX = layer.x + (oldW - w) / 2;
+        const newY = layer.y + (oldH - h) / 2;
+        onLayerChange(layer.id, { width: w, height: h, x: newX, y: newY, ...extra }, false);
       } else {
+        // Text content changed (not font size) — resize and recenter.
         const newX = layer.x + (oldW - w) / 2;
         const newY = layer.y + (oldH - h) / 2;
         onLayerChange(layer.id, { width: w, height: h, x: newX, y: newY, ...extra }, false);
@@ -460,7 +467,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
         whiteSpace: hasBoxWidth ? 'pre-wrap' : 'pre',
         wordBreak: hasBoxWidth ? 'break-word' : 'normal',
         overflowWrap: hasBoxWidth ? 'anywhere' : 'normal',
-        overflow: 'visible',
+        overflow: 'hidden',
         ...(hasBoxWidth ? { width: layer.boxWidth } : {}),
       }}
       onPointerDown={onPointerDown}
