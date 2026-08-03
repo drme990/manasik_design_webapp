@@ -125,6 +125,12 @@ export default function EditorPage() {
     const [saving, setSaving] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [showLeaveModal, setShowLeaveModal] = useState(false);
+    // Whether there's browser history to go back to. If the user opened
+    // the editor via a direct URL (no referrer), we show a home icon.
+    // Checked once on first render (client-side) via lazy initializer.
+    const [noHistory] = useState(() =>
+        typeof window !== 'undefined' && window.history.length <= 1
+    );
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [zoom, setZoom] = useState(0);
     // History snapshots include layers + background properties so undo/redo
@@ -503,18 +509,23 @@ export default function EditorPage() {
         isLeavingRef.current = true;
 
         const go = () => {
-            if (window.history.length <= 1) {
-                router.push('/');
-                return;
-            }
             if (fromPopstate) {
-                // Dummy was already popped by the browser — one back.
+                // Dummy was already popped by the browser. If there's no
+                // entry before the editor (direct URL), fall back to '/'.
+                if (window.history.length <= 1) {
+                    router.push('/');
+                    return;
+                }
                 router.back();
             } else {
-                // We're at [dummy] — pop it, then go back one more.
-                // Use history.go(-2) to do it in one step. This is
-                // reliable because router.push() created real history
-                // entries (not full page loads).
+                // We're at [dummy] — need to go back 2 to reach the
+                // referrer. But if there's no referrer (direct URL access),
+                // history only has [editor, dummy] (length ≤ 2) and go(-2)
+                // would fail. Fall back to router.push('/').
+                if (window.history.length <= 2) {
+                    router.push('/');
+                    return;
+                }
                 window.history.go(-2);
             }
         };
@@ -1778,6 +1789,7 @@ export default function EditorPage() {
                 <TopToolbar
                     projectName={project.name}
                     onBack={handleNavigateBack}
+                    noHistory={noHistory}
                     onRename={() => {
                         setRenameValue(project.name);
                         setRenameOpen(true);

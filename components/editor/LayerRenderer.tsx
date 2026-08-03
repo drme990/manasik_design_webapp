@@ -11,6 +11,105 @@ import ShapeRenderer from './ShapeRenderer';
 import CollageCellImage from './CollageCellImage';
 import Image from 'next/image';
 
+// ─── Gender symbol rendering (client-side) ───────────────────────────────
+// Gender symbols (♂ ♀) are rendered as SVG images from R2 instead of
+// Unicode text, so the editor preview matches the server-rendered output
+// exactly. The SVGs are:
+//   ♂ → https://storage.manasik.net/design/shapes/genderM.svg
+//   ♀ → https://storage.manasik.net/design/shapes/genderF.svg
+const GENDER_SVG_MALE = 'https://storage.manasik.net/design/shapes/genderM.svg';
+const GENDER_SVG_FEMALE = 'https://storage.manasik.net/design/shapes/genderF.svg';
+
+/**
+ * Check if a string is a gender symbol (♂, ♀), ignoring any leading
+ * RLM (U+200F) or whitespace. Returns 'male', 'female', or undefined.
+ * Note: "both" (♀♂/♂♀) is NOT supported — the field is hidden for both.
+ */
+function getGenderSymbolKind(text: string): 'male' | 'female' | undefined {
+  const stripped = text.replace(/[\u200F\s]/g, '');
+  if (stripped === '♂') return 'male';
+  if (stripped === '♀') return 'female';
+  return undefined;
+}
+
+/**
+ * Render a gender symbol as an inline <img> sized to match the font.
+ * Falls back to the Unicode character if the SVG fails to load.
+ */
+function GenderSymbolImg({ symbol, fontSize, color }: { symbol: 'male' | 'female'; fontSize: number; color?: string }) {
+  const src = symbol === 'male' ? GENDER_SVG_MALE : GENDER_SVG_FEMALE;
+  const fallbackChar = symbol === 'male' ? '♂' : '♀';
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- intentional: tiny inline SVG icon needs synchronous rendering with onError fallback, not next/image optimization
+    <img
+      src={src}
+      alt={fallbackChar}
+      style={{
+        height: `${fontSize}px`,
+        width: 'auto',
+        display: 'inline-block',
+        verticalAlign: 'middle',
+        // Apply the layer color via CSS filter (SVGs are black, we tint them)
+        // This works for simple monochrome SVGs.
+        ...(color && color !== '#000000' ? { filter: `brightness(0) saturate(100%) ${colorToFilter(color)}` } : {}),
+      }}
+      onError={(e) => {
+        // Fallback: replace the broken image with the Unicode character
+        const img = e.currentTarget;
+        const parent = img.parentElement;
+        if (parent) {
+          parent.textContent = fallbackChar;
+        }
+      }}
+    />
+  );
+}
+
+/**
+ * Convert a hex color to a CSS filter that tints a black SVG.
+ * Uses the technique: brightness(0) saturate(100%) + sepia + hue-rotate.
+ */
+function colorToFilter(hex: string): string {
+  // Parse hex color (#RGB or #RRGGBB)
+  const m = hex.match(/^#?([\da-f]{3}|[\da-f]{6})$/i);
+  if (!m) return '';
+  let h = m[1];
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  // Convert RGB to HSL
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let s = 0;
+  let hue = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: hue = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: hue = ((b - r) / d + 2) / 6; break;
+      case b: hue = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  const hueDeg = hue * 360;
+  const satPct = s * 100;
+  return `sepia(1) saturate(${satPct}) hue-rotate(${hueDeg}deg)`;
+}
+
+/**
+ * Render text content, replacing gender symbols (♂ ♀) with SVG images.
+ * Non-symbol text is rendered as-is.
+ */
+function renderTextWithGenderSymbols(text: string, fontSize: number, color?: string): React.ReactNode {
+  const symbol = getGenderSymbolKind(text);
+  if (symbol) {
+    return <GenderSymbolImg symbol={symbol} fontSize={fontSize} color={color} />;
+  }
+  return text;
+}
+
 export interface LayerRendererProps {
   layer: AnyLayer;
   isSelected?: boolean;
@@ -335,7 +434,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
             fontSize: `${autoFitFontSize}px`,
           }}
         >
-          {layer.text}
+          {renderTextWithGenderSymbols(layer.text, autoFitFontSize, layer.color)}
         </div>
       </div>
     );
@@ -394,7 +493,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
       >
         {layer.text || ' '}
       </div>
-      {layer.text}
+      {renderTextWithGenderSymbols(layer.text, layer.fontSize, layer.color)}
     </div>
   );
 }
@@ -635,7 +734,7 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
   const text = hasCombined
     ? allFieldIds
       .map((id) => ORDER_FIELD_MAP[id]?.label || ORDER_FIELD_MAP[id]?.placeholder || id)
-      .join(combineDirection === 'column' ? '\n' : '  ')
+      .join(combineDirection === 'column' ? '\n' : ' ')
     : layer.placeholder;
 
   // Helper: get effective style for a specific field (per-field overrides)
@@ -697,7 +796,7 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
         const label = ORDER_FIELD_MAP[varId]?.label || ORDER_FIELD_MAP[varId]?.placeholder || varId;
         return (
           <span key={varId}>
-            {idx > 0 && '  '}
+            {idx > 0 && ' '}
             <span
               style={{
                 color: fs.color,
@@ -713,7 +812,7 @@ function DynamicFieldText({ layer, className, style, onPointerDown }: LayerCompo
       })
     )
   ) : (
-    text
+    renderTextWithGenderSymbols(text, fontSize, layer.color)
   );
 
   return (

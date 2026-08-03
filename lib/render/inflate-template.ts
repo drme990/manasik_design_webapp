@@ -86,13 +86,48 @@ function isEmptyValue(value: string | undefined): boolean {
  * A single name is returned as-is (no "و" prefix).
  */
 function formatSacrificeForNames(raw: string): string {
+  // The backend may store multiple names separated by newlines OR commas.
+  // Split on both (English + Arabic comma), then trim and filter empties.
   const names = raw
-    .split('\n')
+    .split(/[\n,،]/)
     .map((n) => n.trim())
     .filter(Boolean);
   if (names.length === 0) return raw.trim();
   if (names.length === 1) return names[0];
-  return names.map((n, i) => (i === 0 ? n : `و ${n}`)).join('\n');
+  // Join on one line: "محمد احمد ومحمود احمد وعلي احمد"
+  // و is attached to the next name (no space after و), with a space before و.
+  return names.map((n, i) => (i === 0 ? n : `و${n}`)).join(' ');
+}
+
+/**
+ * Format an execution date from YYYY-MM-DD to "Weekday DD/MM/YYYY".
+ * e.g. "2026-08-04" → "الثلاثاء 04/08/2026"
+ *
+ * Uses a hardcoded Arabic weekday array instead of toLocaleDateString,
+ * which is unreliable on Vercel's serverless runtime.
+ */
+function formatExecutionDate(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return trimmed;
+  const [, yearStr, monthStr, dayStr] = match;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+  const date = new Date(year, month - 1, day);
+  const weekdays = [
+    'الأحد',
+    'الإثنين',
+    'الثلاثاء',
+    'الأربعاء',
+    'الخميس',
+    'الجمعة',
+    'السبت',
+  ];
+  const weekday = weekdays[date.getDay()];
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  return `${weekday} ${dd}/${mm}/${year}`;
 }
 
 /**
@@ -101,13 +136,14 @@ function formatSacrificeForNames(raw: string): string {
  * The backend stores gender in Arabic: "ذكر" (male), "انثى" (female),
  * "ذكور و اناث" (both). This function converts to:
  *
- *   - 'letter': "M" / "F" / "M,F"
- *   - 'icon':   "♂" / "♀" / "♀♂"
+ *   - 'letter': "M" / "F" / undefined (both → hidden)
+ *   - 'icon':   "♂" / "♀" / undefined (both → hidden)
  *
  * Also handles English values ("male", "female", "males and females")
  * in case the data comes from a different source.
  *
- * Returns undefined if the gender value can't be recognized.
+ * Returns undefined if the gender value can't be recognized or is "both"
+ * (male + female together → the icon/letter is hidden, not shown).
  */
 function resolveGenderSymbol(
   rawGender: string | undefined,
@@ -124,9 +160,9 @@ function resolveGenderSymbol(
   if (v === 'انثى' || v === 'أنثى' || v === 'female') {
     return mode === 'letter' ? 'F' : '♀';
   }
-  // Both: "ذكور و اناث" or "males and females" or similar
+  // Both: "ذكور و اناث" or "males and females" → hide entirely
   if (v.includes('ذكور') || v.includes('اناث') || v.includes('both') || v.includes('males')) {
-    return mode === 'letter' ? 'M,F' : '♀♂';
+    return undefined;
   }
   return undefined;
 }
@@ -186,7 +222,7 @@ function resolveDeceasedText(
     rawSacrificeFor = entry?.value;
   }
   const nameCount = rawSacrificeFor
-    ? rawSacrificeFor.split('\n').map((n) => n.trim()).filter(Boolean).length
+    ? rawSacrificeFor.split(/[\n,]/).map((n) => n.trim()).filter(Boolean).length
     : 0;
 
   // Multiple names → always "المغفور لهم" regardless of gender
@@ -280,6 +316,10 @@ function resolveFieldValue(
     // it should render as a single flowing line that wraps naturally.
     if (key === 'shortDuaa' && raw) {
       return raw.replace(/[\r\n]+/g, ' ').trim();
+    }
+    // executionDate: format as "Weekday DD/MM/YYYY" (e.g. "الثلاثاء 04/08/2026")
+    if (key === 'executionDate' && raw) {
+      return formatExecutionDate(raw);
     }
     return raw;
   }
@@ -449,23 +489,32 @@ function inflateTextDynamicField(
     // which the canvas renderer uses to draw each segment with its own
     // style while keeping the text flowing inline.
     if (!hasIndividualStyles || combineDirection !== 'column') {
-      const separator = combineDirection === 'column' ? '\n' : '  ';
       const direction = layer.direction || 'rtl';
       const rlm = '\u200F';
+      // For RTL, prepend RLM to EACH field value and use RLM+space as the
+      // separator. This forces the bidi algorithm to treat every segment as
+      // RTL, even when a field contains English text (names, numbers) that
+      // would otherwise switch the base direction to LTR mid-text.
+      const separator = combineDirection === 'column' ? '\n' : (direction === 'rtl' ? rlm + ' ' : ' ');
 
       // Always keep the original field order in `layer.text` so the
       // editor (which uses `direction: rtl` CSS) displays fields in the
       // correct visual order. The canvas renderer handles RTL ordering
       // in its drawing code (reversing line segments for RTL).
-      const joinedText = visibleParts.map((p) => p.value).join(separator);
-      const textValue = hasAnyValue
-        ? (direction === 'rtl' ? rlm + joinedText : joinedText)
-        : layer.placeholder;
+      const joinedText = visibleParts
+        .map((p) => (direction === 'rtl' ? rlm + p.value : p.value))
+        .join(separator);
+      const textValue = hasAnyValue ? joinedText : layer.placeholder;
 
-      // Build spans array for per-field styling (row direction only).
-      // Spans keep the ORIGINAL field order — the canvas renderer's RTL
-      // drawing code handles visual ordering (first span on the right).
-      const spans = (hasAnyValue && hasIndividualStyles && combineDirection !== 'column')
+      // Build spans array for row direction (always, not just with
+      // individual styles). Drawing each field as a separate fillText
+      // call is critical for RTL — when fields are joined into a single
+      // string, the bidi algorithm reorders words ACROSS field boundaries
+      // (e.g. an English name in the middle causes Arabic words from
+      // different fields to swap places). Spans keep the ORIGINAL field
+      // order — the canvas renderer's RTL drawing code handles visual
+      // ordering (first span on the right).
+      const spans = (hasAnyValue && combineDirection !== 'column')
         ? visibleParts.map((part) => {
           const fs = fieldStyles[part.varId] ?? {};
           const rlmPrefix = direction === 'rtl' ? rlm : '';

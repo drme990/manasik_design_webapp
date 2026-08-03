@@ -179,23 +179,59 @@ function isEmptyValue(value: string | undefined): boolean {
 /**
  * Format the `sacrificeFor` field (اسم الشخص المؤدى عنه) for display.
  *
- * The backend stores multiple names as a single newline-separated string
- * (e.g. "أحمد\nمحمد\nعلي"). For display on the design, each name goes on
- * its own line with "و" (Arabic "and") prepended to every name after the
- * first:
- *
- *   "أحمد\nمحمد\nعلي"  →  "أحمد\nو محمد\nو علي"
+ * The backend stores multiple names as a single string separated by
+ * newlines or commas (e.g. "أحمد, محمد, علي"). For display on the design,
+ * names are joined on one line with "و" (Arabic "and") attached to each
+ * name after the first (no space after و):
+ *   "أحمد, محمد, علي"  →  "أحمد ومحمد وعلي"
  *
  * A single name is returned as-is (no "و" prefix).
  */
 function formatSacrificeForNames(raw: string): string {
+  // The backend may store multiple names separated by newlines OR commas.
+  // Split on both, then trim and filter empties.
   const names = raw
-    .split('\n')
+    .split(/[\n,،]/)
     .map((n) => n.trim())
     .filter(Boolean);
   if (names.length === 0) return raw.trim();
   if (names.length === 1) return names[0];
-  return names.map((n, i) => (i === 0 ? n : `و ${n}`)).join('\n');
+  // Join on one line: "محمد احمد ومحمود احمد وعلي احمد"
+  // و is attached to the next name (no space after و), with a space before و.
+  return names.map((n, i) => (i === 0 ? n : `و${n}`)).join(' ');
+}
+
+/**
+ * Format an execution date from YYYY-MM-DD to "Weekday DD/MM/YYYY".
+ * e.g. "2026-08-04" → "الثلاثاء 04/08/2026"
+ *
+ * Uses a hardcoded Arabic weekday array instead of toLocaleDateString,
+ * which is unreliable on Vercel's serverless runtime (ICU data may not
+ * include Arabic locale).
+ */
+function formatExecutionDate(raw: string): string {
+  const trimmed = raw.trim();
+  // Accept YYYY-MM-DD or YYYY-M-D
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return trimmed;
+  const [, yearStr, monthStr, dayStr] = match;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+  const date = new Date(year, month - 1, day);
+  const weekdays = [
+    'الأحد',
+    'الإثنين',
+    'الثلاثاء',
+    'الأربعاء',
+    'الخميس',
+    'الجمعة',
+    'السبت',
+  ];
+  const weekday = weekdays[date.getDay()];
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  return `${weekday} ${dd}/${mm}/${year}`;
 }
 
 /**
@@ -204,11 +240,12 @@ function formatSacrificeForNames(raw: string): string {
  * The backend stores gender in Arabic: "ذكر" (male), "انثى" (female),
  * "ذكور و اناث" (both). This function converts to:
  *
- *   - 'letter': "M" / "F" / "M,F"
- *   - 'icon':   "♂" / "♀" / "♀♂"
+ *   - 'letter': "M" / "F" / undefined (both → hidden)
+ *   - 'icon':   "♂" / "♀" / undefined (both → hidden)
  *
  * Also handles English values ("male", "female", "males and females").
- * Returns undefined if the gender value can't be recognized.
+ * Returns undefined if the gender value can't be recognized or is "both"
+ * (male + female together → the icon/letter is hidden, not shown).
  */
 function resolveGenderSymbol(
   rawGender: string | undefined,
@@ -223,8 +260,9 @@ function resolveGenderSymbol(
   if (v === 'انثى' || v === 'أنثى' || v === 'female') {
     return mode === 'letter' ? 'F' : '♀';
   }
+  // "both" (ذكور و اناث) → hide the symbol entirely
   if (v.includes('ذكور') || v.includes('اناث') || v.includes('both') || v.includes('males')) {
-    return mode === 'letter' ? 'M,F' : '♀♂';
+    return undefined;
   }
   return undefined;
 }
@@ -283,7 +321,7 @@ function resolveDeceasedText(
     rawSacrificeFor = entry?.value;
   }
   const nameCount = rawSacrificeFor
-    ? rawSacrificeFor.split('\n').map((n) => n.trim()).filter(Boolean).length
+    ? rawSacrificeFor.split(/[\n,]/).map((n) => n.trim()).filter(Boolean).length
     : 0;
 
   // Multiple names → always "المغفور لهم" regardless of gender
@@ -362,6 +400,10 @@ function resolveFieldValue(
     // it should render as a single flowing line that wraps naturally.
     if (key === 'shortDuaa' && raw) {
       return raw.replace(/[\r\n]+/g, ' ').trim();
+    }
+    // executionDate: format as "Weekday DD/MM/YYYY" (e.g. "الثلاثاء 04/08/2026")
+    if (key === 'executionDate' && raw) {
+      return formatExecutionDate(raw);
     }
     return raw;
   }
@@ -476,6 +518,42 @@ function shouldDisplayField(
 // ─── Gender symbol drawing ───────────────────────────────────────────────
 
 /**
+ * URLs for the gender symbol SVGs hosted on R2.
+ */
+const GENDER_MALE_SVG_URL = 'https://storage.manasik.net/design/shapes/genderM.svg';
+const GENDER_FEMALE_SVG_URL = 'https://storage.manasik.net/design/shapes/genderF.svg';
+
+/**
+ * Cache for loaded gender symbol images. These are loaded once per
+ * render pass and reused across all layers.
+ */
+let genderMaleImg: Awaited<ReturnType<typeof loadImage>> | null = null;
+let genderFemaleImg: Awaited<ReturnType<typeof loadImage>> | null = null;
+let genderSymbolsPreloaded = false;
+
+/**
+ * Preload the gender symbol SVGs from R2. Called once at the start of
+ * a render pass. If loading fails, the renderer falls back to vector
+ * path drawing (drawMaleSymbol / drawFemaleSymbol).
+ */
+async function preloadGenderSymbols(): Promise<void> {
+  if (genderSymbolsPreloaded) return;
+  genderSymbolsPreloaded = true;
+  try {
+    const [male, female] = await Promise.all([
+      loadImageFromUrl(GENDER_MALE_SVG_URL),
+      loadImageFromUrl(GENDER_FEMALE_SVG_URL),
+    ]);
+    genderMaleImg = male;
+    genderFemaleImg = female;
+  } catch {
+    // SVG loading failed — fall back to vector path drawing
+    genderMaleImg = null;
+    genderFemaleImg = null;
+  }
+}
+
+/**
  * Check if a string is a gender symbol (♂, ♀, ♀♂), ignoring any
  * leading RLM (U+200F) character. Returns the stripped symbol or
  * undefined if the string is not a gender symbol.
@@ -490,23 +568,177 @@ function getGenderSymbol(text: string): string | undefined {
 }
 
 /**
+ * Draw the male symbol (♂) as a vector path at the given position.
+ * Used as a fallback when the SVG image fails to load.
+ *
+ * Returns the width of the drawn symbol.
+ */
+function drawMaleSymbol(
+  ctx: SKRSContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  bold: boolean,
+): number {
+  const s = size;
+  const r = s * 0.28;          // circle radius
+  const cx = x + r + s * 0.05; // circle center x
+  const cy = y + r + s * 0.05; // circle center y
+  const lineWidth = bold ? s * 0.08 : s * 0.06;
+
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+
+  // Circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Arrow line (from upper-right of circle going up-right at 45°)
+  const startX = cx + r * Math.cos(-Math.PI / 4);
+  const startY = cy + r * Math.sin(-Math.PI / 4);
+  const endX = startX + s * 0.35;
+  const endY = startY - s * 0.35;
+
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  // Arrowhead (two lines forming a V at the tip)
+  const arrowSize = s * 0.14;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX - arrowSize, endY);
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX, endY + arrowSize);
+  ctx.stroke();
+
+  // Total width: circle + arrow extending beyond
+  return endX - x + arrowSize * 0.5;
+}
+
+/**
+ * Draw the female symbol (♀) as a vector path at the given position.
+ * Used as a fallback when the SVG image fails to load.
+ *
+ * Returns the width of the drawn symbol.
+ */
+function drawFemaleSymbol(
+  ctx: SKRSContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  bold: boolean,
+): number {
+  const s = size;
+  const r = s * 0.28;          // circle radius
+  const cx = x + r + s * 0.05; // circle center x
+  const cy = y + r + s * 0.05; // circle center y
+  const lineWidth = bold ? s * 0.08 : s * 0.06;
+
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+
+  // Circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Vertical line going down from bottom of circle
+  const lineLen = s * 0.3;
+  const vStartY = cy + r;
+  const vEndY = vStartY + lineLen;
+
+  ctx.beginPath();
+  ctx.moveTo(cx, vStartY);
+  ctx.lineTo(cx, vEndY);
+  ctx.stroke();
+
+  // Horizontal line (cross bar)
+  const crossW = s * 0.22;
+  ctx.beginPath();
+  ctx.moveTo(cx - crossW, vEndY - crossW * 0.6);
+  ctx.lineTo(cx + crossW, vEndY - crossW * 0.6);
+  ctx.stroke();
+
+  // Width = circle diameter + small margin
+  return r * 2 + s * 0.1;
+}
+
+/**
+ * Draw a single gender symbol image (SVG) scaled to the given font size.
+ * The image is drawn at height = size, width = proportional to the
+ * image's natural aspect ratio.
+ *
+ * Returns the drawn width.
+ */
+function drawGenderImage(
+  ctx: SKRSContext2D,
+  img: Awaited<ReturnType<typeof loadImage>>,
+  x: number,
+  y: number,
+  size: number,
+): number {
+  // Scale the image so its height matches the font size.
+  // SVGs loaded by @napi-rs/canvas have natural width/height.
+  const naturalW = img.width;
+  const naturalH = img.height;
+  if (!naturalH || naturalH <= 0) return size * 0.5;
+  const aspect = naturalW / naturalH;
+  const drawH = size;
+  const drawW = drawH * aspect;
+  ctx.drawImage(img, x, y, drawW, drawH);
+  return drawW;
+}
+
+/**
  * Measure the width of a gender symbol at the given font size.
- * Uses Arial (system font) which has the ♂ ♀ glyphs, since the
- * registered design fonts don't include them and measureText
- * returns 0 for unsupported glyphs.
+ * Uses the SVG image's aspect ratio if available, otherwise falls back
+ * to the vector path dimensions.
  */
 function measureGenderSymbol(ctx: SKRSContext2D, sym: string, size: number): number {
-  const savedFont = ctx.font;
-  ctx.font = `${size}px Arial`;
-  const w = ctx.measureText(sym).width;
-  ctx.font = savedFont;
-  return w;
+  // Single symbols
+  if (sym === '♂' && genderMaleImg) {
+    const aspect = genderMaleImg.width / genderMaleImg.height;
+    return size * aspect;
+  }
+  if (sym === '♀' && genderFemaleImg) {
+    const aspect = genderFemaleImg.width / genderFemaleImg.height;
+    return size * aspect;
+  }
+  // Both symbols side by side
+  if ((sym === '♀♂' || sym === '♂♀') && genderMaleImg && genderFemaleImg) {
+    const maleW = size * (genderMaleImg.width / genderMaleImg.height);
+    const femaleW = size * (genderFemaleImg.width / genderFemaleImg.height);
+    return maleW + femaleW + size * 0.15;
+  }
+
+  // Fallback: vector path dimensions
+  if (sym === '♂') {
+    return size * 0.28 * 2 + size * 0.05 + size * 0.35 + size * 0.14 * 0.5 + size * 0.05;
+  }
+  if (sym === '♀') {
+    return size * 0.28 * 2 + size * 0.1;
+  }
+  if (sym === '♀♂' || sym === '♂♀') {
+    const maleW = size * 0.28 * 2 + size * 0.05 + size * 0.35 + size * 0.14 * 0.5 + size * 0.05;
+    const femaleW = size * 0.28 * 2 + size * 0.1;
+    return maleW + femaleW + size * 0.15;
+  }
+  return size * 0.5;
 }
 
 /**
  * Draw text or a gender symbol. If the text is a gender symbol (♂/♀/♀♂),
- * uses a system font (Arial) which has these Unicode glyphs, since the
- * registered design fonts (Expo Arabic, Satoshi) don't include them.
+ * draws it using the preloaded SVG image from R2. Falls back to vector
+ * path drawing if the SVGs failed to load.
  * Otherwise, uses ctx.fillText with the current font.
  */
 function fillTextOrSymbol(
@@ -520,16 +752,62 @@ function fillTextOrSymbol(
 ): number {
   const sym = getGenderSymbol(text);
   if (sym) {
-    // Use Arial (system font) which has the ♂ ♀ glyphs. This matches
-    // what the browser renders in the editor (system font fallback).
-    const weight = originalFont.includes('700') ? 'bold ' : '';
-    ctx.font = `${weight}${size}px Arial`;
-    ctx.fillStyle = color;
-    ctx.fillText(sym, x, y);
-    const w = ctx.measureText(sym).width;
-    // Restore the original font
-    ctx.font = originalFont;
-    return w;
+    const bold = originalFont.includes('700');
+    ctx.save();
+
+    // Try SVG images first
+    if (genderMaleImg && genderFemaleImg) {
+      const gap = size * 0.15;
+      if (sym === '♂') {
+        const w = drawGenderImage(ctx, genderMaleImg, x, y, size);
+        ctx.restore();
+        return w;
+      }
+      if (sym === '♀') {
+        const w = drawGenderImage(ctx, genderFemaleImg, x, y, size);
+        ctx.restore();
+        return w;
+      }
+      // Both symbols — draw side by side.
+      // ♂♀: male first (left), female second (right)
+      // ♀♂: female first (left), male second (right)
+      if (sym === '♂♀') {
+        const w1 = drawGenderImage(ctx, genderMaleImg, x, y, size);
+        const w2 = drawGenderImage(ctx, genderFemaleImg, x + w1 + gap, y, size);
+        ctx.restore();
+        return w1 + gap + w2;
+      }
+      // ♀♂
+      const w1 = drawGenderImage(ctx, genderFemaleImg, x, y, size);
+      const w2 = drawGenderImage(ctx, genderMaleImg, x + w1 + gap, y, size);
+      ctx.restore();
+      return w1 + gap + w2;
+    }
+
+    // Fallback: vector path drawing
+    if (sym === '♂') {
+      const w = drawMaleSymbol(ctx, x, y, size, color, bold);
+      ctx.restore();
+      return w;
+    }
+    if (sym === '♀') {
+      const w = drawFemaleSymbol(ctx, x, y, size, color, bold);
+      ctx.restore();
+      return w;
+    }
+    // Both symbols (vector fallback)
+    const gap = size * 0.15;
+    if (sym === '♂♀') {
+      const w1 = drawMaleSymbol(ctx, x, y, size, color, bold);
+      const w2 = drawFemaleSymbol(ctx, x + w1 + gap, y, size, color, bold);
+      ctx.restore();
+      return w1 + gap + w2;
+    }
+    // ♀♂
+    const w1 = drawFemaleSymbol(ctx, x, y, size, color, bold);
+    const w2 = drawMaleSymbol(ctx, x + w1 + gap, y, size, color, bold);
+    ctx.restore();
+    return w1 + gap + w2;
   }
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
@@ -835,6 +1113,20 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     lines = plainLines.map((line) => {
       return [{ text: line, span: {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }];
     });
+  }
+
+  // For RTL, prepend RLM (U+200F) to the first segment of each line.
+  // wrapText splits the text into multiple lines, but only the first
+  // line inherits the RLM from the start of the text. Without RLM on
+  // each line, lines that start with English text (names, numbers) are
+  // rendered LTR by the bidi algorithm, breaking the RTL layout.
+  if (layer.direction === 'rtl') {
+    const rlm = '\u200F';
+    for (const lineSegs of lines) {
+      if (lineSegs.length > 0 && !lineSegs[0].text.startsWith(rlm)) {
+        lineSegs[0] = { ...lineSegs[0], text: rlm + lineSegs[0].text };
+      }
+    }
   }
 
   const totalHeight = lines.length * lineHeight;
@@ -1430,8 +1722,16 @@ async function renderDynamicFieldLayer(
       }
 
       for (let li = 0; li < lines.length; li++) {
-        const line = lines[li];
+        let line = lines[li];
         const y = startY + li * lineHeight + (lineHeight - bestSize) / 2;
+
+        // Prepend RLM to each line for RTL so the bidi algorithm uses RTL
+        // base direction on every line, not just the first. Without this,
+        // lines that start with English text (names, numbers) render LTR.
+        if (fieldDirection === 'rtl' && !line.startsWith('\u200F')) {
+          line = '\u200F' + line;
+        }
+
         const sym = getGenderSymbol(line);
         const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
 
@@ -1453,24 +1753,31 @@ async function renderDynamicFieldLayer(
     ctx.restore();
   } else if (layer.combinedFields && layer.combinedFields.length > 0) {
     // ── Combined fields (row direction, or no individual styles) ──────
-    // All visible field values are joined with a space (row) or newline
-    // (column) and rendered as a single text block that flows naturally.
-    // Row direction with individual styles also ends up here — text flow
-    // correctness is more important than per-field colors in the output.
+    // Each field value is drawn as a SEPARATE fillText call with explicit
+    // x positioning. This is critical for RTL: when fields are joined into
+    // a single string and drawn with one fillText, the bidi algorithm
+    // reorders words ACROSS field boundaries (e.g. an English name in the
+    // middle causes Arabic words from different fields to swap places).
+    // By drawing each field separately, the bidi algorithm only applies
+    // WITHIN each field, preserving the field order.
     const allIds = [layer.variableId, ...layer.combinedFields];
     const fieldDirection = layer.direction || 'rtl';
-    const parts: string[] = [];
+    const rlm = '\u200F';
+
+    // Resolve all visible field values (prepend RLM for RTL)
+    const fieldParts: string[] = [];
     for (const varId of allIds) {
       if (!shouldDisplayField(varId, orderData)) continue;
       const v = resolveFieldValue(varId, orderData);
       if (isEmptyValue(v)) continue;
-      parts.push(v!);
+      fieldParts.push(fieldDirection === 'rtl' ? rlm + v! : v!);
     }
-    if (parts.length === 0) return; // all fields hidden
-    const separator = combineDirection === 'column' ? '\n' : '  ';
-    // Prepend RLM for RTL as a fallback in case ctx.direction is not supported
-    const rlm = '\u200F';
-    const value = (fieldDirection === 'rtl' ? rlm : '') + parts.join(separator);
+    if (fieldParts.length === 0) return; // all fields hidden
+
+    // For column direction, each field is on its own line (newline-separated)
+    // For row direction, fields are on one line separated by spaces
+    const separator = combineDirection === 'column' ? '\n' : ' ';
+    const value = fieldParts.join(separator);
 
     // Text dynamic field — auto-fit font size
     const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
@@ -1492,16 +1799,46 @@ async function renderDynamicFieldLayer(
       return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
     }
 
+    // Build span-like segments for per-field drawing. Each field becomes
+    // one segment with the layer's style (no per-field overrides here).
+    const fieldSegments = fieldParts.map((text) => ({
+      text,
+      color: layer.color,
+      fontFamily: fieldFontFamily,
+      bold: fieldFontWeight === 700,
+      italic: fieldItalic,
+    }));
+
     function doesFontSizeFit(size: number): boolean {
       ctx.font = buildFieldFont(size);
-      const lines = wrapText(ctx, value, maxWidth);
-      if (lines.length === 0) return true;
-      const totalHeight = lines.length * size * fieldLineHeight;
-      if (totalHeight > maxHeight) return false;
-      for (const line of lines) {
-        const sym = getGenderSymbol(line);
-        const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
-        if (w > maxWidth) return false;
+      // For column direction, use simple wrapText (each field is a line)
+      // For row direction, use wrapTextWithSpans to respect field boundaries
+      if (combineDirection === 'column') {
+        const lines = wrapText(ctx, value, maxWidth);
+        if (lines.length === 0) return true;
+        const totalHeight = lines.length * size * fieldLineHeight;
+        if (totalHeight > maxHeight) return false;
+        for (const line of lines) {
+          const sym = getGenderSymbol(line);
+          const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+          if (w > maxWidth) return false;
+        }
+      } else {
+        const fakeLayer = { ...layer } as unknown as TextLayer;
+        const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, maxWidth);
+        if (lines.length === 0) return true;
+        const totalHeight = lines.length * size * fieldLineHeight;
+        if (totalHeight > maxHeight) return false;
+        const spaceGap = ctx.measureText(' ').width;
+        for (const lineSegs of lines) {
+          let lineW = 0;
+          for (let s = 0; s < lineSegs.length; s++) {
+            const sym = getGenderSymbol(lineSegs[s].text);
+            lineW += sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(lineSegs[s].text).width;
+            if (s > 0) lineW += spaceGap;
+          }
+          if (lineW > maxWidth) return false;
+        }
       }
       return true;
     }
@@ -1524,10 +1861,33 @@ async function renderDynamicFieldLayer(
     ctx.fillStyle = layer.color;
     ctx.textBaseline = 'top';
 
-    // Wrap at the full draw width (not the conservative maxWidth) so text
-    // uses the full box. The auto-fit already ensured it fits at this size.
-    const lines = wrapText(ctx, value, drawWidth);
     const lineHeight = bestSize * fieldLineHeight;
+
+    // Build lines using the appropriate wrapping method
+    let lines: Array<Array<{ text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }>>;
+    if (combineDirection === 'column') {
+      // Column: each field on its own line. Use simple wrapText, then
+      // convert to single-segment lines for unified drawing code below.
+      const plainLines = wrapText(ctx, value, drawWidth);
+      lines = plainLines.map((line) => {
+        // Prepend RLM for RTL lines that don't already have it
+        const text = (fieldDirection === 'rtl' && !line.startsWith(rlm)) ? rlm + line : line;
+        return [{ text, span: { color: layer.color, fontFamily: fieldFontFamily, bold: fieldFontWeight === 700, italic: fieldItalic } }];
+      });
+    } else {
+      // Row: use span-aware wrapping to respect field boundaries
+      const fakeLayer = { ...layer } as unknown as TextLayer;
+      lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, bestSize, drawWidth);
+      // Prepend RLM to the first segment of each line for RTL
+      if (fieldDirection === 'rtl') {
+        for (const lineSegs of lines) {
+          if (lineSegs.length > 0 && !lineSegs[0].text.startsWith(rlm)) {
+            lineSegs[0] = { ...lineSegs[0], text: rlm + lineSegs[0].text };
+          }
+        }
+      }
+    }
+
     const totalHeight = lines.length * lineHeight;
 
     let startY = 0;
@@ -1543,18 +1903,25 @@ async function renderDynamicFieldLayer(
     ctx.clip();
 
     // Always use 'left' so x is the left edge regardless of direction.
-    // The canvas bidi algorithm handles internal RTL ordering.
     ctx.textAlign = 'left';
 
+    const spaceGap = ctx.measureText(' ').width;
+
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      const lineSegs = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
 
-      // Draw the whole line as a single fillText call — the canvas bidi
-      // algorithm handles field ordering, parentheses, and Arabic shaping.
-      const sym = getGenderSymbol(line);
-      const lineWidth = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(line).width;
+      // Calculate total line width (sum of segment widths + gaps)
+      let lineWidth = 0;
+      for (let s = 0; s < lineSegs.length; s++) {
+        const seg = lineSegs[s];
+        ctx.font = buildSpanFontString(seg.span, layer as unknown as TextLayer, bestSize);
+        const sym = getGenderSymbol(seg.text);
+        lineWidth += sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(seg.text).width;
+        if (s > 0) lineWidth += spaceGap;
+      }
 
+      // Horizontal alignment
       let x = 0;
       if (fieldAlign === 'center') {
         x = (layer.width - lineWidth) / 2;
@@ -1565,7 +1932,24 @@ async function renderDynamicFieldLayer(
         x = layer.width - lineWidth;
       }
 
-      fillTextOrSymbol(ctx, line, x, y, bestSize, layer.color, ctx.font);
+      // Draw each segment separately with explicit x positions.
+      // For RTL, reverse segment order so the first field (field 1)
+      // appears on the right. This gives us full control over the
+      // visual order — the bidi algorithm only applies WITHIN each
+      // segment, not across segments.
+      const drawSegs = fieldDirection === 'rtl' ? [...lineSegs].reverse() : lineSegs;
+
+      let drawX = x;
+      for (let s = 0; s < drawSegs.length; s++) {
+        const seg = drawSegs[s];
+        ctx.font = buildSpanFontString(seg.span, layer as unknown as TextLayer, bestSize);
+        const segColor = seg.span.color ?? layer.color;
+        const sym = getGenderSymbol(seg.text);
+        const segW = sym ? measureGenderSymbol(ctx, sym, bestSize) : ctx.measureText(seg.text).width;
+        if (s > 0) drawX += spaceGap;
+        fillTextOrSymbol(ctx, seg.text, drawX, y, bestSize, segColor, ctx.font);
+        drawX += segW;
+      }
     }
 
     ctx.restore();
@@ -1651,8 +2035,15 @@ async function renderDynamicFieldLayer(
     ctx.textAlign = 'left';
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      let line = lines[i];
       const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
+
+      // Prepend RLM to each line for RTL so the bidi algorithm uses RTL
+      // base direction on every line, not just the first. Without this,
+      // lines that start with English text (names, numbers) render LTR.
+      if (fieldDirection === 'rtl' && !line.startsWith('\u200F')) {
+        line = '\u200F' + line;
+      }
 
       // Draw the whole line as a single unit — the canvas bidi algorithm
       // handles RTL word ordering and parentheses correctly.
@@ -1709,6 +2100,13 @@ export async function renderTemplateToJpg(
 
   // Clear the image cache for this render pass
   imageCache.clear();
+
+  // Preload gender symbol SVGs from R2 (used by fillTextOrSymbol).
+  // If this fails, the renderer falls back to vector path drawing.
+  genderSymbolsPreloaded = false;
+  genderMaleImg = null;
+  genderFemaleImg = null;
+  await preloadGenderSymbols();
 
   // Render at 3x resolution for sharp, high-quality output.
   // The canvas is created at 3x dimensions, and we scale the context so

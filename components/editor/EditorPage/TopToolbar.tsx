@@ -1,12 +1,14 @@
 'use client';
 
-import { LuArrowLeft, LuPencil, LuUndo2, LuRedo2, LuLayers, LuDownload, LuSave, LuLoaderCircle } from 'react-icons/lu';
+import { LuArrowLeft, LuHouse, LuPencil, LuUndo2, LuRedo2, LuLayers, LuDownload, LuSave, LuLoaderCircle } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils/cn';
 
 interface TopToolbarProps {
     projectName: string;
     onBack: () => void;
+    /** When true, show a home icon instead of a back arrow (no history). */
+    noHistory?: boolean;
     onRename: () => void;
     onUndoClick: () => void;
     onRedoClick: () => void;
@@ -31,6 +33,7 @@ interface TopToolbarProps {
 export default function TopToolbar({
     projectName,
     onBack,
+    noHistory,
     onRename,
     onUndoClick,
     onRedoClick,
@@ -55,7 +58,9 @@ export default function TopToolbar({
         <div className="flex h-14 w-full max-w-full shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-stroke bg-toolbar-bg px-3 sm:px-4">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <Button variant="ghost" size="sm" onClick={onBack}>
-                    <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />
+                    {noHistory
+                        ? <LuHouse className="h-4 w-4" />
+                        : <LuArrowLeft className="h-4 w-4 rtl:rotate-180" />}
                 </Button>
                 <h1 className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
                     {projectName}

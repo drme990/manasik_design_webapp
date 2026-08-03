@@ -92,13 +92,14 @@ const RESERVATION_FIELDS: OrderField[] = [
  * computed/derived from order data at resolution time.
  *
  * - ref.phoneNumbers: all referral phone numbers, order's ref first
- * - custom.genderLetter: gender as a single letter (M / F / M,F)
- * - custom.genderIcon: gender as a Unicode symbol (♂ / ♀ / ♀♂)
+ * - custom.genderLetter: gender as a single letter (M / F / hidden for both)
+ * - custom.genderIcon: gender as an icon (♂ / ♀ / hidden for both)
  *
  * The gender fields read the raw `reservation.gender` value (which is
  * stored in Arabic: "ذكر", "انثى", "ذكور و اناث") and convert it to
- * the letter or icon representation. See resolveGenderSymbol() in
- * inflate-template.ts + canvas-renderer.ts.
+ * the letter or icon representation. When gender is "both" (ذكور و اناث),
+ * the field is hidden entirely (not displayed). See resolveGenderSymbol()
+ * in inflate-template.ts + canvas-renderer.ts.
  */
 const REFERRAL_FIELDS: OrderField[] = [
   { id: 'ref.phoneNumbers', label: 'أرقام المراجع', type: 'text', placeholder: '+9665...\n+9665...', category: 'custom' },
