@@ -1667,11 +1667,12 @@ async function renderDynamicFieldLayer(
       const subW = layer.width;
       const subH = layer.height / count;
 
-      // Auto-fit font size for this sub-box — safety margin for RTL.
-      // Use 95% for both measurement AND drawing so line breaks match.
-      const maxWidth = subW * 0.95;
-      const maxHeight = subH * 0.95;
-      const drawWidth = maxWidth;
+      // Auto-fit font size for this sub-box.
+      // Measure against 98% (canvas measureText is slightly inconsistent
+      // with fillText for RTL), but draw at full width to fill the box.
+      const measureWidth = subW * 0.985;
+      const measureHeight = subH * 0.985;
+      const drawWidth = subW;
 
       function buildSubFont(size: number): string {
         const style = fieldItalic ? 'italic ' : '';
@@ -1680,21 +1681,22 @@ async function renderDynamicFieldLayer(
 
       function doesSubFit(size: number): boolean {
         ctx.font = buildSubFont(size);
-        const lines = wrapText(ctx, part.value, maxWidth);
+        const lines = wrapText(ctx, part.value, measureWidth);
         if (lines.length === 0) return true;
         const totalHeight = lines.length * size * fieldLineHeight;
-        if (totalHeight > maxHeight) return false;
+        if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
           const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
-          if (w > maxWidth) return false;
+          if (w > measureWidth) return false;
         }
         return true;
       }
 
-      // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+      // Binary search [1, max(subW, subH)] — use full dimensions for the
+      // upper bound so short text can fill the sub-box height.
       let lo = 1;
-      let hi = Math.ceil(Math.max(maxWidth, maxHeight));
+      let hi = Math.ceil(Math.max(subW, subH));
       let bestSize = lo;
       while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
@@ -1787,12 +1789,13 @@ async function renderDynamicFieldLayer(
     const fieldAlign = layer.align || 'center';
     const fieldVAlign = layer.verticalAlign || 'middle';
 
-    // Safety margin: canvas measureText can be slightly inconsistent with
-    // actual fillText rendering for RTL/Arabic text. Use 95% of the box for
-    // both auto-fit measurement AND drawing so line breaks match exactly.
-    const maxWidth = layer.width * 0.95;
-    const maxHeight = layer.height * 0.95;
-    const drawWidth = maxWidth;
+    // Safety margin for auto-fit MEASUREMENT only. canvas measureText can
+    // be slightly inconsistent with actual fillText rendering for RTL/Arabic
+    // text, so we measure against 98% of the box. But we DRAW at the full
+    // box width so the text fills the box completely (no visible padding).
+    const measureWidth = layer.width * 0.985;
+    const measureHeight = layer.height * 0.985;
+    const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1814,21 +1817,21 @@ async function renderDynamicFieldLayer(
       // For column direction, use simple wrapText (each field is a line)
       // For row direction, use wrapTextWithSpans to respect field boundaries
       if (combineDirection === 'column') {
-        const lines = wrapText(ctx, value, maxWidth);
+        const lines = wrapText(ctx, value, measureWidth);
         if (lines.length === 0) return true;
         const totalHeight = lines.length * size * fieldLineHeight;
-        if (totalHeight > maxHeight) return false;
+        if (totalHeight > measureHeight) return false;
         for (const line of lines) {
           const sym = getGenderSymbol(line);
           const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
-          if (w > maxWidth) return false;
+          if (w > measureWidth) return false;
         }
       } else {
         const fakeLayer = { ...layer } as unknown as TextLayer;
-        const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, maxWidth);
+        const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, measureWidth);
         if (lines.length === 0) return true;
         const totalHeight = lines.length * size * fieldLineHeight;
-        if (totalHeight > maxHeight) return false;
+        if (totalHeight > measureHeight) return false;
         const spaceGap = ctx.measureText(' ').width;
         for (const lineSegs of lines) {
           let lineW = 0;
@@ -1837,15 +1840,16 @@ async function renderDynamicFieldLayer(
             lineW += sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(lineSegs[s].text).width;
             if (s > 0) lineW += spaceGap;
           }
-          if (lineW > maxWidth) return false;
+          if (lineW > measureWidth) return false;
         }
       }
       return true;
     }
 
-    // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+    // Binary search [1, max(boxW, boxH)] — use full box dimensions for
+    // the upper bound so short text can fill the box height.
     let lo = 1;
-    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
+    let hi = Math.ceil(Math.max(layer.width, layer.height));
     let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -1972,10 +1976,11 @@ async function renderDynamicFieldLayer(
     const fieldVAlign = layer.verticalAlign || 'middle';
     const fieldDirection = layer.direction || 'rtl';
 
-    // Safety margin: use 95% of the box for both auto-fit AND drawing.
-    const maxWidth = layer.width * 0.95;
-    const maxHeight = layer.height * 0.95;
-    const drawWidth = maxWidth;
+    // Measure against 98% (canvas measureText is slightly inconsistent
+    // with fillText for RTL), but draw at full width to fill the box.
+    const measureWidth = layer.width * 0.985;
+    const measureHeight = layer.height * 0.985;
+    const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
@@ -1984,21 +1989,22 @@ async function renderDynamicFieldLayer(
 
     function doesFontSizeFit(size: number): boolean {
       ctx.font = buildFieldFont(size);
-      const lines = wrapText(ctx, value, maxWidth);
+      const lines = wrapText(ctx, value, measureWidth);
       if (lines.length === 0) return true;
       const totalHeight = lines.length * size * fieldLineHeight;
-      if (totalHeight > maxHeight) return false;
+      if (totalHeight > measureHeight) return false;
       for (const line of lines) {
         const sym = getGenderSymbol(line);
         const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
-        if (w > maxWidth) return false;
+        if (w > measureWidth) return false;
       }
       return true;
     }
 
-    // Binary search [1, max(boxW, boxH)] — matches the DOM hook.
+    // Binary search [1, max(boxW, boxH)] — use full box dimensions for
+    // the upper bound so short text can fill the box height.
     let lo = 1;
-    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
+    let hi = Math.ceil(Math.max(layer.width, layer.height));
     let bestSize = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
