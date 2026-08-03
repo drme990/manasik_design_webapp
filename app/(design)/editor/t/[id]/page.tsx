@@ -1009,33 +1009,15 @@ export default function EditorPage() {
         [selectedLayerId, handleLayerChange]
     );
 
-    // Change font size while keeping the text centered (adjust x/y so the
-    // midpoint stays fixed as the box grows/shrinks).
+    // Change font size only — the box (width/height/x/y) stays fixed.
+    // The resize handles are responsible for scaling the box; the font
+    // size slider should only affect the text size inside the box.
     const handleFontSizeChange = useCallback(
         (newFontSize: number) => {
             if (!selectedLayerId) return;
             const layer = projectRef.current?.layers.find((l) => l.id === selectedLayerId);
             if (!layer || layer.type !== 'text') return;
-            const textLayer = layer as TextLayer;
-            // Estimate new size proportional to font size change
-            const ratio = newFontSize / textLayer.fontSize;
-            const newW = textLayer.width * ratio;
-            const newH = textLayer.height * ratio;
-            // Keep center fixed
-            const newX = textLayer.x + (textLayer.width - newW) / 2;
-            const newY = textLayer.y + (textLayer.height - newH) / 2;
-            const updates: Partial<AnyLayer> = {
-                fontSize: newFontSize,
-                width: newW,
-                height: newH,
-                x: newX,
-                y: newY,
-            };
-            // When boxWidth is set, scale it too so the text wraps proportionally
-            if (textLayer.boxWidth !== undefined && textLayer.boxWidth > 0) {
-                (updates as Record<string, unknown>).boxWidth = Math.max(20, textLayer.boxWidth * ratio);
-            }
-            handleLayerChange(selectedLayerId, updates, false);
+            handleLayerChange(selectedLayerId, { fontSize: newFontSize } as Partial<AnyLayer>, false);
         },
         [selectedLayerId, handleLayerChange]
     );
