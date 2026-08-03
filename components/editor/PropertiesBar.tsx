@@ -28,9 +28,6 @@ import {
     LuAlignCenterVertical,
     LuAlignEndVertical,
     LuALargeSmall,
-    LuArrowLeftRight,
-    LuArrowRightLeft,
-    LuLanguages,
     LuPipette,
     LuRectangleHorizontal,
     LuCombine,
@@ -242,9 +239,9 @@ export default function PropertiesBar({
                             <PropToggle
                                 label={t('toolbars.text.direction')}
                                 icon={
-                                    l.direction === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
-                                        l.direction === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
-                                            <LuLanguages className="h-5 w-5" />
+                                    <span className="text-xs font-bold tracking-wide">
+                                        {l.direction === 'rtl' ? 'RTL' : l.direction === 'ltr' ? 'LTR' : 'ATO'}
+                                    </span>
                                 }
                                 active={false}
                                 onClick={() => {
@@ -624,9 +621,9 @@ export default function PropertiesBar({
                                         <PropToggle
                                             label={t('toolbars.text.direction')}
                                             icon={
-                                                curDirection === 'rtl' ? <LuArrowRightLeft className="h-5 w-5" /> :
-                                                    curDirection === 'ltr' ? <LuArrowLeftRight className="h-5 w-5" /> :
-                                                        <LuLanguages className="h-5 w-5" />
+                                                <span className="text-xs font-bold tracking-wide">
+                                                    {curDirection === 'rtl' ? 'RTL' : curDirection === 'ltr' ? 'LTR' : 'ATO'}
+                                                </span>
                                             }
                                             active={false}
                                             onClick={() => {
