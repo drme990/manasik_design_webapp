@@ -1029,39 +1029,24 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   let renderFontSize = layer.fontSize;
 
   if (layer.autoFit) {
-    // Safety margin: canvas measureText can be slightly inconsistent with
-    // actual fillText rendering (especially for RTL/Arabic text). Use 95%
-    // of the box dimensions to ensure the auto-fit is conservative and
-    // text never overflows.
-    const maxWidth = layer.width * 0.95;
-    const maxHeight = layer.height * 0.95;
+    // Measure against full box dimensions — the dynamic field paths also
+    // use full dimensions now. Drawing uses the same width so line breaks
+    // match exactly.
+    const maxWidth = layer.width;
+    const maxHeight = layer.height;
     const lineHeightRatio = Math.max(layer.lineHeight || 1.2, 1);
 
     function doesFit(size: number): boolean {
-      if (hasSpans) {
-        // Measure with spans — each span uses its own font for measuring
-        const spanLines = wrapTextWithSpans(ctx, layer.spans!, layer, size, maxWidth);
-        if (spanLines.length === 0) return true;
-        const totalHeight = spanLines.length * size * lineHeightRatio;
-        if (totalHeight > maxHeight) return false;
-        // Check each line's total width (segment widths + gaps between them)
-        const gapW = ctx.measureText(' ').width;
-        for (const lineSegs of spanLines) {
-          let lineW = 0;
-          for (let s = 0; s < lineSegs.length; s++) {
-            const seg = lineSegs[s];
-            ctx.font = buildSpanFontString(seg.span, layer, size);
-            lineW += ctx.measureText(seg.text).width;
-            if (s > 0) lineW += gapW;
-          }
-          if (lineW > maxWidth) return false;
-        }
-        return true;
-      }
+      // Always use wrapText for measurement — wrapTextWithSpans measures
+      // words individually and sums widths, which can be slightly larger
+      // than measureText(fullString) for Arabic text, causing premature
+      // wrapping and a smaller font size. The drawing uses wrapTextWithSpans
+      // for per-field RTL rendering, but measurement only needs line count.
       ctx.font = buildFontStringWithSize(layer, size);
       const lines = wrapText(ctx, layer.text, maxWidth);
       if (lines.length === 0) return true;
-      const totalHeight = lines.length * size * lineHeightRatio;
+      // Actual visual height: (N-1) line gaps + 1 glyph height.
+      const totalHeight = (lines.length - 1) * size * lineHeightRatio + size;
       if (totalHeight > maxHeight) return false;
       for (const line of lines) {
         const sym = getGenderSymbol(line);
@@ -1072,7 +1057,7 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     }
 
     let lo = 1;
-    let hi = Math.ceil(Math.max(maxWidth, maxHeight));
+    let hi = Math.ceil(Math.max(layer.width, layer.height));
     let best = lo;
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
@@ -1083,15 +1068,21 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
         hi = mid - 1;
       }
     }
+    // Fractional refinement: try to push closer to the exact fit.
+    for (const frac of [0.75, 0.5, 0.25]) {
+      if (doesFit(best + frac)) {
+        best += frac;
+      }
+    }
     renderFontSize = best;
   }
 
-  // Determine wrapping width — for auto-fit, use the same 95% width that
+  // Determine wrapping width — for auto-fit, use the full box width that
   // the auto-fit measured against. This ensures the drawing produces the
   // exact same line breaks the auto-fit verified, preventing overflow.
   let wrapWidth: number;
   if (layer.autoFit) {
-    wrapWidth = layer.width * 0.95;
+    wrapWidth = layer.width;
   } else {
     wrapWidth = layer.boxWidth && layer.boxWidth > 0 ? layer.boxWidth : 0;
   }
@@ -1099,15 +1090,18 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   const lineHeight = renderFontSize * Math.max(layer.lineHeight || 1.2, 1);
 
   // ── Build lines (span-aware or plain) ────────────────────────────
+  // When only one span exists, use wrapText (same as measurement) to
+  // avoid line-count mismatch with wrapTextWithSpans. When multiple
+  // spans exist, use wrapTextWithSpans for per-field RTL rendering.
   type LineSeg = { text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } };
   let lines: Array<LineSeg[]>;
 
-  if (hasSpans) {
+  if (hasSpans && layer.spans!.length > 1) {
     lines = wrapTextWithSpans(ctx, layer.spans!, layer, renderFontSize, wrapWidth);
   } else {
-    // Plain text — wrap into lines. Each line is drawn as a single
-    // fillText call; the canvas bidi algorithm handles internal RTL
-    // ordering (Arabic letters, parentheses) automatically.
+    // Plain text or single span — wrap into lines. Each line is drawn as
+    // a single fillText call; the canvas bidi algorithm handles internal
+    // RTL ordering (Arabic letters, parentheses) automatically.
     ctx.font = buildFontStringWithSize(layer, renderFontSize);
     const plainLines = wrapText(ctx, layer.text, wrapWidth);
     lines = plainLines.map((line) => {
@@ -1129,7 +1123,10 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     }
   }
 
-  const totalHeight = lines.length * lineHeight;
+  // Visual height: (N-1) line gaps + 1 glyph height (no trailing gap).
+  const totalHeight = lines.length > 0
+    ? (lines.length - 1) * lineHeight + renderFontSize
+    : 0;
 
   // Vertical alignment within the layer box
   let startY = 0;
@@ -1670,8 +1667,8 @@ async function renderDynamicFieldLayer(
       // Auto-fit font size for this sub-box.
       // Measure against 98% (canvas measureText is slightly inconsistent
       // with fillText for RTL), but draw at full width to fill the box.
-      const measureWidth = subW * 1;
-      const measureHeight = subH * 1;
+      const measureWidth = subW * 0.995;
+      const measureHeight = subH * 0.995;
       const drawWidth = subW;
 
       function buildSubFont(size: number): string {
@@ -1804,8 +1801,8 @@ async function renderDynamicFieldLayer(
     // be slightly inconsistent with actual fillText rendering for RTL/Arabic
     // text, so we measure against 98% of the box. But we DRAW at the full
     // box width so the text fills the box completely (no visible padding).
-    const measureWidth = layer.width * 1;
-    const measureHeight = layer.height * 1;
+    const measureWidth = layer.width * 0.995;
+    const measureHeight = layer.height * 0.995;
     const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
@@ -1825,36 +1822,21 @@ async function renderDynamicFieldLayer(
 
     function doesFontSizeFit(size: number): boolean {
       ctx.font = buildFieldFont(size);
-      // For column direction, use simple wrapText (each field is a line)
-      // For row direction, use wrapTextWithSpans to respect field boundaries
-      if (combineDirection === 'column') {
-        const lines = wrapText(ctx, value, measureWidth);
-        if (lines.length === 0) return true;
-        // Actual visual height: (N-1) line gaps + 1 glyph height.
-        const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
-        if (totalHeight > measureHeight) return false;
-        for (const line of lines) {
-          const sym = getGenderSymbol(line);
-          const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
-          if (w > measureWidth) return false;
-        }
-      } else {
-        const fakeLayer = { ...layer } as unknown as TextLayer;
-        const lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, size, measureWidth);
-        if (lines.length === 0) return true;
-        // Actual visual height: (N-1) line gaps + 1 glyph height.
-        const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
-        if (totalHeight > measureHeight) return false;
-        const spaceGap = ctx.measureText(' ').width;
-        for (const lineSegs of lines) {
-          let lineW = 0;
-          for (let s = 0; s < lineSegs.length; s++) {
-            const sym = getGenderSymbol(lineSegs[s].text);
-            lineW += sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(lineSegs[s].text).width;
-            if (s > 0) lineW += spaceGap;
-          }
-          if (lineW > measureWidth) return false;
-        }
+      // For measurement, always use wrapText with the joined value.
+      // wrapTextWithSpans measures words individually and sums widths,
+      // which can be slightly larger than measureText(fullString) for
+      // Arabic text — causing premature wrapping and a smaller font size.
+      // The actual drawing uses wrapTextWithSpans for correct per-field
+      // RTL rendering, but the measurement only needs the line count.
+      const lines = wrapText(ctx, value, measureWidth);
+      if (lines.length === 0) return true;
+      // Actual visual height: (N-1) line gaps + 1 glyph height.
+      const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
+      if (totalHeight > measureHeight) return false;
+      for (const line of lines) {
+        const sym = getGenderSymbol(line);
+        const w = sym ? measureGenderSymbol(ctx, sym, size) : ctx.measureText(line).width;
+        if (w > measureWidth) return false;
       }
       return true;
     }
@@ -1886,11 +1868,15 @@ async function renderDynamicFieldLayer(
 
     const lineHeight = bestSize * fieldLineHeight;
 
-    // Build lines using the appropriate wrapping method
+    // Build lines using the appropriate wrapping method.
+    // When only one field is visible, use wrapText (same as measurement)
+    // to avoid line-count mismatch with wrapTextWithSpans.
+    // When multiple fields are visible, use wrapTextWithSpans for
+    // per-field RTL rendering (field boundaries matter).
     let lines: Array<Array<{ text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }>>;
-    if (combineDirection === 'column') {
-      // Column: each field on its own line. Use simple wrapText, then
-      // convert to single-segment lines for unified drawing code below.
+    if (combineDirection === 'column' || fieldParts.length === 1) {
+      // Single field or column: use simple wrapText, then convert to
+      // single-segment lines for unified drawing code below.
       const plainLines = wrapText(ctx, value, drawWidth);
       lines = plainLines.map((line) => {
         // Prepend RLM for RTL lines that don't already have it
@@ -1898,7 +1884,8 @@ async function renderDynamicFieldLayer(
         return [{ text, span: { color: layer.color, fontFamily: fieldFontFamily, bold: fieldFontWeight === 700, italic: fieldItalic } }];
       });
     } else {
-      // Row: use span-aware wrapping to respect field boundaries
+      // Row with multiple fields: use span-aware wrapping to respect
+      // field boundaries for correct per-field RTL rendering.
       const fakeLayer = { ...layer } as unknown as TextLayer;
       lines = wrapTextWithSpans(ctx, fieldSegments, fakeLayer, bestSize, drawWidth);
       // Prepend RLM to the first segment of each line for RTL
@@ -2000,8 +1987,8 @@ async function renderDynamicFieldLayer(
 
     // Measure against 98% (canvas measureText is slightly inconsistent
     // with fillText for RTL), but draw at full width to fill the box.
-    const measureWidth = layer.width * 1;
-    const measureHeight = layer.height * 1;
+    const measureWidth = layer.width * 0.995;
+    const measureHeight = layer.height * 0.995;
     const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
@@ -2014,7 +2001,6 @@ async function renderDynamicFieldLayer(
       const lines = wrapText(ctx, value, measureWidth);
       if (lines.length === 0) return true;
       // Actual visual height: (N-1) line gaps + 1 glyph height.
-      // The last line has no trailing line-height gap.
       const totalHeight = (lines.length - 1) * size * fieldLineHeight + size;
       if (totalHeight > measureHeight) return false;
       for (const line of lines) {
