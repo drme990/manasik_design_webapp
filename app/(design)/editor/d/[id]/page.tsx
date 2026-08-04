@@ -2034,7 +2034,7 @@ export default function EditorPage() {
                                     label={t('toolbars.text.size')}
                                     value={(selectedLayer as TextLayer).fontSize}
                                     min={1}
-                                    max={300}
+                                    max={500}
                                     onChange={(v) => handleFontSizeChange(v)}
                                     onDragStart={startChangeTransaction}
                                 />
