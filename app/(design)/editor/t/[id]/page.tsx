@@ -86,14 +86,21 @@ const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
     'df.combineFieldColor': 'dynamicField',
 };
 
-function getColorPickerValue(layer: AnyLayer, prop: string): string {
+function getColorPickerValue(layer: AnyLayer, prop: string, combineFieldId?: string | null): string {
     if (prop === 'text.color') return (layer as TextLayer).color;
     if (prop === 'image.borderColor') return (layer as ImageLayer).borderColor;
     if (prop === 'shape.fillColor') return (layer as ShapeLayer).fillColor;
     if (prop === 'shape.strokeColor') return (layer as ShapeLayer).strokeColor;
     if (prop === 'df.color') return (layer as DynamicFieldLayer).color;
     if (prop === 'df.strokeColor') return (layer as DynamicFieldLayer).borderColor ?? '#cccccc';
-    if (prop === 'df.combineFieldColor') return (layer as DynamicFieldLayer).color;
+    if (prop === 'df.combineFieldColor') {
+        const dfLayer = layer as DynamicFieldLayer;
+        if (combineFieldId) {
+            const cfStyle = dfLayer.combinedFieldStyles?.[combineFieldId];
+            if (cfStyle?.color) return cfStyle.color;
+        }
+        return dfLayer.color;
+    }
     return '#000000';
 }
 
@@ -2466,7 +2473,7 @@ export default function EditorPage() {
                         if (colorPickerProp === 'canvas.bg') return project?.backgroundColor ?? '#ffffff';
                         if (!selectedLayer) return '#000000';
                         if (colorPickerProp === 'image.collageBg') return (selectedLayer as ImageLayer).collage?.bgColor ?? '#000000';
-                        return getColorPickerValue(selectedLayer, colorPickerProp);
+                        return getColorPickerValue(selectedLayer, colorPickerProp, selectedCombineFieldId);
                     })()}
                     onChange={(c) => {
                         if (!colorPickerProp) return;
