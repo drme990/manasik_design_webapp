@@ -1667,8 +1667,8 @@ async function renderDynamicFieldLayer(
       // Auto-fit font size for this sub-box.
       // Measure against 98% (canvas measureText is slightly inconsistent
       // with fillText for RTL), but draw at full width to fill the box.
-      const measureWidth = subW * 0.995;
-      const measureHeight = subH * 0.995;
+      const measureWidth = subW * 0.98;
+      const measureHeight = subH * 0.98;
       const drawWidth = subW;
 
       function buildSubFont(size: number): string {
@@ -1801,8 +1801,8 @@ async function renderDynamicFieldLayer(
     // be slightly inconsistent with actual fillText rendering for RTL/Arabic
     // text, so we measure against 98% of the box. But we DRAW at the full
     // box width so the text fills the box completely (no visible padding).
-    const measureWidth = layer.width * 0.995;
-    const measureHeight = layer.height * 0.995;
+    const measureWidth = layer.width * 0.98;
+    const measureHeight = layer.height * 0.98;
     const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
@@ -1987,8 +1987,8 @@ async function renderDynamicFieldLayer(
 
     // Measure against 98% (canvas measureText is slightly inconsistent
     // with fillText for RTL), but draw at full width to fill the box.
-    const measureWidth = layer.width * 0.995;
-    const measureHeight = layer.height * 0.995;
+    const measureWidth = layer.width * 0.98;
+    const measureHeight = layer.height * 0.98;
     const drawWidth = layer.width;
 
     function buildFieldFont(size: number): string {
