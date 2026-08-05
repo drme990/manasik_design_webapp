@@ -1136,11 +1136,10 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
     startY = layer.height - totalHeight;
   }
 
-  // Clip to the layer box (so overflow is hidden, matching the editor)
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, layer.width, layer.height);
-  ctx.clip();
+  // No clip — let text overflow slightly if needed (auto-fit keeps it
+  // approximately within bounds, but Arabic ascenders/descenders can
+  // extend a few pixels beyond the calculated box height).
 
   // Always use 'left' alignment so x is the left edge of the text,
   // regardless of text direction. The canvas bidi algorithm handles
@@ -1644,9 +1643,7 @@ async function renderDynamicFieldLayer(
     const fieldVAlign = layer.verticalAlign || 'middle';
 
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, layer.width, layer.height);
-    ctx.clip();
+    // No clip — let text overflow slightly if needed.
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
 
@@ -1911,9 +1908,7 @@ async function renderDynamicFieldLayer(
     }
 
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, layer.width, layer.height);
-    ctx.clip();
+    // No clip — let text overflow slightly if needed.
 
     // Always use 'left' so x is the left edge regardless of direction.
     ctx.textAlign = 'left';
@@ -2052,9 +2047,7 @@ async function renderDynamicFieldLayer(
     }
 
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, layer.width, layer.height);
-    ctx.clip();
+    // No clip — let text overflow slightly if needed.
 
     // Always use 'left' so x is the left edge regardless of direction.
     ctx.textAlign = 'left';
