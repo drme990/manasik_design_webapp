@@ -1459,8 +1459,8 @@ async function renderShapeLayer(ctx: SKRSContext2D, layer: ShapeLayer): Promise<
     try {
       const img = await loadImageFromUrl(layer.uri);
       ctx.drawImage(img, 0, 0, layer.width, layer.height);
-    } catch {
-      // Image failed — skip
+    } catch (err) {
+      console.error('[renderShapeLayer] PNG shape failed:', layer.uri, err);
     }
     return;
   }
@@ -2259,6 +2259,11 @@ export async function renderTemplateToJpg(
     ctx.save();
     ctx.globalAlpha = layer.opacity;
     applyLayerTransform(ctx, layer);
+
+    if (layer.type === 'shape') {
+      const s = layer as ShapeLayer;
+      console.error(`[render] shape layer: shape=${s.shape} uri=${s.uri?.substring(0, 80) ?? 'none'} visible=${layer.visible} ${layer.width}x${layer.height}`);
+    }
 
     switch (layer.type) {
       case 'text':
