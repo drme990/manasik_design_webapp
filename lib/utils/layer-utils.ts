@@ -356,6 +356,7 @@ export function buildDynamicFieldLayer(options: {
     imageHeight: fieldType === 'image' ? imageHeight : undefined,
     collageLayout: fieldType === 'image' ? collageLayout : undefined,
     collageGap: fieldType === 'image' && collageLayout ? 4 : undefined,
+    collageBgColor: fieldType === 'image' ? '#ffffff' : undefined,
     backgroundColor: fieldType === 'text' ? '#f0f0f0' : undefined,
     borderColor: '#cccccc',
     borderWidth: 1,

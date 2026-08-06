@@ -122,6 +122,10 @@ export interface ImageLayer extends BaseLayer {
   borderWidth: number;
   flipX: boolean;
   flipY: boolean;
+  /** When true, the image fills the box with "cover" fit (no pan/zoom).
+   *  Used by inflated dynamic image fields where the actual image
+   *  dimensions are unknown at inflate time. */
+  coverFit?: boolean;
   /** Thumbnail URL (smaller version for galleries/lists) */
   thumbnailUri?: string;
   collage?: ImageLayerCollage;
@@ -179,6 +183,8 @@ export interface DynamicFieldLayer extends BaseLayer {
   collageLayout?: string;
   /** Image fields only — gap between collage cells in px */
   collageGap?: number;
+  /** Image fields only — background color behind collage cells */
+  collageBgColor?: string;
   // ── Text properties (for fieldType: 'text') ──────────────────────
   // These are passed through to the inflated text layer. The font size
   // is NOT among them — it's auto-calculated to fill the box.

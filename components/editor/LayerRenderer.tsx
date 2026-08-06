@@ -121,6 +121,8 @@ export interface LayerRendererProps {
   onDoubleClick?: (e: React.MouseEvent) => void;
   /** Retry a failed background upload for this layer */
   onRetryUpload?: (id: string) => void;
+  /** Replace the image (opens file picker). Called when user clicks the reupload button. */
+  onReplaceImage?: (id: string) => void;
 }
 
 interface LayerComponentProps extends LayerRendererProps {
@@ -163,7 +165,28 @@ function UploadStatusOverlay({ layer, onRetryUpload }: { layer: ImageLayer; onRe
   );
 }
 
-export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick, onRetryUpload }: LayerRendererProps) {
+/**
+ * Big reupload button shown in the center of a selected image layer.
+ * Lets the user quickly replace the image without going to the properties bar.
+ */
+function ReplaceImageButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2.5 text-white backdrop-blur-sm transition-transform active:scale-95"
+      aria-label="Replace image"
+    >
+      <LuRefreshCw className="h-6 w-6" />
+    </button>
+  );
+}
+
+export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbnail, onPointerDown, onLayerChange, onDoubleClick, onRetryUpload, onReplaceImage }: LayerRendererProps) {
   const baseStyles = cn(
     'absolute cursor-move select-none touch-none',
     layer.locked && 'cursor-not-allowed',
@@ -197,7 +220,7 @@ export default function LayerRenderer({ layer, isSelected, dangerZone, useThumbn
     case 'text':
       return <TextLayerComponent layer={layer as TextLayer} {...commonProps} />;
     case 'image':
-      return <ImageLayerComponent layer={layer as ImageLayer} useThumbnail={useThumbnail} onRetryUpload={onRetryUpload} {...commonProps} />;
+      return <ImageLayerComponent layer={layer as ImageLayer} useThumbnail={useThumbnail} onRetryUpload={onRetryUpload} onReplaceImage={onReplaceImage} isSelected={isSelected} {...commonProps} />;
     case 'shape':
       return <ShapeLayerComponent layer={layer as ShapeLayer} {...commonProps} />;
     case 'dynamic_field':
@@ -500,7 +523,7 @@ function TextLayerComponent({ layer, className, style, onPointerDown, onLayerCha
   );
 }
 
-function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick, onRetryUpload }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean; onRetryUpload?: (id: string) => void }) {
+function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerDown, onDoubleClick, onRetryUpload, onReplaceImage, isSelected }: LayerComponentProps & { layer: ImageLayer; useThumbnail?: boolean; onRetryUpload?: (id: string) => void; onReplaceImage?: (id: string) => void; isSelected?: boolean }) {
   // Use thumbnail for galleries/lists when available (smaller payload)
   let displayUri = (useThumbnail && layer.thumbnailUri) ? layer.thumbnailUri : layer.uri;
   // Safety: if uri is a JSON-encoded array of URLs (e.g. reservation.photo
@@ -517,7 +540,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
   if (layer.collage) {
     const layout = COLLAGE_LAYOUTS.find(l => l.id === layer.collage!.layout) || COLLAGE_LAYOUTS[0];
     const gap = layer.collage.gap ?? 4;
-    const bgColor = layer.collage.bgColor ?? '#000000';
+    const bgColor = layer.collage.bgColor ?? '#ffffff';
     const containerRadius = layer.collage.containerRadius ?? 0;
     return (
       <div
@@ -525,7 +548,7 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
         style={{
           ...style,
           borderRadius: containerRadius,
-          border: 'none',
+          border: layer.borderWidth > 0 ? `${layer.borderWidth}px solid ${layer.borderColor}` : 'none',
           overflow: 'hidden',
           backgroundColor: bgColor,
           transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
@@ -550,7 +573,6 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
                 top: cellY,
                 width: cellW,
                 height: cellH,
-                borderRadius: layer.borderRadius,
               }}
             >
               {cellUri ? (
@@ -566,6 +588,50 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
           );
         })}
         <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
+        {isSelected && onReplaceImage && !layer.uploadStatus && (
+          <ReplaceImageButton onClick={() => onReplaceImage(layer.id)} />
+        )}
+      </div>
+    );
+  }
+
+  // Cover fit — image fills the box with object-fit: cover (no pan/zoom).
+  // Used by inflated dynamic image fields.
+  if (layer.coverFit && !layer.cropRect) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          borderRadius: layer.borderRadius,
+          border: `${layer.borderWidth}px solid ${layer.borderColor}`,
+          overflow: 'hidden',
+          transform: `${style.transform} scaleX(${layer.flipX ? -1 : 1}) scaleY(${layer.flipY ? -1 : 1})`,
+        }}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Image
+          src={displayUri}
+          alt="Layer"
+          draggable={false}
+          unoptimized
+          className="pointer-events-none select-none"
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            userSelect: 'none',
+          }}
+          width={layer.width}
+          height={layer.height}
+          loading="eager"
+        />
+        <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
+        {isSelected && onReplaceImage && !layer.uploadStatus && (
+          <ReplaceImageButton onClick={() => onReplaceImage(layer.id)} />
+        )}
       </div>
     );
   }
@@ -612,6 +678,9 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
           }}
         />
         <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
+        {isSelected && onReplaceImage && !layer.uploadStatus && (
+          <ReplaceImageButton onClick={() => onReplaceImage(layer.id)} />
+        )}
       </div>
     );
   }
@@ -649,6 +718,9 @@ function ImageLayerComponent({ layer, className, style, useThumbnail, onPointerD
         loading="eager"
       />
       <UploadStatusOverlay layer={layer} onRetryUpload={onRetryUpload} />
+      {isSelected && onReplaceImage && !layer.uploadStatus && (
+        <ReplaceImageButton onClick={() => onReplaceImage(layer.id)} />
+      )}
     </div>
   );
 }
@@ -904,6 +976,7 @@ function DynamicFieldImage({ layer, className, style, onPointerDown }: LayerComp
 
   // Collage preview — show the layout cells with placeholder backgrounds
   const gap = layer.collageGap ?? 4;
+  const bgColor = layer.collageBgColor ?? '#ffffff';
   return (
     <div
       className={className}
@@ -911,6 +984,7 @@ function DynamicFieldImage({ layer, className, style, onPointerDown }: LayerComp
         ...style,
         display: style.display === 'none' ? 'none' : 'flex',
         padding: 0,
+        backgroundColor: bgColor,
       }}
       onPointerDown={onPointerDown}
       onClick={(e) => e.stopPropagation()}

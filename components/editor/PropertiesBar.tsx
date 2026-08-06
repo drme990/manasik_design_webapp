@@ -295,7 +295,7 @@ export default function PropertiesBar({
                                     />
                                     <PropButton
                                         label={t('toolbars.image.collageBg')}
-                                        swatch={l.collage?.bgColor ?? '#000000'}
+                                        swatch={l.collage?.bgColor ?? '#ffffff'}
                                         icon={<LuPalette className="h-5 w-5" />}
                                         active={colorPickerProp === 'image.collageBg'}
                                         onClick={() => setColorPickerProp(colorPickerProp === 'image.collageBg' ? null : 'image.collageBg')}
@@ -634,7 +634,7 @@ export default function PropertiesBar({
                                     </>
                                 );
                             })()}
-                            {/* Image-only properties (aspect ratio + rounded corners) */}
+                            {/* Image-only properties (aspect ratio + rounded corners + collage) */}
                             {!isText && (
                                 <>
                                     <PropButton
@@ -644,11 +644,31 @@ export default function PropertiesBar({
                                         onClick={() => setActiveProp(activeProp === 'df.aspectRatio' ? null : 'df.aspectRatio')}
                                     />
                                     <PropButton
+                                        label={t('toolbars.dynamicField.collageLayout')}
+                                        icon={<LuLayoutGrid className="h-5 w-5" />}
+                                        active={activeProp === 'df.collageLayout'}
+                                        onClick={() => setActiveProp(activeProp === 'df.collageLayout' ? null : 'df.collageLayout')}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.collageGap')}
+                                        value={l.collageGap ?? 4}
+                                        icon={<LuColumns3 className="h-5 w-5" />}
+                                        active={activeProp === 'df.collageGap'}
+                                        onClick={() => setActiveProp(activeProp === 'df.collageGap' ? null : 'df.collageGap')}
+                                    />
+                                    <PropButton
                                         label={t('toolbars.dynamicField.borderRadius')}
                                         value={l.borderRadius ?? 0}
                                         icon={<TbBorderCorners className="h-5 w-5" />}
                                         active={activeProp === 'df.borderRadius'}
                                         onClick={() => setActiveProp(activeProp === 'df.borderRadius' ? null : 'df.borderRadius')}
+                                    />
+                                    <PropButton
+                                        label={t('toolbars.dynamicField.collageBg')}
+                                        swatch={l.collageBgColor ?? '#ffffff'}
+                                        icon={<LuPalette className="h-5 w-5" />}
+                                        active={colorPickerProp === 'df.collageBg'}
+                                        onClick={() => setColorPickerProp(colorPickerProp === 'df.collageBg' ? null : 'df.collageBg')}
                                     />
                                 </>
                             )}

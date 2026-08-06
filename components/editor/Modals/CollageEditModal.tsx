@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import { useTranslations } from '@/lib/i18n/strings';
 import { cn } from '@/lib/utils/cn';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
-import { LuReplace, LuRotateCcw, LuPlus, LuTrash2 } from 'react-icons/lu';
+import { LuReplace, LuRotateCcw, LuPlus, LuTrash2, LuRefreshCw } from 'react-icons/lu';
 import type { ImageLayer, ImageLayerCollageCell } from '@/types';
 import CollageCellImage, { getCellClampBounds, clampCellOffset } from '../CollageCellImage';
 
@@ -627,6 +627,20 @@ export default function CollageEditModal({
                     <div className="flex h-full w-full items-center justify-center bg-muted text-secondary text-xs">
                       {i + 1}
                     </div>
+                  )}
+                  {isSelected && cell?.uri && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white backdrop-blur-sm transition-transform active:scale-95"
+                      aria-label="Replace image"
+                    >
+                      <LuRefreshCw className="h-5 w-5" />
+                    </button>
                   )}
                 </div>
               );

@@ -35,6 +35,7 @@ export interface CanvasProps {
   onCropImage?: (id: string) => void;
   onEditCollage?: (id: string) => void;
   onRetryUpload?: (id: string) => void;
+  onReplaceImage?: (id: string) => void;
 }
 
 function capturePointer(e: React.PointerEvent) {
@@ -81,6 +82,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     onCropImage,
     onEditCollage,
     onRetryUpload,
+    onReplaceImage,
   }: CanvasProps,
   forwardedRef
 ) {
@@ -106,6 +108,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
   onEditTextRef.current = onEditText;
   const onRetryUploadRef = useRef(onRetryUpload);
   onRetryUploadRef.current = onRetryUpload;
+  const onReplaceImageRef = useRef(onReplaceImage);
+  onReplaceImageRef.current = onReplaceImage;
   const safeAreaRef = useRef(safeArea);
   safeAreaRef.current = safeArea ?? DEFAULT_SAFE_AREA;
   const onSafeAreaChangeRef = useRef(onSafeAreaChange);
@@ -1250,6 +1254,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
           onPointerDown={(e) => handlePointerDown(e, layer.id)}
           onLayerChange={onLayerChange}
           onRetryUpload={onRetryUpload ? (id: string) => onRetryUploadRef.current?.(id) : undefined}
+          onReplaceImage={onReplaceImage ? (id: string) => onReplaceImageRef.current?.(id) : undefined}
           onDoubleClick={(e) => {
             // Suppress dblclick that follows a mobile double-tap pointerdown
             if (suppressClickRef.current) {

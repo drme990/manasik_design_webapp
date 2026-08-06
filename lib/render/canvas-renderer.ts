@@ -202,9 +202,10 @@ function formatSacrificeForNames(raw: string): string {
 }
 
 /**
- * Format an execution date from YYYY-MM-DD to "Weekday DD/MM/YYYY".
- * e.g. "2026-08-04" → "الثلاثاء 04/08/2026"
+ * Format an execution date from YYYY-MM-DD to "Weekday D/M/YYYY".
+ * e.g. "2026-08-04" → "الثلاثاء 4/8/2026"
  *
+ * Leading zeros are stripped from day and month (1/8/2026, not 01/08/2026).
  * Uses a hardcoded Arabic weekday array instead of toLocaleDateString,
  * which is unreliable on Vercel's serverless runtime (ICU data may not
  * include Arabic locale).
@@ -229,9 +230,7 @@ function formatExecutionDate(raw: string): string {
     'السبت',
   ];
   const weekday = weekdays[date.getDay()];
-  const dd = String(day).padStart(2, '0');
-  const mm = String(month).padStart(2, '0');
-  return `${weekday} ${dd}/${mm}/${year}`;
+  return `${weekday} ${day}/${month}/${year}`;
 }
 
 /**
@@ -401,7 +400,7 @@ function resolveFieldValue(
     if (key === 'shortDuaa' && raw) {
       return raw.replace(/[\r\n]+/g, ' ').trim();
     }
-    // executionDate: format as "Weekday DD/MM/YYYY" (e.g. "الثلاثاء 04/08/2026")
+    // executionDate: format as "Weekday D/M/YYYY" (e.g. "الثلاثاء 4/8/2026")
     if (key === 'executionDate' && raw) {
       return formatExecutionDate(raw);
     }
@@ -826,12 +825,43 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
   const cached = imageCache.get(url);
   if (cached) return cached;
 
-  // Fetch the image buffer, then load it into the canvas Image
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${url} (${response.status})`);
+  // Try multiple fetch strategies — Cloudflare CDN may block some
+  // server-side requests. Try bare fetch first (worked previously for
+  // single images), then with minimal headers, then with full browser
+  // headers as a last resort.
+  const fetchStrategies: Array<RequestInit> = [
+    { cache: 'no-store' },
+    { cache: 'no-store', headers: { 'User-Agent': 'node' } },
+    {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+      redirect: 'follow',
+    },
+  ];
+
+  let buffer: Buffer | null = null;
+  let lastError: unknown = null;
+
+  for (const strategy of fetchStrategies) {
+    try {
+      const response = await fetch(url, strategy);
+      if (response.ok) {
+        buffer = Buffer.from(await response.arrayBuffer());
+        break;
+      }
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err;
+    }
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
+
+  if (!buffer) {
+    throw new Error(`Failed to fetch image: ${url} (${lastError instanceof Error ? lastError.message : 'unknown error'})`);
+  }
+
   const image = await loadImage(buffer);
   imageCache.set(url, image);
   return image;
@@ -1237,6 +1267,10 @@ async function renderImageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promise<
       crop.x, crop.y, crop.width, crop.height, // source
       0, 0, layer.width, layer.height, // destination
     );
+  } else if (layer.coverFit) {
+    // Cover fit — image fills the box, cropping overflow (no pan/zoom).
+    // Used by inflated dynamic image fields.
+    drawImageCover(ctx, image, 0, 0, layer.width, layer.height);
   } else {
     // Standard image: draw with scale + offset (pan/zoom within frame)
     const drawW = layer.naturalWidth * layer.imageScale;
@@ -1268,24 +1302,38 @@ async function renderCollageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promis
   if (!layer.collage) return;
 
   const { cells, gap, bgColor, containerRadius } = layer.collage;
+  const borderRadius = containerRadius ?? 0;
+
+  // Clip to the container bounds so cells don't overflow rounded corners
+  ctx.save();
+  if (borderRadius > 0) {
+    roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+    ctx.clip();
+  }
 
   // Fill background
   ctx.fillStyle = bgColor;
-  if (containerRadius > 0) {
-    roundedRectPath(ctx, 0, 0, layer.width, layer.height, containerRadius);
+  if (borderRadius > 0) {
+    roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
     ctx.fill();
   } else {
     ctx.fillRect(0, 0, layer.width, layer.height);
   }
 
-  if (cells.length === 0) return;
+  if (cells.length === 0) {
+    ctx.restore();
+    return;
+  }
 
   // Find the layout definition matching the collage's layout ID.
   // Fall back to the first layout that matches the cell count.
   const layout =
     COLLAGE_LAYOUTS.find((l) => l.id === layer.collage!.layout) ||
     COLLAGE_LAYOUTS.find((l) => l.cells.length === cells.length);
-  if (!layout) return;
+  if (!layout) {
+    ctx.restore();
+    return;
+  }
 
   const layoutCells = layout.cells;
 
@@ -1305,20 +1353,29 @@ async function renderCollageLayer(ctx: SKRSContext2D, layer: ImageLayer): Promis
     try {
       const img = await loadImageFromUrl(cell.uri);
       ctx.save();
-      // Clip to cell bounds (with border radius)
-      if (layer.borderRadius > 0) {
-        roundedRectPath(ctx, cellX, cellY, cellW, cellH, layer.borderRadius);
-        ctx.clip();
-      } else {
-        ctx.beginPath();
-        ctx.rect(cellX, cellY, cellW, cellH);
-        ctx.clip();
-      }
+      // Clip to cell bounds
+      ctx.beginPath();
+      ctx.rect(cellX, cellY, cellW, cellH);
+      ctx.clip();
       // Draw image to fill the cell (cover fit)
       drawImageCover(ctx, img, cellX, cellY, cellW, cellH, cell.scale, cell.offsetX, cell.offsetY);
       ctx.restore();
     } catch {
       // Cell image failed — skip
+    }
+  }
+
+  ctx.restore();
+
+  // Container border (drawn after all cells, on top)
+  if (layer.borderWidth > 0 && layer.borderColor) {
+    ctx.strokeStyle = layer.borderColor;
+    ctx.lineWidth = layer.borderWidth;
+    if (borderRadius > 0) {
+      roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(0, 0, layer.width, layer.height);
     }
   }
 }
@@ -1547,16 +1604,35 @@ async function renderDynamicFieldLayer(
       } catch { /* not JSON — use as single URL */ }
     }
 
-    const gap = 4;
-    if (imageUrls.length > 1) {
-      // Multiple images — render as a collage using the same layout
-      // definitions as the editor. Pick a layout matching the image count.
-      const layout = COLLAGE_LAYOUTS.find((l) => l.cells.length === imageUrls.length);
-      if (layout) {
-        // Fill background
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, layer.width, layer.height);
+    const gap = layer.collageGap ?? 4;
+    const bgColor = layer.collageBgColor ?? '#ffffff';
+    const borderRadius = layer.borderRadius ?? 0;
 
+    if (imageUrls.length > 1) {
+      // Multiple images — render as a collage. Try the user's chosen layout
+      // first (if the image count matches), then fall back to auto-pick.
+      let layout = COLLAGE_LAYOUTS.find((l) => l.id === layer.collageLayout && l.cells.length === imageUrls.length);
+      if (!layout) {
+        layout = COLLAGE_LAYOUTS.find((l) => l.cells.length === imageUrls.length);
+      }
+
+      // Clip to container bounds so cells don't overflow rounded corners
+      ctx.save();
+      if (borderRadius > 0) {
+        roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+        ctx.clip();
+      }
+
+      // Fill background
+      ctx.fillStyle = bgColor;
+      if (borderRadius > 0) {
+        roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(0, 0, layer.width, layer.height);
+      }
+
+      if (layout) {
         for (let i = 0; i < imageUrls.length && i < layout.cells.length; i++) {
           const def = layout.cells[i];
           const cellX = def.x * layer.width + gap / 2;
@@ -1566,14 +1642,9 @@ async function renderDynamicFieldLayer(
           try {
             const img = await loadImageFromUrl(imageUrls[i]);
             ctx.save();
-            if (layer.borderRadius && layer.borderRadius > 0) {
-              roundedRectPath(ctx, cellX, cellY, cellW, cellH, layer.borderRadius);
-              ctx.clip();
-            } else {
-              ctx.beginPath();
-              ctx.rect(cellX, cellY, cellW, cellH);
-              ctx.clip();
-            }
+            ctx.beginPath();
+            ctx.rect(cellX, cellY, cellW, cellH);
+            ctx.clip();
             drawImageCover(ctx, img, cellX, cellY, cellW, cellH);
             ctx.restore();
           } catch {
@@ -1586,8 +1657,6 @@ async function renderDynamicFieldLayer(
         const rows = Math.ceil(imageUrls.length / cols);
         const cellW = (layer.width - gap * (cols + 1)) / cols;
         const cellH = (layer.height - gap * (rows + 1)) / rows;
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, layer.width, layer.height);
         for (let i = 0; i < imageUrls.length; i++) {
           const col = i % cols;
           const row = Math.floor(i / cols);
@@ -1604,19 +1673,45 @@ async function renderDynamicFieldLayer(
           } catch { /* skip */ }
         }
       }
+
+      ctx.restore();
+
+      // Container border
+      if (layer.borderWidth && layer.borderWidth > 0 && layer.borderColor) {
+        ctx.strokeStyle = layer.borderColor;
+        ctx.lineWidth = layer.borderWidth;
+        if (borderRadius > 0) {
+          roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(0, 0, layer.width, layer.height);
+        }
+      }
     } else {
       // Single image — draw cover
       try {
         const img = await loadImageFromUrl(imageUrls[0]);
         ctx.save();
-        if (layer.borderRadius && layer.borderRadius > 0) {
-          roundedRectPath(ctx, 0, 0, layer.width, layer.height, layer.borderRadius);
+        if (borderRadius > 0) {
+          roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
           ctx.clip();
         }
         drawImageCover(ctx, img, 0, 0, layer.width, layer.height);
         ctx.restore();
       } catch {
         // Image failed — skip
+      }
+    }
+
+    // Border (drawn after the image, on top — matches renderImageLayer)
+    if (layer.borderWidth && layer.borderWidth > 0 && layer.borderColor) {
+      ctx.strokeStyle = layer.borderColor;
+      ctx.lineWidth = layer.borderWidth;
+      if (borderRadius > 0) {
+        roundedRectPath(ctx, 0, 0, layer.width, layer.height, borderRadius);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(0, 0, layer.width, layer.height);
       }
     }
   } else if (layer.combinedFields && layer.combinedFields.length > 0 && hasIndividualStyles && combineDirection === 'column') {
@@ -2108,7 +2203,7 @@ async function renderDynamicFieldLayer(
  * (not available on Vercel serverless).
  *
  * Supports: text, image, shape, and dynamic field layers. Collage
- * layers use a simplified grid layout (not the exact editor layout).
+ * layers use the same COLLAGE_LAYOUTS definitions as the editor.
  */
 export async function renderTemplateToJpg(
   template: Project,

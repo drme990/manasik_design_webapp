@@ -73,6 +73,7 @@ const COLOR_PROP_LABEL_KEYS: Record<string, string> = {
     'df.color': 'textColor',
     'df.strokeColor': 'strokeColor',
     'df.combineFieldColor': 'combineFieldColor',
+    'df.collageBg': 'collageBg',
 };
 
 const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
@@ -84,6 +85,7 @@ const COLOR_PROP_TYPE_PREFIX: Record<string, string> = {
     'df.color': 'dynamicField',
     'df.strokeColor': 'dynamicField',
     'df.combineFieldColor': 'dynamicField',
+    'df.collageBg': 'dynamicField',
 };
 
 function getColorPickerValue(layer: AnyLayer, prop: string, combineFieldId?: string | null): string {
@@ -93,6 +95,7 @@ function getColorPickerValue(layer: AnyLayer, prop: string, combineFieldId?: str
     if (prop === 'shape.strokeColor') return (layer as ShapeLayer).strokeColor;
     if (prop === 'df.color') return (layer as DynamicFieldLayer).color;
     if (prop === 'df.strokeColor') return (layer as DynamicFieldLayer).borderColor ?? '#cccccc';
+    if (prop === 'df.collageBg') return (layer as DynamicFieldLayer).collageBgColor ?? '#ffffff';
     if (prop === 'df.combineFieldColor') {
         const dfLayer = layer as DynamicFieldLayer;
         if (combineFieldId) {
@@ -1733,6 +1736,10 @@ export default function EditorPage() {
                         handleLayerChange(selectedLayer.id, {
                             combinedFieldStyles: { ...current, [selectedCombineFieldId]: { ...existing, color: pickedColor } },
                         } as Partial<AnyLayer>);
+                    } else if (prop === 'df.collageBg') {
+                        handleLayerChange(selectedLayer.id, {
+                            collageBgColor: pickedColor,
+                        } as Partial<AnyLayer>);
                     } else {
                         handleLayerChange(selectedLayer.id, getColorPickerUpdate(prop, pickedColor));
                     }
@@ -1889,6 +1896,10 @@ export default function EditorPage() {
                                         onCropImage={() => setIsCropOpen(true)}
                                         onEditCollage={() => setCollageEditOpen(true)}
                                         onRetryUpload={handleRetryUpload}
+                                        onReplaceImage={(id) => {
+                                            setSelectedLayerId(id);
+                                            replaceImageInputRef.current?.click();
+                                        }}
                                     />
                                 </div>
                             </div>
@@ -2355,6 +2366,73 @@ export default function EditorPage() {
                                     onDragStart={startChangeTransaction}
                                 />
                             )}
+                            {/* Dynamic field: collage layout (image fields only) */}
+                            {activeProp === 'df.collageLayout' && (() => {
+                                const df = selectedLayer as DynamicFieldLayer;
+                                const currentLayout = df.collageLayout;
+                                return (
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium text-foreground">
+                                            {t('toolbars.dynamicField.collageLayout')}
+                                        </label>
+                                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+                                            {COLLAGE_LAYOUTS.map((layout) => {
+                                                const isSelected = currentLayout === layout.id;
+                                                return (
+                                                    <button
+                                                        key={layout.id}
+                                                        onClick={() => handleLayerChange(selectedLayer.id, {
+                                                            collageLayout: layout.id,
+                                                        } as Partial<AnyLayer>)}
+                                                        className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border p-3 text-center transition-colors ${isSelected
+                                                            ? 'border-brand-primary bg-brand-primary text-white'
+                                                            : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary hover:bg-brand-primary-light/10'
+                                                            }`}
+                                                    >
+                                                        <div className="relative h-12 w-12">
+                                                            {layout.cells.map((cell, i) => (
+                                                                <div
+                                                                    key={i}
+                                                                    className={`absolute rounded-sm border ${isSelected ? 'border-white/60 bg-white/30' : 'border-foreground/40 bg-foreground/10'}`}
+                                                                    style={{
+                                                                        left: `${cell.x * 100}%`,
+                                                                        top: `${cell.y * 100}%`,
+                                                                        width: `${cell.w * 100}%`,
+                                                                        height: `${cell.h * 100}%`,
+                                                                    }}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        <p className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-secondary'}`}>{layout.name}</p>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <button
+                                            onClick={() => handleLayerChange(selectedLayer.id, {
+                                                collageLayout: undefined,
+                                            } as Partial<AnyLayer>)}
+                                            className="text-xs text-secondary hover:text-foreground"
+                                        >
+                                            {t('toolbars.dynamicField.singleImage')}
+                                        </button>
+                                    </div>
+                                );
+                            })()}
+                            {/* Dynamic field: collage gap (image fields only) */}
+                            {activeProp === 'df.collageGap' && (
+                                <SliderField
+                                    label={t('toolbars.dynamicField.collageGap')}
+                                    value={(selectedLayer as DynamicFieldLayer).collageGap ?? 4}
+                                    min={0}
+                                    max={40}
+                                    suffix="px"
+                                    onChange={(v) => handleLayerChange(selectedLayer.id, {
+                                        collageGap: v,
+                                    } as Partial<AnyLayer>)}
+                                    onDragStart={startChangeTransaction}
+                                />
+                            )}
                             {/* Dynamic field: borderRadius (image fields only) */}
                             {activeProp === 'df.borderRadius' && (
                                 <SliderField
@@ -2472,7 +2550,7 @@ export default function EditorPage() {
                         if (!colorPickerProp) return '#000000';
                         if (colorPickerProp === 'canvas.bg') return project?.backgroundColor ?? '#ffffff';
                         if (!selectedLayer) return '#000000';
-                        if (colorPickerProp === 'image.collageBg') return (selectedLayer as ImageLayer).collage?.bgColor ?? '#000000';
+                        if (colorPickerProp === 'image.collageBg') return (selectedLayer as ImageLayer).collage?.bgColor ?? '#ffffff';
                         return getColorPickerValue(selectedLayer, colorPickerProp, selectedCombineFieldId);
                     })()}
                     onChange={(c) => {
@@ -2497,6 +2575,12 @@ export default function EditorPage() {
                             const existing = current[selectedCombineFieldId] ?? {};
                             handleLayerChange(selectedLayer.id, {
                                 combinedFieldStyles: { ...current, [selectedCombineFieldId]: { ...existing, color: c } },
+                            } as Partial<AnyLayer>);
+                            return;
+                        }
+                        if (colorPickerProp === 'df.collageBg') {
+                            handleLayerChange(selectedLayer.id, {
+                                collageBgColor: c,
                             } as Partial<AnyLayer>);
                             return;
                         }

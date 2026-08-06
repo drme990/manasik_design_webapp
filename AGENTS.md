@@ -230,7 +230,8 @@ The renderer:
    - **text** — wraps text to `boxWidth`, aligns horizontally +
      vertically, supports bold/italic/lineHeight/RTL direction
    - **image** — draws with crop, scale, offset, flip, border radius,
-     border. Collage layers use a simplified grid layout.
+     border. Collage layers use the same `COLLAGE_LAYOUTS` definitions
+     as the editor (proper cell positions per layout).
    - **shape** — rectangle (with corner radius), circle/ellipse,
      triangle, line, stars (4/5/6/8 points), PNG shapes
    - **dynamic_field** — resolves `billing.*`, `order.*`, `item.*`,
@@ -313,9 +314,6 @@ Dependencies: `@napi-rs/canvas` only. Run `npm install` after pulling.
 No environment variables required for rendering.
 
 Known limitations:
-- Collage layers use a simplified grid layout (1 col for 1-2 cells,
-  2 cols for 3+). The exact editor layout (with custom cell positions)
-  is not yet reproduced server-side.
 - Text auto-shrink for regular text layers (binary search font fitting
   to fit a fixed box) is not implemented — only dynamic field text
   auto-shrinks. Regular text uses the saved fontSize and wraps to

@@ -1,4 +1,5 @@
 import { generateId } from '@/lib/utils/id';
+import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import type {
   Project,
   AnyLayer,
@@ -100,9 +101,10 @@ function formatSacrificeForNames(raw: string): string {
 }
 
 /**
- * Format an execution date from YYYY-MM-DD to "Weekday DD/MM/YYYY".
- * e.g. "2026-08-04" → "الثلاثاء 04/08/2026"
+ * Format an execution date from YYYY-MM-DD to "Weekday D/M/YYYY".
+ * e.g. "2026-08-04" → "الثلاثاء 4/8/2026"
  *
+ * Leading zeros are stripped from day and month (1/8/2026, not 01/08/2026).
  * Uses a hardcoded Arabic weekday array instead of toLocaleDateString,
  * which is unreliable on Vercel's serverless runtime.
  */
@@ -125,9 +127,7 @@ function formatExecutionDate(raw: string): string {
     'السبت',
   ];
   const weekday = weekdays[date.getDay()];
-  const dd = String(day).padStart(2, '0');
-  const mm = String(month).padStart(2, '0');
-  return `${weekday} ${dd}/${mm}/${year}`;
+  return `${weekday} ${day}/${month}/${year}`;
 }
 
 /**
@@ -317,7 +317,7 @@ function resolveFieldValue(
     if (key === 'shortDuaa' && raw) {
       return raw.replace(/[\r\n]+/g, ' ').trim();
     }
-    // executionDate: format as "Weekday DD/MM/YYYY" (e.g. "الثلاثاء 04/08/2026")
+    // executionDate: format as "Weekday D/M/YYYY" (e.g. "الثلاثاء 4/8/2026")
     if (key === 'executionDate' && raw) {
       return formatExecutionDate(raw);
     }
@@ -726,8 +726,18 @@ function inflateImageDynamicField(
   const urls = parsePhotoUrls(value);
   const hasValue = urls.length > 0;
 
-  // Pick a collage layout that fits the number of images
+  // Pick a collage layout that fits the number of images.
+  // If the user picked a layout in the template editor, use it when the
+  // image count matches that layout's cell count. Otherwise auto-pick.
   function pickCollageLayout(count: number): string {
+    // Try the user's chosen layout first
+    if (layer.collageLayout) {
+      const userLayout = COLLAGE_LAYOUTS.find(l => l.id === layer.collageLayout);
+      if (userLayout && userLayout.cells.length === count) {
+        return userLayout.id;
+      }
+    }
+    // Auto-pick based on count
     if (count <= 1) return '1';
     if (count === 2) return '2h';
     if (count === 3) return '3h';
@@ -748,8 +758,10 @@ function inflateImageDynamicField(
     visible: layer.visible && hasValue,
     locked: layer.locked,
     uri: hasValue ? urls[0] : '',
-    naturalWidth: layer.imageWidth || layer.width,
-    naturalHeight: layer.imageHeight || layer.height,
+    // With coverFit=true, the renderer uses the actual image dimensions
+    // (not these). Set to box size as sensible defaults.
+    naturalWidth: layer.width,
+    naturalHeight: layer.height,
     maskWidth: layer.width,
     maskHeight: layer.height,
     offsetX: 0,
@@ -760,6 +772,7 @@ function inflateImageDynamicField(
     borderWidth: layer.borderWidth || 0,
     flipX: false,
     flipY: false,
+    coverFit: true,
   };
 
   // Multiple images → create a collage
@@ -775,9 +788,14 @@ function inflateImageDynamicField(
         scale: 1,
       })),
       gap: layer.collageGap ?? 4,
-      bgColor: '#000000',
+      bgColor: layer.collageBgColor ?? '#ffffff',
       containerRadius: layer.borderRadius || 0,
     };
+    console.error('[inflateImageDynamicField] Created collage:', {
+      layoutId,
+      cellCount: baseImageLayer.collage.cells.length,
+      cellUris: baseImageLayer.collage.cells.map(c => c.uri.substring(0, 80)),
+    });
   }
 
   return baseImageLayer;
