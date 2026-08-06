@@ -10,6 +10,7 @@ import type {
   DynamicFieldLayer,
 } from '@/types';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
+import { extractKeyFromUrl, downloadFromR2 } from '@/lib/storage/r2';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -825,41 +826,35 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
   const cached = imageCache.get(url);
   if (cached) return cached;
 
-  // Try multiple fetch strategies — Cloudflare CDN may block some
-  // server-side requests. Try bare fetch first (worked previously for
-  // single images), then with minimal headers, then with full browser
-  // headers as a last resort.
-  const fetchStrategies: Array<RequestInit> = [
-    { cache: 'no-store' },
-    { cache: 'no-store', headers: { 'User-Agent': 'node' } },
-    {
-      cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      },
-      redirect: 'follow',
-    },
-  ];
-
   let buffer: Buffer | null = null;
-  let lastError: unknown = null;
 
-  for (const strategy of fetchStrategies) {
-    try {
-      const response = await fetch(url, strategy);
-      if (response.ok) {
-        buffer = Buffer.from(await response.arrayBuffer());
-        break;
-      }
-      lastError = new Error(`HTTP ${response.status}`);
-    } catch (err) {
-      lastError = err;
+  // Strategy 1: HTTP fetch to the public CDN URL.
+  // Works locally and on most hosts. On Vercel production, Cloudflare
+  // CDN may block or 404 server-side requests — in that case we fall
+  // through to Strategy 2.
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (response.ok) {
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
+  } catch {
+    // Network error — fall through to R2 strategy
+  }
+
+  // Strategy 2: Download directly from R2 via the S3 API.
+  // This bypasses Cloudflare CDN entirely, going to
+  // {accountId}.r2.cloudflarestorage.com instead of the public URL.
+  // Used when HTTP fetch fails (e.g. on Vercel serverless where the
+  // CDN blocks server-side requests).
+  if (!buffer) {
+    const key = extractKeyFromUrl(url);
+    if (key) {
+      buffer = await downloadFromR2(key);
     }
   }
 
   if (!buffer) {
-    throw new Error(`Failed to fetch image: ${url} (${lastError instanceof Error ? lastError.message : 'unknown error'})`);
+    throw new Error(`Failed to fetch image: ${url}`);
   }
 
   const image = await loadImage(buffer);

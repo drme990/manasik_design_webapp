@@ -313,6 +313,23 @@ so Vercel doesn't try to bundle the native module.
 Dependencies: `@napi-rs/canvas` only. Run `npm install` after pulling.
 No environment variables required for rendering.
 
+### Image loading on Vercel production
+
+On Vercel serverless, `fetch()` to the R2 public URL
+(`storage.manasik.net`) may fail — Cloudflare CDN can block or 404
+server-side requests. The renderer handles this with a two-strategy
+fallback in `loadImageFromUrl`:
+
+1. **HTTP fetch** to the public CDN URL (works locally + on most hosts)
+2. **R2 S3 API** direct download via `downloadFromR2()` — bypasses
+   Cloudflare CDN entirely, going to `{accountId}.r2.cloudflarestorage.com`
+   using the R2 credentials. Used when HTTP fetch fails on Vercel.
+
+The S3 client is configured with `forcePathStyle: true` and
+`requestChecksumCalculation: 'WHEN_REQUIRED'` to match the backend's
+configuration. The same fallback is used in the image-proxy and
+proxy-image routes.
+
 Known limitations:
 - Text auto-shrink for regular text layers (binary search font fitting
   to fit a fixed box) is not implemented — only dynamic field text

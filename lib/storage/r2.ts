@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
 const ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
@@ -16,10 +16,14 @@ function getClient(): S3Client {
   client = new S3Client({
     region: 'auto',
     endpoint: `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    forcePathStyle: true,
     credentials: {
       accessKeyId: ACCESS_KEY_ID,
       secretAccessKey: SECRET_ACCESS_KEY,
     },
+    // Match the backend's checksum setting — flexible mode adds extra
+    // checksum headers that can cause signature mismatches with R2.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
   });
   return client;
 }
@@ -129,7 +133,10 @@ export function generateThumbnailKey(projectId: string): string {
 export function extractKeyFromUrl(url: string): string | null {
   if (!PUBLIC_URL) return null;
   if (!url.startsWith(PUBLIC_URL)) return null;
-  return url.slice(PUBLIC_URL.length + 1); // +1 for the '/'
+  // Strip query params and fragments (e.g. ?v=123 for cache-busting)
+  const path = url.slice(PUBLIC_URL.length + 1); // +1 for the '/'
+  const queryIndex = path.search(/[?#]/);
+  return queryIndex === -1 ? path : path.slice(0, queryIndex);
 }
 
 /**
@@ -187,6 +194,27 @@ export async function deleteMultipleFromR2(keys: string[]): Promise<void> {
   // Delete one by one — R2/S3 batch delete has a 1000-object limit,
   // and individual deletes are simpler and good enough for project cleanup.
   await Promise.all(keys.map((key) => deleteFromR2(key)));
+}
+
+/**
+ * Download an object from R2 by its key. Returns the Buffer, or null if
+ * the download fails. Used by the server-side renderer to fetch images
+ * directly from R2 (bypassing Cloudflare CDN) when HTTP fetch to the
+ * public URL fails — e.g. on Vercel serverless where the CDN may block
+ * or 404 server-side requests.
+ */
+export async function downloadFromR2(key: string): Promise<Buffer | null> {
+  if (!BUCKET_NAME) return null;
+  try {
+    const s3 = getClient();
+    const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    if (!response.Body) return null;
+    const bytes = await response.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  } catch (error) {
+    console.error(`[R2] Failed to download key "${key}":`, error);
+    return null;
+  }
 }
 
 export { PUBLIC_URL, BUCKET_NAME };
