@@ -828,24 +828,41 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
 
   let buffer: Buffer | null = null;
 
-  // Strategy 1: HTTP fetch to the public CDN URL.
-  // Works locally and on most hosts. On Vercel production, Cloudflare
-  // CDN may block or 404 server-side requests — in that case we fall
-  // through to Strategy 2.
-  try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (response.ok) {
-      buffer = Buffer.from(await response.arrayBuffer());
+  // Strategy 1: HTTP fetch to the public CDN URL with multiple header
+  // strategies. On Vercel production, Cloudflare CDN blocks bare
+  // server-side requests (403/404). Sending browser-like headers
+  // bypasses the bot protection. This is the same fix that was applied
+  // before for image loading — shapes need it too since they're also
+  // served from storage.manasik.net (Cloudflare CDN).
+  const fetchStrategies: Array<RequestInit> = [
+    { cache: 'no-store' },
+    {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+      redirect: 'follow',
+    },
+  ];
+
+  for (const strategy of fetchStrategies) {
+    try {
+      const response = await fetch(url, strategy);
+      if (response.ok) {
+        buffer = Buffer.from(await response.arrayBuffer());
+        break;
+      }
+    } catch {
+      // Network error — try next strategy
     }
-  } catch {
-    // Network error — fall through to R2 strategy
   }
 
   // Strategy 2: Download directly from R2 via the S3 API.
   // This bypasses Cloudflare CDN entirely, going to
   // {accountId}.r2.cloudflarestorage.com instead of the public URL.
   // Used when HTTP fetch fails (e.g. on Vercel serverless where the
-  // CDN blocks server-side requests).
+  // CDN blocks server-side requests even with browser headers).
   if (!buffer) {
     const key = extractKeyFromUrl(url);
     if (key) {
@@ -1459,8 +1476,8 @@ async function renderShapeLayer(ctx: SKRSContext2D, layer: ShapeLayer): Promise<
     try {
       const img = await loadImageFromUrl(layer.uri);
       ctx.drawImage(img, 0, 0, layer.width, layer.height);
-    } catch (err) {
-      console.error('[renderShapeLayer] PNG shape failed:', layer.uri, err);
+    } catch {
+      // Image failed — skip
     }
     return;
   }
@@ -2259,11 +2276,6 @@ export async function renderTemplateToJpg(
     ctx.save();
     ctx.globalAlpha = layer.opacity;
     applyLayerTransform(ctx, layer);
-
-    if (layer.type === 'shape') {
-      const s = layer as ShapeLayer;
-      console.error(`[render] shape layer: shape=${s.shape} uri=${s.uri?.substring(0, 80) ?? 'none'} visible=${layer.visible} ${layer.width}x${layer.height}`);
-    }
 
     switch (layer.type) {
       case 'text':
