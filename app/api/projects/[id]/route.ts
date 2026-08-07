@@ -102,9 +102,25 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
+ * Check if an R2 key belongs to the design app's own storage (design/).
+ * Only design-app-owned assets should be deleted on project deletion.
+ * Files in other folders (e.g. images/customers/) are owned by the
+ * backend and must NOT be deleted — they're customer-uploaded photos
+ * referenced by design instances but not owned by them.
+ */
+function isDesignOwnedKey(key: string): boolean {
+  return key.startsWith('design/');
+}
+
+/**
  * Collect all R2 URLs from a project that should be deleted when the
  * project is deleted: background, thumbnail, image layer URIs, shape URIs,
  * and collage cell URIs.
+ *
+ * IMPORTANT: Only collects keys under the `design/` folder. Image layers
+ * in order-generated designs may reference customer photos stored at
+ * `images/customers/...` — those are owned by the backend and must not
+ * be deleted here.
  */
 function collectProjectR2Keys(project: Project): string[] {
   const keys: string[] = [];
@@ -115,11 +131,11 @@ function collectProjectR2Keys(project: Project): string[] {
   // Background image
   if (project.backgroundUri) {
     const key = extractKeyFromUrl(project.backgroundUri);
-    if (key) keys.push(key);
+    if (key && isDesignOwnedKey(key)) keys.push(key);
   }
   if (project.backgroundThumbnailUri) {
     const key = extractKeyFromUrl(project.backgroundThumbnailUri);
-    if (key) keys.push(key);
+    if (key && isDesignOwnedKey(key)) keys.push(key);
   }
 
   // Layer URIs
@@ -128,22 +144,22 @@ function collectProjectR2Keys(project: Project): string[] {
       const img = layer as ImageLayer;
       if (img.uri) {
         const key = extractKeyFromUrl(img.uri);
-        if (key) keys.push(key);
+        if (key && isDesignOwnedKey(key)) keys.push(key);
       }
       if (img.originalUri) {
         const key = extractKeyFromUrl(img.originalUri);
-        if (key) keys.push(key);
+        if (key && isDesignOwnedKey(key)) keys.push(key);
       }
       if (img.thumbnailUri) {
         const key = extractKeyFromUrl(img.thumbnailUri);
-        if (key) keys.push(key);
+        if (key && isDesignOwnedKey(key)) keys.push(key);
       }
       // Collage cell URIs
       if (img.collage?.cells) {
         for (const cell of img.collage.cells) {
           if (cell.uri) {
             const key = extractKeyFromUrl(cell.uri);
-            if (key) keys.push(key);
+            if (key && isDesignOwnedKey(key)) keys.push(key);
           }
         }
       }
@@ -152,11 +168,11 @@ function collectProjectR2Keys(project: Project): string[] {
       const shape = layer as ShapeLayer;
       if (shape.uri) {
         const key = extractKeyFromUrl(shape.uri);
-        if (key) keys.push(key);
+        if (key && isDesignOwnedKey(key)) keys.push(key);
       }
       if (shape.thumbnailUri) {
         const key = extractKeyFromUrl(shape.thumbnailUri);
-        if (key) keys.push(key);
+        if (key && isDesignOwnedKey(key)) keys.push(key);
       }
     }
   }
