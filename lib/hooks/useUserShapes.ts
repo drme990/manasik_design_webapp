@@ -22,6 +22,9 @@ export interface UserShape {
 let cachedShapes: UserShape[] | null = null;
 let fetchPromise: Promise<UserShape[]> | null = null;
 
+/** Maximum shape upload size — must match the server-side limit. */
+export const MAX_SHAPE_SIZE = 500 * 1024; // 500 KB
+
 async function fetchShapes(): Promise<UserShape[]> {
   if (cachedShapes !== null) return cachedShapes;
   if (fetchPromise) return fetchPromise;
@@ -82,6 +85,9 @@ export function useUserShapes() {
   }, []);
 
   const uploadShape = useCallback(async (file: File): Promise<UserShape | null> => {
+    if (file.size > MAX_SHAPE_SIZE) {
+      throw new Error('fileTooLarge');
+    }
     setUploading(true);
     try {
       const formData = new FormData();

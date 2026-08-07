@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { cn } from '@/lib/utils/cn';
-import ThemeToggle from '@/components/shared/ThemeToggle';
+import UserMenu from '@/components/shared/UserMenu';
 
 export interface HeaderProps {
   className?: string;
@@ -33,7 +33,7 @@ export default function Header({ className }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <ThemeToggle />
+          <UserMenu />
         </div>
       </div>
     </header>

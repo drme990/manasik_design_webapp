@@ -1292,8 +1292,11 @@ export default function EditorPage() {
             if (uploaded) {
                 toast.showToast({ message: t('toolbars.shape.shapeUploaded'), variant: 'success', duration: 2000 });
             }
-        } catch {
-            toast.showToast({ message: t('toolbars.shape.uploadFailed'), variant: 'error', duration: 3000 });
+        } catch (err) {
+            const errorMsg = err instanceof Error && err.message === 'fileTooLarge'
+                ? t('toolbars.shape.fileTooLarge')
+                : t('toolbars.shape.uploadFailed');
+            toast.showToast({ message: errorMsg, variant: 'error', duration: 3000 });
         }
     }, [uploadShape, toast, t]);
 

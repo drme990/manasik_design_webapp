@@ -143,7 +143,11 @@
     "toggleSidebar": "إظهار/إخفاء الشريط الجانبي",
     "notifications": "الإشعارات",
     "userAvatar": "المستخدم",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "userMenu": "قائمة المستخدم",
+    "theme": "الثيم",
+    "logout": "تسجيل الخروج",
+    "loggingOut": "جاري تسجيل الخروج..."
   },
   "footer": {
     "tagline": "تصميمات مناسك — تطبيق التصميم للمناسبات",
@@ -352,6 +356,7 @@
         "shapeUploaded": "تم رفع الشكل بنجاح",
         "shapeDeleted": "تم حذف الشكل",
         "uploadFailed": "فشل رفع الشكل",
+        "fileTooLarge": "حجم الملف كبير جدًا. الحد الأقصى 500 كيلوبايت.",
         "deleteFailed": "فشل حذف الشكل"
       },
       "dynamicField": {

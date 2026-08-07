@@ -11,7 +11,7 @@ const COLLECTION = 'design_user_shapes';
 // Only PNG is allowed for custom shapes (preserves transparency)
 const ALLOWED_TYPES = new Set(['image/png']);
 const ALLOWED_EXTS = new Set(['png']);
-const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_SIZE = 500 * 1024; // 500 KB — shapes are small decorative elements
 
 interface UserShapeDoc {
   id: string;
