@@ -30,7 +30,7 @@ import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
 import MobileEyeDropper from '@/components/editor/EditorPage/MobileEyeDropper';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { useToast } from '@/components/providers/ToastProvider';
-import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground, captureProjectThumbnailBlob, uploadProjectThumbnailBlob } from '@/lib/storage/upload';
+import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground, captureProjectThumbnailBlob, uploadProjectThumbnailBlob, imageUrlToDataUrl } from '@/lib/storage/upload';
 import {
     buildTextLayer,
     buildImageLayer,
@@ -706,8 +706,42 @@ export default function EditorPage() {
 
         await new Promise((resolve) => setTimeout(resolve, 120));
 
+        const element = canvasRef.current;
+
+        // ── Preload images as data URLs ───────────────────────────────
+        // R2 images (storage.manasik.net) don't have CORS headers, so
+        // html-to-image's internal fetch fails and taints the canvas.
+        // We preload every <img> and CSS background-image as a data URL
+        // (via the server-side proxy) before capture, then restore after.
+        const prevBgImage = element.style.backgroundImage;
+        const computedBg = getComputedStyle(element).backgroundImage;
+        const bgUrlMatch = computedBg.match(/url\(["']?(.*?)["']?\)/);
+        if (bgUrlMatch && bgUrlMatch[1] && !bgUrlMatch[1].startsWith('data:')) {
+            try {
+                const dataUrl = await imageUrlToDataUrl(bgUrlMatch[1]);
+                element.style.backgroundImage = `url(${dataUrl})`;
+            } catch {
+                // leave as-is; html-to-image will try its own fetch
+            }
+        }
+
+        const imgs = Array.from(element.querySelectorAll('img'));
+        const imgRestores: Array<{ img: HTMLImageElement; src: string }> = [];
+        await Promise.all(imgs.map(async (img) => {
+            const src = img.src;
+            if (src && !src.startsWith('data:')) {
+                try {
+                    const dataUrl = await imageUrlToDataUrl(src);
+                    imgRestores.push({ img, src: img.src });
+                    img.src = dataUrl;
+                } catch {
+                    // leave as-is
+                }
+            }
+        }));
+
         try {
-            const dataUrl = await toJpeg(canvasRef.current, {
+            const dataUrl = await toJpeg(element, {
                 quality: 0.95,
                 backgroundColor: project.backgroundColor || '#ffffff',
                 pixelRatio: 2,
@@ -724,6 +758,11 @@ export default function EditorPage() {
         } catch (error) {
             console.error('Failed to export canvas as JPG:', error);
         } finally {
+            // Restore original styles so the editor UI isn't left with data URLs
+            element.style.backgroundImage = prevBgImage;
+            for (const { img, src } of imgRestores) {
+                img.src = src;
+            }
             setIsExporting(false);
         }
     }, [project, isExporting]);
