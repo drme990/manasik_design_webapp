@@ -358,7 +358,7 @@ const PROJECT_THUMBNAIL_TARGET_WIDTH = 400; // px — small enough for cards, ~1
  * which fetches without CORS restrictions and returns the image with
  * permissive CORS headers.
  */
-async function imageUrlToDataUrl(url: string): Promise<string> {
+export async function imageUrlToDataUrl(url: string): Promise<string> {
   // Already a data URL — no need to fetch
   if (url.startsWith('data:')) return url;
 
