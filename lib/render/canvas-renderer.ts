@@ -11,6 +11,7 @@ import type {
 } from '@/types';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
 import { extractKeyFromUrl, downloadFromR2 } from '@/lib/storage/r2';
+import { getMongoClient } from '@/lib/db/mongodb';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -76,14 +77,16 @@ const RENDER_SCALE = 1;
 // ─── Font registration ────────────────────────────────────────────────────
 
 let fontsRegistered = false;
+/** Set of font family names that were successfully registered with the canvas engine. */
+const registeredFontFamilies = new Set<string>();
 
 /**
  * Register Expo Arabic fonts from the public directory with the canvas
  * engine. Called once per process — fonts don't change at runtime.
  *
  * Tajawal and IBM Plex Sans Arabic (Google Fonts) are also registered
- * if their .ttf files are present in public/fonts/. If not, text using
- * those families falls back to the system default.
+ * if their .ttf files are present in public/fonts/google/. If not, text
+ * using those families falls back to Expo Arabic.
  */
 async function ensureFontsRegistered(): Promise<void> {
   if (fontsRegistered) return;
@@ -104,7 +107,8 @@ async function ensureFontsRegistered(): Promise<void> {
   for (const font of expoFonts) {
     try {
       const buffer = await readFile(join(expoDir, font.path));
-      GlobalFonts.register(buffer, font.family);
+      const key = GlobalFonts.register(buffer, font.family);
+      if (key) registeredFontFamilies.add(font.family);
     } catch {
       // Font file missing — skip
     }
@@ -125,7 +129,8 @@ async function ensureFontsRegistered(): Promise<void> {
   for (const font of satoshiFonts) {
     try {
       const buffer = await readFile(join(satoshiDir, font.path));
-      GlobalFonts.register(buffer, font.family);
+      const key = GlobalFonts.register(buffer, font.family);
+      if (key) registeredFontFamilies.add(font.family);
     } catch {
       // Font file missing — skip
     }
@@ -143,19 +148,206 @@ async function ensureFontsRegistered(): Promise<void> {
   const googleFonts: Array<{ path: string; family: string }> = [
     { path: 'Tajawal-Regular.ttf', family: 'Tajawal' },
     { path: 'Tajawal-Bold.ttf', family: 'Tajawal' },
+    { path: 'Tajawal-ExtraBold.ttf', family: 'Tajawal' },
     { path: 'IBMPlexSansArabic-Regular.ttf', family: 'IBM Plex Sans Arabic' },
+    { path: 'IBMPlexSansArabic-Medium.ttf', family: 'IBM Plex Sans Arabic' },
     { path: 'IBMPlexSansArabic-Bold.ttf', family: 'IBM Plex Sans Arabic' },
   ];
   for (const font of googleFonts) {
     try {
       const buffer = await readFile(join(googleFontDir, font.path));
-      GlobalFonts.register(buffer, font.family);
+      const key = GlobalFonts.register(buffer, font.family);
+      if (key) registeredFontFamilies.add(font.family);
     } catch {
       // Font file missing — skip
     }
   }
 
   fontsRegistered = true;
+}
+
+/**
+ * Resolve a font family name to a registered font.
+ * Falls back to 'Expo Arabic' (always registered, has Arabic glyphs)
+ * if the requested family isn't available on the canvas engine.
+ * This prevents "tofu" (squares) when a font file is missing.
+ */
+function resolveFontFamily(family: string | undefined): string {
+  const f = family ?? 'Expo Arabic';
+  if (registeredFontFamilies.has(f)) return f;
+  return 'Expo Arabic';
+}
+
+/**
+ * Build a CSS font-family string with an Arabic-capable fallback.
+ *
+ * `@napi-rs/canvas` supports CSS font stacks in `ctx.font` — when a glyph
+ * is missing from the primary font, the engine falls back to the next
+ * family in the stack. This ensures Arabic text always renders even when
+ * a Latin-only font (e.g. Satoshi) is selected.
+ *
+ * e.g. "Satoshi" → "'Satoshi', 'Expo Arabic'"
+ *      "Expo Arabic" → "'Expo Arabic'"  (no redundant fallback)
+ */
+function fontFamilyCss(family: string): string {
+  if (family === 'Expo Arabic') return "'Expo Arabic'";
+  return `'${family}', 'Expo Arabic'`;
+}
+
+// ─── Custom (user-uploaded) font loading ──────────────────────────────────
+
+interface UserFontDoc {
+  id: string;
+  userId: string;
+  family: string;
+  name: string;
+  url: string;
+  format: string;
+  weight: number;
+  contentType: string;
+  size: number;
+  createdAt: number;
+}
+
+/**
+ * Built-in font families that are always loaded from public/fonts/.
+ * Any family NOT in this set is treated as a user-uploaded font.
+ */
+const BUILTIN_FONT_FAMILIES = new Set([
+  'Expo Arabic',
+  'Satoshi',
+  'Tajawal',
+  'IBM Plex Sans Arabic',
+]);
+
+/**
+ * Collect all font family names used in a project's layers (including
+ * per-span overrides in dynamic fields) that are NOT built-in fonts.
+ * These are user-uploaded custom fonts that need to be loaded from R2.
+ */
+function collectCustomFontFamilies(project: Project): string[] {
+  const families = new Set<string>();
+
+  for (const layer of project.layers) {
+    if (layer.type === 'text') {
+      const tl = layer as TextLayer;
+      if (tl.fontFamily && !BUILTIN_FONT_FAMILIES.has(tl.fontFamily)) {
+        families.add(tl.fontFamily);
+      }
+      // Check per-span font overrides
+      if (tl.spans) {
+        for (const span of tl.spans) {
+          if (span.fontFamily && !BUILTIN_FONT_FAMILIES.has(span.fontFamily)) {
+            families.add(span.fontFamily);
+          }
+        }
+      }
+    }
+    if (layer.type === 'dynamic_field') {
+      const dl = layer as DynamicFieldLayer;
+      if (dl.fontFamily && !BUILTIN_FONT_FAMILIES.has(dl.fontFamily)) {
+        families.add(dl.fontFamily);
+      }
+      // Check combined field style overrides
+      if (dl.combinedFieldStyles) {
+        for (const style of Object.values(dl.combinedFieldStyles)) {
+          if (style.fontFamily && !BUILTIN_FONT_FAMILIES.has(style.fontFamily)) {
+            families.add(style.fontFamily);
+          }
+        }
+      }
+    }
+  }
+
+  return [...families];
+}
+
+/**
+ * Load and register user-uploaded custom fonts used in a project.
+ *
+ * Queries the `design_user_fonts` MongoDB collection for the font families
+ * used in the project's layers, downloads each font file from R2, and
+ * registers it with the canvas engine via GlobalFonts.register.
+ *
+ * Fonts already registered (from a previous render) are skipped.
+ * Failures are logged but don't abort the render — the affected text
+ * falls back to Expo Arabic via resolveFontFamily().
+ */
+async function loadCustomFontsForProject(project: Project): Promise<void> {
+  const customFamilies = collectCustomFontFamilies(project);
+  if (customFamilies.length === 0) return;
+
+  // Filter out families that are already registered (from a previous render)
+  const needed = customFamilies.filter((f) => !registeredFontFamilies.has(f));
+  if (needed.length === 0) return;
+
+  try {
+    const client = getMongoClient();
+    if (!client.isConnected()) {
+      await client.connect();
+    }
+    const collection = client.getCollection<UserFontDoc>('design_user_fonts');
+    if (!collection) return;
+
+    // Query for all font docs matching the needed families.
+    // A family may have multiple weights — register them all.
+    const docs = await collection
+      .find({ family: { $in: needed } })
+      .toArray();
+
+    if (docs.length === 0) return;
+
+    // Download + register each font file from R2
+    for (const doc of docs) {
+      if (registeredFontFamilies.has(doc.family)) continue;
+
+      try {
+        // @napi-rs/canvas only supports TTF and OTF formats.
+        // WOFF/WOFF2/EOT are browser-only formats and will fail to register.
+        const ext = (doc.url.split('.').pop() || '').toLowerCase().split('?')[0];
+        if (ext !== 'ttf' && ext !== 'otf') {
+          console.warn(`[fonts] Skipping unsupported font format "${ext}" for ${doc.family} — @napi-rs/canvas only supports TTF/OTF. URL: ${doc.url}`);
+          continue;
+        }
+
+        // Try HTTP fetch first (works locally + when CDN is accessible)
+        let buffer: Buffer | null = null;
+        try {
+          const res = await fetch(doc.url, { cache: 'no-store' });
+          if (res.ok) {
+            buffer = Buffer.from(await res.arrayBuffer());
+          }
+        } catch {
+          // HTTP fetch failed — fall through to R2 direct download
+        }
+
+        // Fallback: download directly from R2 via S3 API (bypasses CDN)
+        if (!buffer) {
+          const key = extractKeyFromUrl(doc.url);
+          if (key) {
+            buffer = await downloadFromR2(key);
+          }
+        }
+
+        if (!buffer) {
+          console.warn(`[fonts] Could not download custom font: ${doc.family} (${doc.url})`);
+          continue;
+        }
+
+        // GlobalFonts.register returns FontKey on success, null on failure
+        const fontKey = GlobalFonts.register(buffer, doc.family);
+        if (fontKey) {
+          registeredFontFamilies.add(doc.family);
+        } else {
+          console.warn(`[fonts] GlobalFonts.register returned null for ${doc.family} — the font file may be corrupt or in an unsupported format`);
+        }
+      } catch (err) {
+        console.warn(`[fonts] Failed to register custom font ${doc.family}:`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[fonts] Failed to load custom fonts from DB:', err);
+  }
 }
 
 // ─── Dynamic field resolution ─────────────────────────────────────────────
@@ -754,17 +946,20 @@ function fillTextOrSymbol(
   if (sym) {
     const bold = originalFont.includes('700');
     ctx.save();
+    // Gender symbols are drawn from the top-left, but with textBaseline='middle'
+    // y is the vertical center. Adjust to get the top of the symbol area.
+    const symY = y - size / 2;
 
     // Try SVG images first
     if (genderMaleImg && genderFemaleImg) {
       const gap = size * 0.15;
       if (sym === '♂') {
-        const w = drawGenderImage(ctx, genderMaleImg, x, y, size);
+        const w = drawGenderImage(ctx, genderMaleImg, x, symY, size);
         ctx.restore();
         return w;
       }
       if (sym === '♀') {
-        const w = drawGenderImage(ctx, genderFemaleImg, x, y, size);
+        const w = drawGenderImage(ctx, genderFemaleImg, x, symY, size);
         ctx.restore();
         return w;
       }
@@ -772,40 +967,40 @@ function fillTextOrSymbol(
       // ♂♀: male first (left), female second (right)
       // ♀♂: female first (left), male second (right)
       if (sym === '♂♀') {
-        const w1 = drawGenderImage(ctx, genderMaleImg, x, y, size);
-        const w2 = drawGenderImage(ctx, genderFemaleImg, x + w1 + gap, y, size);
+        const w1 = drawGenderImage(ctx, genderMaleImg, x, symY, size);
+        const w2 = drawGenderImage(ctx, genderFemaleImg, x + w1 + gap, symY, size);
         ctx.restore();
         return w1 + gap + w2;
       }
       // ♀♂
-      const w1 = drawGenderImage(ctx, genderFemaleImg, x, y, size);
-      const w2 = drawGenderImage(ctx, genderMaleImg, x + w1 + gap, y, size);
+      const w1 = drawGenderImage(ctx, genderFemaleImg, x, symY, size);
+      const w2 = drawGenderImage(ctx, genderMaleImg, x + w1 + gap, symY, size);
       ctx.restore();
       return w1 + gap + w2;
     }
 
     // Fallback: vector path drawing
     if (sym === '♂') {
-      const w = drawMaleSymbol(ctx, x, y, size, color, bold);
+      const w = drawMaleSymbol(ctx, x, symY, size, color, bold);
       ctx.restore();
       return w;
     }
     if (sym === '♀') {
-      const w = drawFemaleSymbol(ctx, x, y, size, color, bold);
+      const w = drawFemaleSymbol(ctx, x, symY, size, color, bold);
       ctx.restore();
       return w;
     }
     // Both symbols (vector fallback)
     const gap = size * 0.15;
     if (sym === '♂♀') {
-      const w1 = drawMaleSymbol(ctx, x, y, size, color, bold);
-      const w2 = drawFemaleSymbol(ctx, x + w1 + gap, y, size, color, bold);
+      const w1 = drawMaleSymbol(ctx, x, symY, size, color, bold);
+      const w2 = drawFemaleSymbol(ctx, x + w1 + gap, symY, size, color, bold);
       ctx.restore();
       return w1 + gap + w2;
     }
     // ♀♂
-    const w1 = drawFemaleSymbol(ctx, x, y, size, color, bold);
-    const w2 = drawMaleSymbol(ctx, x + w1 + gap, y, size, color, bold);
+    const w1 = drawFemaleSymbol(ctx, x, symY, size, color, bold);
+    const w2 = drawMaleSymbol(ctx, x + w1 + gap, symY, size, color, bold);
     ctx.restore();
     return w1 + gap + w2;
   }
@@ -908,7 +1103,7 @@ function applyLayerTransform(ctx: SKRSContext2D, layer: AnyLayer): void {
 function buildFontStringWithSize(layer: TextLayer, size: number): string {
   const style = layer.italic ? 'italic ' : '';
   const weight = layer.bold ? 700 : layer.fontWeight || 400;
-  return `${style}${weight} ${size}px '${layer.fontFamily}'`;
+  return `${style}${weight} ${size}px ${fontFamilyCss(resolveFontFamily(layer.fontFamily))}`;
 }
 
 /**
@@ -918,8 +1113,8 @@ function buildFontStringWithSize(layer: TextLayer, size: number): string {
 function buildSpanFontString(span: { fontFamily?: string; bold?: boolean; italic?: boolean }, layer: TextLayer, size: number): string {
   const style = (span.italic ?? layer.italic) ? 'italic ' : '';
   const weight = (span.bold ?? layer.bold) ? 700 : (layer.fontWeight || 400);
-  const family = span.fontFamily ?? layer.fontFamily;
-  return `${style}${weight} ${size}px '${family}'`;
+  const family = resolveFontFamily(span.fontFamily ?? layer.fontFamily);
+  return `${style}${weight} ${size}px ${fontFamilyCss(family)}`;
 }
 
 /**
@@ -1062,7 +1257,12 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   const hasSpans = layer.spans && layer.spans.length > 0;
 
   ctx.fillStyle = layer.color;
-  ctx.textBaseline = 'top';
+  // Use 'middle' baseline so text is vertically centered at the y position
+  // regardless of the font's internal ascent/descent metrics. Different
+  // fonts have different ascent/descent ratios, so 'top' baseline causes
+  // visual shifts when switching fonts. 'middle' anchors at the visual
+  // center of the em box, giving consistent vertical centering.
+  ctx.textBaseline = 'middle';
 
   // ── Auto-fit mode ────────────────────────────────────────────────
   // When autoFit is true (text layers inflated from dynamic fields),
@@ -1190,7 +1390,9 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
 
   for (let i = 0; i < lines.length; i++) {
     const lineSegs = lines[i];
-    const y = startY + i * lineHeight + (lineHeight - renderFontSize) / 2;
+    // With textBaseline='middle', y is the vertical CENTER of the line.
+    // Line i's center = startY + half glyph + i line gaps + half line gap adjustment.
+    const y = startY + renderFontSize / 2 + i * lineHeight;
 
     // Calculate total line width (sum of segment widths + gaps between them)
     const spaceGap = ctx.measureText(' ').width;
@@ -1751,13 +1953,13 @@ async function renderDynamicFieldLayer(
 
     ctx.save();
     // No clip — let text overflow slightly if needed.
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
 
     for (let i = 0; i < count; i++) {
       const part = visibleParts[i];
       const fs = fieldStyles[part.varId] ?? {};
-      const fieldFontFamily = fs.fontFamily ?? layer.fontFamily ?? 'Expo Arabic';
+      const fieldFontFamily = resolveFontFamily(fs.fontFamily ?? layer.fontFamily);
       const fieldFontWeight = (fs.bold ?? layer.bold ?? true) ? 700 : (layer.fontWeight || 400);
       const fieldItalic = fs.italic ?? layer.italic ?? false;
       const fieldColor = fs.color ?? layer.color;
@@ -1777,7 +1979,7 @@ async function renderDynamicFieldLayer(
 
       function buildSubFont(size: number): string {
         const style = fieldItalic ? 'italic ' : '';
-        return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+        return `${style}${fieldFontWeight} ${size}px ${fontFamilyCss(fieldFontFamily)}`;
       }
 
       function doesSubFit(size: number): boolean {
@@ -1837,7 +2039,7 @@ async function renderDynamicFieldLayer(
 
       for (let li = 0; li < lines.length; li++) {
         let line = lines[li];
-        const y = startY + li * lineHeight + (lineHeight - bestSize) / 2;
+        const y = startY + bestSize / 2 + li * lineHeight;
 
         // Prepend RLM to each line for RTL so the bidi algorithm uses RTL
         // base direction on every line, not just the first. Without this,
@@ -1894,7 +2096,7 @@ async function renderDynamicFieldLayer(
     const value = fieldParts.join(separator);
 
     // Text dynamic field — auto-fit font size
-    const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
+    const fieldFontFamily = resolveFontFamily(layer.fontFamily);
     const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
     const fieldItalic = layer.italic ?? false;
     const fieldLineHeight = Math.max(layer.lineHeight ?? 1.2, 1);
@@ -1911,7 +2113,7 @@ async function renderDynamicFieldLayer(
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
-      return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+      return `${style}${fieldFontWeight} ${size}px ${fontFamilyCss(fieldFontFamily)}`;
     }
 
     // Build span-like segments for per-field drawing. Each field becomes
@@ -1968,7 +2170,7 @@ async function renderDynamicFieldLayer(
 
     ctx.font = buildFieldFont(bestSize);
     ctx.fillStyle = layer.color;
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'middle';
 
     const lineHeight = bestSize * fieldLineHeight;
 
@@ -2024,7 +2226,7 @@ async function renderDynamicFieldLayer(
 
     for (let i = 0; i < lines.length; i++) {
       const lineSegs = lines[i];
-      const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
+      const y = startY + bestSize / 2 + i * lineHeight;
 
       // Calculate total line width (sum of segment widths + gaps)
       let lineWidth = 0;
@@ -2079,7 +2281,7 @@ async function renderDynamicFieldLayer(
     const value = (fieldDir === 'rtl' ? rlm : '') + resolvedValue!;
 
     // Text dynamic field — auto-fit font size
-    const fieldFontFamily = layer.fontFamily || 'Expo Arabic';
+    const fieldFontFamily = resolveFontFamily(layer.fontFamily);
     const fieldFontWeight = layer.bold ?? true ? 700 : (layer.fontWeight || 400);
     const fieldItalic = layer.italic ?? false;
     const fieldLineHeight = Math.max(layer.lineHeight ?? 1.2, 1);
@@ -2095,7 +2297,7 @@ async function renderDynamicFieldLayer(
 
     function buildFieldFont(size: number): string {
       const style = fieldItalic ? 'italic ' : '';
-      return `${style}${fieldFontWeight} ${size}px '${fieldFontFamily}'`;
+      return `${style}${fieldFontWeight} ${size}px ${fontFamilyCss(fieldFontFamily)}`;
     }
 
     function doesFontSizeFit(size: number): boolean {
@@ -2136,7 +2338,7 @@ async function renderDynamicFieldLayer(
 
     ctx.font = buildFieldFont(bestSize);
     ctx.fillStyle = layer.color;
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'middle';
 
     // Wrap at the full draw width — auto-fit already ensured it fits.
     const lines = wrapText(ctx, value, drawWidth);
@@ -2161,7 +2363,7 @@ async function renderDynamicFieldLayer(
 
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i];
-      const y = startY + i * lineHeight + (lineHeight - bestSize) / 2;
+      const y = startY + bestSize / 2 + i * lineHeight;
 
       // Prepend RLM to each line for RTL so the bidi algorithm uses RTL
       // base direction on every line, not just the first. Without this,
@@ -2222,6 +2424,8 @@ export async function renderTemplateToJpg(
   orderData: Record<string, unknown>,
 ): Promise<Buffer> {
   await ensureFontsRegistered();
+  // Load user-uploaded custom fonts used in this project from R2
+  await loadCustomFontsForProject(template);
 
   // Clear the image cache for this render pass
   imageCache.clear();

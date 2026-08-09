@@ -277,9 +277,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   saveProject: async (project) => {
     const clean = cleanProjectForSave(project);
+    // Convert undefined fields to null so they survive JSON.stringify
+    // and actually clear the field in MongoDB ($set). Without this,
+    // removing the background image sends no backgroundUri in the PATCH
+    // body, so the old value persists in the database.
+    const payload = {
+      ...clean,
+      backgroundUri: clean.backgroundUri ?? null,
+      backgroundThumbnailUri: clean.backgroundThumbnailUri ?? null,
+    };
     const result = await fetchWithAuth(`/api/projects/${project.id}`, {
       method: 'PATCH',
-      body: JSON.stringify(clean),
+      body: JSON.stringify(payload),
     });
     const saved = result.data as Project;
     // Update store with the server's response (canonical positions)

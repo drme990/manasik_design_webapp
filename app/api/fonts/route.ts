@@ -9,17 +9,18 @@ export const runtime = 'nodejs';
 const COLLECTION = 'design_user_fonts';
 
 // Allowed font MIME types and extensions
+// NOTE: Only TTF and OTF are supported — @napi-rs/canvas (server-side
+// renderer) cannot load WOFF/WOFF2/EOT. The browser's FontFace API can,
+// but any font that can't be rendered server-side would show as squares
+// in generated designs.
 const ALLOWED_FONT_TYPES = new Set([
   'font/ttf',
   'font/otf',
-  'font/woff',
-  'font/woff2',
-  'application/font-woff',
-  'application/font-woff2',
-  'application/vnd.ms-fontobject',
   'application/octet-stream', // browsers often send this for fonts
+  'application/x-font-ttf',
+  'application/x-font-otf',
 ]);
-const ALLOWED_FONT_EXTS = new Set(['ttf', 'otf', 'woff', 'woff2', 'eot']);
+const ALLOWED_FONT_EXTS = new Set(['ttf', 'otf']);
 const MAX_FONT_SIZE = 15 * 1024 * 1024; // 15 MB
 
 interface UserFontDoc {

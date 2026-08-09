@@ -60,7 +60,7 @@ export default function FontDrawer({
                 <input
                     ref={fontFileInputRef}
                     type="file"
-                    accept=".ttf,.otf,.woff,.woff2,.eot,font/ttf,font/otf,font/woff,font/woff2"
+                    accept=".ttf,.otf,font/ttf,font/otf"
                     className="hidden"
                     onChange={onFontFileSelect}
                 />
