@@ -38,11 +38,15 @@ interface OrderDataPayload {
     productId?: string;
     productName?: { ar?: string; en?: string };
     quantity?: number;
+    sizeIndex?: number;
+    sizeName?: { ar?: string; en?: string };
   }>;
   item?: {
     productId?: string;
     productName?: { ar?: string; en?: string };
     quantity?: number;
+    sizeIndex?: number;
+    sizeName?: { ar?: string; en?: string };
   };
   reservationData?: Array<{ key: string; value: string }>;
   reservation?: Record<string, string>;
@@ -566,6 +570,13 @@ function resolveFieldValue(
     const item = orderData.item || orderData.items?.[0];
     if (!item) return undefined;
     if (key === 'productName') {
+      // If the product has more than one size and the ordered size is
+      // not the default (sizeIndex > 0), display the size name instead
+      // of the product name. This lets a single template work for all
+      // size variants of a product (e.g. "كبيرة" vs "صغيرة").
+      if (item.sizeIndex && item.sizeIndex > 0 && item.sizeName) {
+        return item.sizeName.ar || item.sizeName.en;
+      }
       const name = item.productName;
       if (!name) return undefined;
       // Always prefer Arabic — templates are designed for Arabic content.

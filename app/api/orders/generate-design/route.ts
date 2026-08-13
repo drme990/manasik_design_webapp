@@ -86,12 +86,25 @@ function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string
 /**
  * Extract the current item's product name from the order data payload.
  * Used to give the design instance a human-readable name.
+ *
+ * If the ordered size is not the default (sizeIndex > 0), the size name
+ * is used instead — matching the dynamic field resolution logic.
  */
 function resolveProductName(
   orderData: Record<string, unknown>,
 ): string | undefined {
-  const item = (orderData as { item?: { productName?: { ar?: string; en?: string } } }).item;
-  if (!item?.productName) return undefined;
+  const item = (orderData as {
+    item?: {
+      productName?: { ar?: string; en?: string };
+      sizeIndex?: number;
+      sizeName?: { ar?: string; en?: string };
+    };
+  }).item;
+  if (!item) return undefined;
+  if (item.sizeIndex && item.sizeIndex > 0 && item.sizeName) {
+    return item.sizeName.ar || item.sizeName.en;
+  }
+  if (!item.productName) return undefined;
   return item.productName.ar || item.productName.en;
 }
 
