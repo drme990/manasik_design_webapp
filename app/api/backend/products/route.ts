@@ -27,7 +27,13 @@ const PROJECTION = {
   isDeleted: 1,
   displayOrder: 1,
   createdAt: 1,
+  sizes: 1,
 };
+
+interface BackendProductSize {
+  name: { ar: string; en: string };
+  isAvailable?: boolean;
+}
 
 interface BackendProduct {
   _id: unknown;
@@ -38,6 +44,7 @@ interface BackendProduct {
   isDeleted?: boolean;
   displayOrder?: number;
   createdAt?: Date;
+  sizes?: BackendProductSize[];
 }
 
 export async function GET() {
@@ -66,13 +73,24 @@ export async function GET() {
       .limit(1000)
       .toArray();
 
-    const data = products.map((p) => ({
-      id: String(p._id),
-      name: p.name?.ar ?? p.name?.en ?? p.slug,
-      slug: p.slug,
-      imageUri: p.media?.[0]?.url ?? undefined,
-      isActive: p.isActive ?? true,
-    }));
+    const data = products.map((p) => {
+      const sizes = (p.sizes ?? [])
+        .map((s, i) => ({
+          index: i,
+          name: s.name?.ar ?? s.name?.en ?? `Size ${i + 1}`,
+        }))
+        .filter((_, i) => p.sizes?.[i]?.isAvailable !== false);
+      return {
+        id: String(p._id),
+        name: p.name?.ar ?? p.name?.en ?? p.slug,
+        slug: p.slug,
+        imageUri: p.media?.[0]?.url ?? undefined,
+        isActive: p.isActive ?? true,
+        // Always include at least 1 size entry (index 0) so the UI has
+        // something to show even for products with no sizes array.
+        sizes: sizes.length > 0 ? sizes : [{ index: 0, name: 'افتراضي' }],
+      };
+    });
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

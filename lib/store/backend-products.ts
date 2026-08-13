@@ -7,12 +7,23 @@ import { createResourceCache } from './cache';
  * (/api/backend/products). Same API-first pattern as other stores.
  */
 
+export interface BackendProductSize {
+  /** 0-based size index (matches the order item's sizeIndex) */
+  index: number;
+  /** Arabic size name (falls back to English) */
+  name: string;
+}
+
 export interface BackendProduct {
   id: string;
   name: string;
   slug: string;
   imageUri?: string;
   isActive: boolean;
+  /** Product sizes — at least 1 entry. Products with 1 size are simple;
+   *  products with multiple sizes can be connected to different templates
+   *  per size. */
+  sizes: BackendProductSize[];
 }
 
 const CACHE_TTL_MS = 60_000; // 60 seconds

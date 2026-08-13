@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft } from 'react-icons/lu';
+import { LuSmartphone } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -15,7 +16,7 @@ import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import ConnectProductsModal from '@/components/templates/ConnectProductsModal';
-import type { BookingProduct, Project } from '@/types';
+import type { BookingProduct, Project, TemplateApp } from '@/types';
 
 type TabId = 'text' | 'image';
 
@@ -36,6 +37,8 @@ export default function TemplatesPage() {
     // Which tab the create drawer is targeting — set when the + button is
     // clicked so the created template gets the right templateType.
     const [drawerTab, setDrawerTab] = useState<TabId>('text');
+    // Which app the created template is for — manasik or ghadaq.
+    const [drawerApp, setDrawerApp] = useState<TemplateApp>('manasik');
     const [activeTab, setActiveTab] = useState<TabId>('text');
     const [customWidth, setCustomWidth] = useState('1080');
     const [customHeight, setCustomHeight] = useState('1080');
@@ -83,6 +86,7 @@ export default function TemplatesPage() {
                 canvasHeight: naturalHeight,
                 backgroundUri: dataUrl,
                 templateType: drawerTab,
+                appSource: drawerApp,
             });
             setDrawerOpen(false);
             router.push(`/editor/t/${project.id}`);
@@ -104,7 +108,11 @@ export default function TemplatesPage() {
     // Count how many products are assigned to a template (in either slot)
     const getProductCount = (templateId: string): number =>
         bookingProducts.filter(
-            (bp) => bp.templateId === templateId || bp.imageTemplateId === templateId,
+            (bp) =>
+                bp.templateId === templateId ||
+                bp.imageTemplateId === templateId ||
+                bp.ghadaqTemplateId === templateId ||
+                bp.ghadaqImageTemplateId === templateId,
         ).length;
 
     const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
@@ -114,6 +122,7 @@ export default function TemplatesPage() {
             canvasWidth: preset.width,
             canvasHeight: preset.height,
             templateType: drawerTab,
+            appSource: drawerApp,
         });
         setDrawerOpen(false);
         router.push(`/editor/t/${project.id}`);
@@ -129,6 +138,7 @@ export default function TemplatesPage() {
             canvasWidth: width,
             canvasHeight: height,
             templateType: drawerTab,
+            appSource: drawerApp,
         });
         setDrawerOpen(false);
         router.push(`/editor/t/${project.id}`);
@@ -144,11 +154,16 @@ export default function TemplatesPage() {
             // also does this, but we update locally for instant UI feedback.
             setBookingProducts((prev) =>
                 prev.map((bp) =>
-                    bp.templateId === deleteTemplateId || bp.imageTemplateId === deleteTemplateId
+                    bp.templateId === deleteTemplateId ||
+                        bp.imageTemplateId === deleteTemplateId ||
+                        bp.ghadaqTemplateId === deleteTemplateId ||
+                        bp.ghadaqImageTemplateId === deleteTemplateId
                         ? {
                             ...bp,
                             templateId: bp.templateId === deleteTemplateId ? null : bp.templateId,
                             imageTemplateId: bp.imageTemplateId === deleteTemplateId ? null : bp.imageTemplateId,
+                            ghadaqTemplateId: bp.ghadaqTemplateId === deleteTemplateId ? null : bp.ghadaqTemplateId,
+                            ghadaqImageTemplateId: bp.ghadaqImageTemplateId === deleteTemplateId ? null : bp.ghadaqImageTemplateId,
                         }
                         : bp,
                 ),
@@ -163,6 +178,7 @@ export default function TemplatesPage() {
     // Open the create drawer for a specific tab
     const openCreateDrawer = (tab: TabId) => {
         setDrawerTab(tab);
+        setDrawerApp('manasik');
         setDrawerOpen(true);
     };
 
@@ -204,6 +220,19 @@ export default function TemplatesPage() {
                                     {productCount > 0
                                         ? t('assignedProductsCount').replace('{count}', String(productCount))
                                         : t('noProductsAssigned')}
+                                </div>
+
+                                {/* App badge — manasik or ghadaq */}
+                                <div className="mb-3 flex items-center gap-1.5">
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${(template.appSource ?? 'manasik') === 'ghadaq'
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'bg-blue-100 text-blue-700'
+                                        }`}>
+                                        <LuSmartphone className="h-3 w-3" />
+                                        {(template.appSource ?? 'manasik') === 'ghadaq'
+                                            ? t('appGhadaq')
+                                            : t('appManasik')}
+                                    </span>
                                 </div>
 
                                 <div className="mt-auto flex items-center gap-2">
@@ -271,6 +300,35 @@ export default function TemplatesPage() {
                 </Button>
             }
         >
+            {/* App selector — manasik or ghadaq */}
+            <div className="mb-6">
+                <h3 className="mb-3 text-sm font-medium text-secondary">{t('selectApp')}</h3>
+                <div className="grid grid-cols-2 gap-3">
+                    <button
+                        type="button"
+                        onClick={() => setDrawerApp('manasik')}
+                        className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors ${drawerApp === 'manasik'
+                            ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary'
+                            : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary'
+                            }`}
+                    >
+                        <LuSmartphone className="h-4 w-4" />
+                        {t('appManasik')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setDrawerApp('ghadaq')}
+                        className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors ${drawerApp === 'ghadaq'
+                            ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary'
+                            : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary'
+                            }`}
+                    >
+                        <LuSmartphone className="h-4 w-4" />
+                        {t('appGhadaq')}
+                    </button>
+                </div>
+            </div>
+
             {/* Pick from gallery — creates a template with the image's aspect ratio */}
             <div className="mb-6">
                 <input

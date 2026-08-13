@@ -72,31 +72,39 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     delete safeBody.id;
     delete safeBody.userId;
 
-    // ── Validate template type matches the slot ──────────────────────
-    // A text template (templateType='text' or undefined) can only go in
-    // `templateId`. An image template (templateType='image') can only go
-    // in `imageTemplateId`. This prevents assigning 2 text templates or
-    // 2 image templates to the same product.
-    if (safeBody.templateId || safeBody.imageTemplateId) {
+    // ── Validate template type + appSource for all 4 slots ──────────
+    // Each slot has a specific (type, app) combination:
+    //   templateId          → (text, manasik)
+    //   imageTemplateId     → (image, manasik)
+    //   ghadaqTemplateId    → (text, ghadaq)
+    //   ghadaqImageTemplateId → (image, ghadaq)
+    const slotChecks: Array<{ field: string; expectedType: 'text' | 'image'; expectedApp: 'manasik' | 'ghadaq' }> = [
+      { field: 'templateId', expectedType: 'text', expectedApp: 'manasik' },
+      { field: 'imageTemplateId', expectedType: 'image', expectedApp: 'manasik' },
+      { field: 'ghadaqTemplateId', expectedType: 'text', expectedApp: 'ghadaq' },
+      { field: 'ghadaqImageTemplateId', expectedType: 'image', expectedApp: 'ghadaq' },
+    ];
+    const hasSlotUpdate = slotChecks.some((sc) => safeBody[sc.field]);
+    if (hasSlotUpdate) {
       const mongoClient = getMongoClient();
       const projectsCollection = mongoClient.getCollection<Project>(PROJECTS_COLLECTION);
       if (projectsCollection) {
-        // Check templateId slot — must be a text template
-        if (safeBody.templateId && typeof safeBody.templateId === 'string') {
-          const tpl = await projectsCollection.findOne({ id: safeBody.templateId });
-          if (tpl && tpl.templateType === 'image') {
+        for (const { field, expectedType, expectedApp } of slotChecks) {
+          const value = safeBody[field];
+          if (!value || typeof value !== 'string') continue;
+          const tpl = await projectsCollection.findOne({ id: value });
+          if (!tpl) continue;
+          const tplType = tpl.templateType ?? 'text';
+          const tplApp = tpl.appSource ?? 'manasik';
+          if (tplType !== expectedType) {
             return NextResponse.json(
-              { success: false, error: 'templateTypeMismatch', message: 'An image template cannot be assigned to the text template slot.' },
+              { success: false, error: 'templateTypeMismatch', message: `Template type mismatch for ${field}.` },
               { status: 400 },
             );
           }
-        }
-        // Check imageTemplateId slot — must be an image template
-        if (safeBody.imageTemplateId && typeof safeBody.imageTemplateId === 'string') {
-          const tpl = await projectsCollection.findOne({ id: safeBody.imageTemplateId });
-          if (tpl && (tpl.templateType ?? 'text') === 'text') {
+          if (tplApp !== expectedApp) {
             return NextResponse.json(
-              { success: false, error: 'templateTypeMismatch', message: 'A text template cannot be assigned to the image template slot.' },
+              { success: false, error: 'appSourceMismatch', message: `App source mismatch for ${field}.` },
               { status: 400 },
             );
           }

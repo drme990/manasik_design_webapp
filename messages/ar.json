@@ -99,7 +99,12 @@
     "hasTextTemplate": "مرتبط بقالب نصي",
     "hasImageTemplate": "مرتبط بقالب صور",
     "searchProducts": "ابحث عن منتج...",
-    "noSearchResults": "لا توجد نتائج مطابقة"
+    "noSearchResults": "لا توجد نتائج مطابقة",
+    "appManasik": "مناسك",
+    "appGhadaq": "غدق",
+    "selectApp": "اختر التطبيق",
+    "appManasikDesc": "قالب لطلبات تطبيق مناسك",
+    "appGhadaqDesc": "قالب لطلبات تطبيق غدق"
   },
   "home": {
     "hero": {

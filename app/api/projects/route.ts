@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       layers: body.layers ?? [],
       bookingMeta: body.bookingMeta,
       templateType: body.templateType,
+      appSource: body.appSource,
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,

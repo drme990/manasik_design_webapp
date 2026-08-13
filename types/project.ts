@@ -26,6 +26,15 @@ export type ProjectSource = 'user' | 'order';
  */
 export type TemplateType = 'text' | 'image';
 
+/**
+ * Which app a booking template is designed for.
+ * - 'manasik' : template for orders from the Manasik app
+ * - 'ghadaq'  : template for orders from the Ghadaq app
+ * Undefined = legacy template created before this field; treated as
+ * 'manasik' (the original and only app when templates were introduced).
+ */
+export type TemplateApp = 'manasik' | 'ghadaq';
+
 export interface BookingMeta {
   productId: string;
 }
@@ -80,6 +89,8 @@ export interface Project extends SyncableDocument {
   userId?: string; // For multi-user support
   /** Booking template variant — see TemplateType. Designs ignore this. */
   templateType?: TemplateType;
+  /** Which app this template is for — see TemplateApp. Designs ignore this. */
+  appSource?: TemplateApp;
   /** Where the project came from — 'user' (manual) or 'order' (auto-generated). */
   source?: ProjectSource;
   /**
@@ -103,6 +114,7 @@ export interface ProjectCreateInput {
   bookingMeta?: BookingMeta;
   userId?: string;
   templateType?: TemplateType;
+  appSource?: TemplateApp;
   source?: ProjectSource;
 }
 
@@ -119,4 +131,5 @@ export interface ProjectUpdateInput {
   updatedAt?: number;
   localModifiedAt?: number;
   templateType?: TemplateType;
+  appSource?: TemplateApp;
 }

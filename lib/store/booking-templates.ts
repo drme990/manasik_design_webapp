@@ -71,6 +71,10 @@ export async function updateBookingProduct(id: string, updates: BookingProductUp
 export interface BulkChangeInput {
   bookingProductId?: string;
   backendProductId?: string;
+  /** Size index — 0 for default. Required when creating new booking products. */
+  sizeIndex?: number;
+  /** Size name (Arabic, for display). */
+  sizeName?: string;
   backendSlug?: string;
   name?: string;
   imageUri?: string;
@@ -78,7 +82,7 @@ export interface BulkChangeInput {
 }
 
 export async function bulkUpdateBookingProducts(
-  slotKey: 'templateId' | 'imageTemplateId',
+  slotKey: 'templateId' | 'imageTemplateId' | 'ghadaqTemplateId' | 'ghadaqImageTemplateId',
   changes: BulkChangeInput[],
 ): Promise<BookingProduct[]> {
   const result = await fetchWithAuth('/api/booking-products', {
@@ -104,16 +108,22 @@ export async function deleteBookingProduct(id: string): Promise<void> {
  */
 export async function getOrCreateBookingProduct(
   backendProduct: BackendProduct,
+  sizeIndex = 0,
+  sizeName?: string,
   defaultCanvas = { width: 1080, height: 1080 },
 ): Promise<BookingProduct> {
-  // Check if a booking product already exists for this backend product
+  // Check if a booking product already exists for this (product, size) pair
   const all = await listBookingProducts();
-  const existing = all.find((bp) => bp.backendProductId === backendProduct.id);
+  const existing = all.find(
+    (bp) => bp.backendProductId === backendProduct.id && (bp.sizeIndex ?? 0) === sizeIndex,
+  );
   if (existing) return existing;
 
-  // Create a new booking product linked to the backend product
+  // Create a new booking product linked to the backend product + size
   return createBookingProduct({
     backendProductId: backendProduct.id,
+    sizeIndex,
+    sizeName,
     backendSlug: backendProduct.slug,
     name: backendProduct.name,
     imageUri: backendProduct.imageUri,
@@ -138,14 +148,18 @@ export async function getOrCreateBookingProduct(
 export async function getOrCreateTemplateProject(
   productId: string,
   templateType: 'text' | 'image' = 'text',
+  appSource: 'manasik' | 'ghadaq' = 'manasik',
 ): Promise<Project> {
   const product = await getBookingProduct(productId);
   if (!product) {
     throw new Error('Product not found');
   }
 
+  // Compute the existing template ID from the right slot
   const existingId =
-    templateType === 'image' ? product.imageTemplateId : product.templateId;
+    appSource === 'ghadaq'
+      ? (templateType === 'image' ? product.ghadaqImageTemplateId : product.ghadaqTemplateId)
+      : (templateType === 'image' ? product.imageTemplateId : product.templateId);
 
   if (existingId) {
     const project = await useProjectStore.getState().getProject(existingId);
@@ -155,7 +169,8 @@ export async function getOrCreateTemplateProject(
   }
 
   const variantLabel = templateType === 'image' ? 'قالب صور' : 'قالب';
-  const projectName = `${product.name} — ${variantLabel}`;
+  const appLabel = appSource === 'ghadaq' ? 'غدق' : 'مناسك';
+  const projectName = `${product.name} — ${variantLabel} (${appLabel})`;
 
   const project = await useProjectStore.getState().createProject({
     name: projectName,
@@ -167,13 +182,22 @@ export async function getOrCreateTemplateProject(
       productId,
     },
     templateType,
+    appSource,
   });
 
   // Link the new template to the right slot on the booking product
-  if (templateType === 'image') {
-    await updateBookingProduct(productId, { imageTemplateId: project.id });
+  if (appSource === 'ghadaq') {
+    if (templateType === 'image') {
+      await updateBookingProduct(productId, { ghadaqImageTemplateId: project.id });
+    } else {
+      await updateBookingProduct(productId, { ghadaqTemplateId: project.id });
+    }
   } else {
-    await updateBookingProduct(productId, { templateId: project.id });
+    if (templateType === 'image') {
+      await updateBookingProduct(productId, { imageTemplateId: project.id });
+    } else {
+      await updateBookingProduct(productId, { templateId: project.id });
+    }
   }
 
   return project;

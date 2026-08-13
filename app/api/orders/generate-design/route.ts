@@ -156,11 +156,13 @@ interface GenerateDesignRequest {
  *   1. Authenticate via `x-callback-secret` header.
  *   2. Look up the booking product by `backendProductId`.
  *   3. If no booking product exists → respond with `noBookingProduct`.
- *   4. Pick the right template based on `hasReservationPhoto`:
- *        - hasReservationPhoto=true  → image template (imageTemplateId)
- *        - hasReservationPhoto=false → text template (templateId)
- *      STRICT matching — no fallback between types. If the required
- *      template slot is empty → respond with `noTemplate`.
+ *   4. Pick the right template based on `orderData.source` + `hasReservationPhoto`:
+ *        - manasik + photo=true  → imageTemplateId
+ *        - manasik + photo=false → templateId
+ *        - ghadaq  + photo=true  → ghadaqImageTemplateId
+ *        - ghadaq  + photo=false → ghadaqTemplateId
+ *      STRICT matching — no fallback between types or apps. If the
+ *      required template slot is empty → respond with `noTemplate`.
  *   5. Load the template project.
  *   6. Inflate the template's dynamic fields with the order data and
  *      render to JPG via @napi-rs/canvas (native canvas engine).
@@ -211,11 +213,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Look up the booking product by backendProductId ───────────────
+    // ── Look up the booking product by (backendProductId, sizeIndex) ──
+    // The order's item includes sizeIndex (0 for the default size).
+    // We try to find a booking product for the exact (product, size)
+    // pair. If none exists for that specific size, we fall back to
+    // sizeIndex=0 (the default size) for backward compatibility.
+    const orderItem = (body.orderData as { item?: { sizeIndex?: number } }).item;
+    const orderSizeIndex = orderItem?.sizeIndex ?? 0;
+
     const bookingCollection = await getBookingCollection();
-    const bookingProduct = await bookingCollection.findOne({
-      backendProductId: body.productId,
-    });
+    let bookingProduct = orderSizeIndex > 0
+      ? await bookingCollection.findOne({
+        backendProductId: body.productId,
+        sizeIndex: orderSizeIndex,
+      })
+      : null;
+
+    // Fallback to sizeIndex=0 if no size-specific booking product found
+    if (!bookingProduct) {
+      bookingProduct = await bookingCollection.findOne({
+        backendProductId: body.productId,
+        sizeIndex: 0,
+      });
+    }
+    // Last resort: legacy booking products without sizeIndex (treated as 0)
+    if (!bookingProduct) {
+      bookingProduct = await bookingCollection.findOne({
+        backendProductId: body.productId,
+        sizeIndex: { $in: [null, undefined] } as Record<string, unknown>,
+      } as Record<string, unknown>);
+    }
 
     if (!bookingProduct) {
       // No booking product exists for this backend product — the design
@@ -232,34 +259,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Pick the right template based on reservation photo ───────────
-    // STRICT matching — no fallback between template types:
-    //   hasReservationPhoto=true  → MUST use imageTemplateId (image template)
-    //   hasReservationPhoto=false → MUST use templateId (text template)
+    // ── Pick the right template based on order source + photo ────────
+    // STRICT matching — no fallback between template types or apps:
+    //   source='manasik' + hasPhoto=true  → imageTemplateId
+    //   source='manasik' + hasPhoto=false → templateId
+    //   source='ghadaq'  + hasPhoto=true  → ghadaqImageTemplateId
+    //   source='ghadaq'  + hasPhoto=false → ghadaqTemplateId
     //
     // We never use an image template for an order without a photo, and
-    // we never use a text template for an order WITH a photo. If the
-    // required template slot is empty, we return `noTemplate` so the
-    // admin knows they need to create the right template variant.
+    // we never use a text template for an order WITH a photo. We also
+    // never cross apps — a ghadaq order uses ghadaq templates only.
+    // If the required slot is empty, we return `noTemplate`.
+    const orderSource = (body.orderData as { source?: string }).source === 'ghadaq' ? 'ghadaq' : 'manasik';
     let templateId: string | null | undefined;
     let templateType: TemplateType;
 
-    if (body.hasReservationPhoto) {
-      // Order HAS a reservation photo → must use the image template
-      templateId = bookingProduct.imageTemplateId ?? null;
-      templateType = 'image';
+    if (orderSource === 'ghadaq') {
+      if (body.hasReservationPhoto) {
+        templateId = bookingProduct.ghadaqImageTemplateId ?? null;
+        templateType = 'image';
+      } else {
+        templateId = bookingProduct.ghadaqTemplateId ?? null;
+        templateType = 'text';
+      }
     } else {
-      // Order has NO reservation photo → must use the text template
-      templateId = bookingProduct.templateId;
-      templateType = 'text';
+      if (body.hasReservationPhoto) {
+        templateId = bookingProduct.imageTemplateId ?? null;
+        templateType = 'image';
+      } else {
+        templateId = bookingProduct.templateId;
+        templateType = 'text';
+      }
     }
 
     if (!templateId) {
       // The required template slot is empty — the admin hasn't created
-      // the right template variant for this product yet.
-      const needed = templateType === 'image'
-        ? 'image template (for orders with a reservation photo)'
-        : 'text template (for orders without a reservation photo)';
+      // the right template variant for this product + app yet.
+      const needed = `${orderSource} ${templateType === 'image' ? 'image' : 'text'} template (for orders ${body.hasReservationPhoto ? 'with' : 'without'} a reservation photo)`;
       return NextResponse.json(
         {
           success: false,
@@ -268,6 +304,7 @@ export async function POST(request: NextRequest) {
           productId: body.productId,
           bookingProductId: bookingProduct.id,
           templateType,
+          appSource: orderSource,
           hasReservationPhoto: body.hasReservationPhoto,
         },
         { status: 409 },
@@ -286,7 +323,9 @@ export async function POST(request: NextRequest) {
       // (was deleted). Clear the stale reference so the caller gets a
       // consistent `noTemplate` response next time.
       const clearField =
-        templateType === 'image' ? 'imageTemplateId' : 'templateId';
+        orderSource === 'ghadaq'
+          ? (templateType === 'image' ? 'ghadaqImageTemplateId' : 'ghadaqTemplateId')
+          : (templateType === 'image' ? 'imageTemplateId' : 'templateId');
       await bookingCollection.updateOne(
         { id: bookingProduct.id },
         { $set: { [clearField]: null, updatedAt: Date.now() } },

@@ -91,20 +91,27 @@ The backend loops over each product in the order and sends one request
 per product. Products without a template are reported back as
 `noTemplate` and skipped — the backend continues with the next product.
 
-Each booking product can have two template slots:
-- `templateId` — the text (no-image) template, used when the order has
-  no reservation photo.
-- `imageTemplateId` — the image template, used when the order has a
-  reservation photo.
+Each booking product represents a (backend product, size) pair and has
+four template slots (2 types × 2 apps). Products with multiple sizes
+have one booking product per size, so the admin can connect each size
+to a different template. The unique key is `(backendProductId, sizeIndex)`.
+- `templateId` — Manasik text (no-image) template, used when
+  `order.source='manasik'` and the order has no reservation photo.
+- `imageTemplateId` — Manasik image template, used when
+  `order.source='manasik'` and the order has a reservation photo.
+- `ghadaqTemplateId` — Ghadaq text template, used when
+  `order.source='ghadaq'` and the order has no reservation photo.
+- `ghadaqImageTemplateId` — Ghadaq image template, used when
+  `order.source='ghadaq'` and the order has a reservation photo.
 
-**One text + one image — no duplicates.** Each product can have at most
-ONE text template and ONE image template. A product cannot have two text
-templates or two image templates. This is enforced both client-side (the
-`ConnectProductsModal` disables the toggle button if the product already
-has a different template in the same slot) and server-side (the
-`PATCH /api/booking-products/[id]` route validates that `templateId`
-points to a text template and `imageTemplateId` points to an image
-template, returning `templateTypeMismatch` if they don't match).
+**One per slot — no duplicates.** Each product can have at most ONE
+template per slot. A product cannot have two templates in the same
+slot. This is enforced both client-side (the `ConnectProductsModal`
+disables the toggle button if the product already has a different
+template in the same slot) and server-side (the
+`PATCH /api/booking-products/[id]` route validates that the template's
+`templateType` and `appSource` match the slot's expected type+app,
+returning `templateTypeMismatch` or `appSourceMismatch` if they don't).
 
 **Product assignment UI.** Connecting products to templates is done via
 the `ConnectProductsModal` (`components/templates/ConnectProductsModal.tsx`)
@@ -114,12 +121,13 @@ a grid of backend products with checkboxes. Changes are staged locally
 and only persisted when the Save button is clicked (batched in parallel).
 The old `/templates/[productId]` route redirects to `/templates`.
 
-**Strict matching — no fallback.** If an order has a reservation photo,
-the design app MUST use `imageTemplateId`. If it's not set, the request
-fails with `noTemplate` (the admin must create an image template). If an
-order has no photo, the design app MUST use `templateId` — it will never
-use the image template as a fallback. This ensures the right template
-variant is always used for the right order type.
+**Strict matching — no fallback.** The design app picks the template
+slot based on `orderData.source` (manasik/ghadaq) AND
+`hasReservationPhoto` (true/false). If the required slot is empty, the
+request fails with `noTemplate`. The design app never falls back to a
+different type or a different app — a ghadaq order uses ghadaq templates
+only, and an order with a photo uses an image template only. This
+ensures the right template variant is always used for the right order.
 
 Generated designs are uploaded to R2 at:
 - `design/orders-design/{orderNumber}.jpg` for single-item orders

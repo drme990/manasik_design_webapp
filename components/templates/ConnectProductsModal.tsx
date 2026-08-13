@@ -24,20 +24,42 @@ interface ConnectProductsModalProps {
 }
 
 /**
- * Modal for connecting a template to backend products.
+ * A connectable row — one (product, size) pair. Products with a single
+ * size produce one row; products with multiple sizes produce one row
+ * per size so the admin can connect each size to a different template.
+ */
+interface ConnectRow {
+    /** Unique key: `${backendProductId}:${sizeIndex}` */
+    key: string;
+    backendProductId: string;
+    sizeIndex: number;
+    sizeName: string;
+    /** Display name (product name + size name if multiple sizes) */
+    label: string;
+    productName: string;
+    imageUri?: string;
+    slug: string;
+    /** True if the product has more than one size */
+    hasMultipleSizes: boolean;
+}
+
+/**
+ * Modal for connecting a template to backend product sizes.
  *
- * Each product has two template slots:
- *   - `templateId`       → text (no-image) template
- *   - `imageTemplateId`  → image template
+ * Each (product, size) pair has four template slots:
+ *   - templateId              → manasik text template
+ *   - imageTemplateId         → manasik image template
+ *   - ghadaqTemplateId        → ghadaq text template
+ *   - ghadaqImageTemplateId   → ghadaq image template
  *
  * This modal figures out which slot to use based on the template's
- * `templateType` and lets the admin toggle products on/off. Changes are
- * staged locally and only persisted when the Save button is clicked —
- * this avoids a network round-trip on every toggle.
+ * `templateType` + `appSource` and lets the admin toggle product sizes
+ * on/off. Changes are staged locally and only persisted when Save is
+ * clicked — no network calls on toggle.
  *
- * Constraint: a product can have at most ONE text template and ONE image
- * template. If a product already has a different template in the same
- * slot, it's shown as disabled with a "already assigned" hint.
+ * Constraint: each (product, size) slot can have at most ONE template.
+ * If a size already has a different template in the same slot, it's
+ * shown as disabled with an "already assigned" hint.
  */
 export default function ConnectProductsModal({
     isOpen,
@@ -53,15 +75,49 @@ export default function ConnectProductsModal({
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [search, setSearch] = useState('');
-    // Staged changes keyed by backendProductId → new slot value (string | null)
-    // null = unassign, string = assign template ID. Only entries that differ
-    // from the original value are included. No network calls happen on toggle —
-    // everything is batched into a single request on Save.
+    // Staged changes keyed by row key (`${backendProductId}:${sizeIndex}`) →
+    // new slot value (string | null). null = unassign, string = assign.
     const [stagedChanges, setStagedChanges] = useState<Record<string, string | null>>({});
 
     const templateType = template?.templateType ?? 'text';
-    const slotKey = templateType === 'image' ? 'imageTemplateId' : 'templateId';
-    const otherSlotKey = templateType === 'image' ? 'templateId' : 'imageTemplateId';
+    const appSource = template?.appSource ?? 'manasik';
+
+    // Compute the slot key from templateType + appSource
+    const slotKey =
+        appSource === 'ghadaq'
+            ? (templateType === 'image' ? 'ghadaqImageTemplateId' : 'ghadaqTemplateId')
+            : (templateType === 'image' ? 'imageTemplateId' : 'templateId');
+    const otherSlotKey =
+        appSource === 'ghadaq'
+            ? (templateType === 'image' ? 'ghadaqTemplateId' : 'ghadaqImageTemplateId')
+            : (templateType === 'image' ? 'templateId' : 'imageTemplateId');
+
+    // ── Build connectable rows from backend products ──────────────────
+    // Each (product, size) pair becomes one row. Products with 1 size
+    // produce a single row (no size suffix in the label). Products with
+    // multiple sizes produce one row per size, with the size name shown.
+    const rows = useMemo<ConnectRow[]>(() => {
+        const result: ConnectRow[] = [];
+        for (const p of backendProducts) {
+            const hasMultipleSizes = p.sizes.length > 1;
+            for (const size of p.sizes) {
+                result.push({
+                    key: `${p.id}:${size.index}`,
+                    backendProductId: p.id,
+                    sizeIndex: size.index,
+                    sizeName: size.name,
+                    label: hasMultipleSizes
+                        ? `${p.name} — ${size.name}`
+                        : p.name,
+                    productName: p.name,
+                    imageUri: p.imageUri,
+                    slug: p.slug,
+                    hasMultipleSizes,
+                });
+            }
+        }
+        return result;
+    }, [backendProducts]);
 
     // Load data when modal opens
     useEffect(() => {
@@ -86,52 +142,65 @@ export default function ConnectProductsModal({
         };
     }, [isOpen, template]);
 
-    // Find the booking product for a backend product
-    const getBookingForBackend = (backendId: string): BookingProduct | undefined => {
-        return bookingProducts.find((bp) => bp.backendProductId === backendId);
+    // Find the booking product for a (backendProductId, sizeIndex) pair
+    const getBookingForRow = (
+        backendId: string,
+        sizeIndex: number,
+    ): BookingProduct | undefined => {
+        return bookingProducts.find(
+            (bp) => bp.backendProductId === backendId && (bp.sizeIndex ?? 0) === sizeIndex,
+        );
     };
 
-    // The current effective value of the slot for a product (incl. staged)
-    const getEffectiveSlotValue = (backendId: string): string | null | undefined => {
-        if (backendId in stagedChanges) return stagedChanges[backendId];
-        const bp = getBookingForBackend(backendId);
+    // The current effective value of the slot for a row (incl. staged)
+    const getEffectiveSlotValue = (rowKey: string): string | null | undefined => {
+        if (rowKey in stagedChanges) return stagedChanges[rowKey];
+        const row = rows.find((r) => r.key === rowKey);
+        if (!row) return undefined;
+        const bp = getBookingForRow(row.backendProductId, row.sizeIndex);
         if (!bp) return undefined;
         return bp[slotKey as 'templateId'];
     };
 
-    // Is this product selected (assigned to THIS template)?
-    const isSelected = (backendId: string): boolean => {
-        return getEffectiveSlotValue(backendId) === template?.id;
+    // Is this row selected (assigned to THIS template)?
+    const isSelected = (rowKey: string): boolean => {
+        return getEffectiveSlotValue(rowKey) === template?.id;
     };
 
-    // Is this product blocked (has a DIFFERENT template in the same slot)?
-    const isBlocked = (backendId: string): boolean => {
-        const val = getEffectiveSlotValue(backendId);
+    // Is this row blocked (has a DIFFERENT template in the same slot)?
+    const isBlocked = (rowKey: string): boolean => {
+        const val = getEffectiveSlotValue(rowKey);
         return !!val && val !== template?.id;
     };
 
-    // Does this product have a template in the OTHER slot?
-    const hasOtherSlot = (backendId: string): boolean => {
-        const bp = getBookingForBackend(backendId);
+    // Does this row have a template in the OTHER slot?
+    const hasOtherSlot = (rowKey: string): boolean => {
+        const row = rows.find((r) => r.key === rowKey);
+        if (!row) return false;
+        const bp = getBookingForRow(row.backendProductId, row.sizeIndex);
         if (!bp) return false;
         return !!bp[otherSlotKey as 'templateId'];
     };
 
-    const handleToggle = (backend: BackendProduct) => {
+    const handleToggle = (row: ConnectRow) => {
         if (!template) return;
-        const currentVal = getEffectiveSlotValue(backend.id);
+        const currentVal = getEffectiveSlotValue(row.key);
         const newVal = currentVal === template.id ? null : template.id;
-        setStagedChanges((prev) => ({ ...prev, [backend.id]: newVal }));
+        setStagedChanges((prev) => ({ ...prev, [row.key]: newVal }));
     };
 
-    // Filtered + searched backend products
-    const filteredBackend = useMemo(() => {
-        if (!search.trim()) return backendProducts;
+    // Filtered rows (search by product name or size name)
+    const filteredRows = useMemo(() => {
+        if (!search.trim()) return rows;
         const q = search.trim().toLowerCase();
-        return backendProducts.filter((p) => p.name.toLowerCase().includes(q));
-    }, [backendProducts, search]);
+        return rows.filter(
+            (r) =>
+                r.productName.toLowerCase().includes(q) ||
+                r.sizeName.toLowerCase().includes(q),
+        );
+    }, [rows, search]);
 
-    const selectedCount = backendProducts.filter((b) => isSelected(b.id)).length;
+    const selectedCount = rows.filter((r) => isSelected(r.key)).length;
     const hasChanges = Object.keys(stagedChanges).length > 0;
 
     const handleSave = async () => {
@@ -141,17 +210,20 @@ export default function ConnectProductsModal({
         }
         setSaving(true);
         try {
-            // Build bulk change list from staged changes (keyed by backendProductId)
+            // Build bulk change list from staged changes (keyed by row key)
             const changes: BulkChangeInput[] = Object.entries(stagedChanges).map(
-                ([backendId, value]) => {
-                    const bp = getBookingForBackend(backendId);
-                    const backend = backendProducts.find((b) => b.id === backendId);
+                ([rowKey, value]) => {
+                    const row = rows.find((r) => r.key === rowKey);
+                    if (!row) return { value } as BulkChangeInput;
+                    const bp = getBookingForRow(row.backendProductId, row.sizeIndex);
                     return {
                         bookingProductId: bp?.id,
-                        backendProductId: bp ? undefined : backendId,
-                        backendSlug: bp ? undefined : backend?.slug,
-                        name: bp ? undefined : backend?.name,
-                        imageUri: bp ? undefined : backend?.imageUri,
+                        backendProductId: bp ? undefined : row.backendProductId,
+                        sizeIndex: bp ? undefined : row.sizeIndex,
+                        sizeName: bp ? undefined : row.sizeName,
+                        backendSlug: bp ? undefined : row.slug,
+                        name: bp ? undefined : row.productName,
+                        imageUri: bp ? undefined : row.imageUri,
                         value,
                     };
                 },
@@ -185,6 +257,7 @@ export default function ConnectProductsModal({
 
     const templateTypeLabel =
         templateType === 'image' ? t('imageTemplate') : t('textTemplate');
+    const appLabel = appSource === 'ghadaq' ? t('appGhadaq') : t('appManasik');
 
     return (
         <Modal
@@ -193,7 +266,7 @@ export default function ConnectProductsModal({
             title={template?.name ?? ''}
             description={
                 template
-                    ? `${templateTypeLabel} · ${template.canvasWidth} × ${template.canvasHeight}`
+                    ? `${templateTypeLabel} · ${appLabel} · ${template.canvasWidth} × ${template.canvasHeight}`
                     : undefined
             }
             size="lg"
@@ -278,26 +351,26 @@ export default function ConnectProductsModal({
                 />
             </div>
 
-            {/* Product list */}
+            {/* Product size list */}
             {loading ? (
                 <div className="flex items-center justify-center py-12">
                     <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
                 </div>
-            ) : filteredBackend.length === 0 ? (
+            ) : filteredRows.length === 0 ? (
                 <p className="py-8 text-center text-sm text-secondary">
                     {search ? t('noSearchResults') : t('emptyDescription')}
                 </p>
             ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
-                    {filteredBackend.map((backend) => {
-                        const selected = isSelected(backend.id);
-                        const blocked = isBlocked(backend.id);
-                        const otherSlot = hasOtherSlot(backend.id);
+                    {filteredRows.map((row) => {
+                        const selected = isSelected(row.key);
+                        const blocked = isBlocked(row.key);
+                        const otherSlot = hasOtherSlot(row.key);
                         return (
                             <button
-                                key={backend.id}
+                                key={row.key}
                                 type="button"
-                                onClick={() => handleToggle(backend)}
+                                onClick={() => handleToggle(row)}
                                 disabled={blocked}
                                 className={`flex items-center gap-3 rounded-xl border-2 p-3 text-start transition-colors ${selected
                                     ? 'border-brand-primary bg-brand-primary-light/10'
@@ -308,11 +381,11 @@ export default function ConnectProductsModal({
                             >
                                 {/* Product image */}
                                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
-                                    {backend.imageUri ? (
+                                    {row.imageUri ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
-                                            src={backend.imageUri}
-                                            alt={backend.name}
+                                            src={row.imageUri}
+                                            alt={row.label}
                                             className="h-full w-full object-cover"
                                         />
                                     ) : (
@@ -322,10 +395,10 @@ export default function ConnectProductsModal({
                                     )}
                                 </div>
 
-                                {/* Name + status */}
+                                {/* Name + size + status */}
                                 <div className="min-w-0 flex-1">
                                     <p className="truncate text-sm font-medium text-foreground">
-                                        {backend.name}
+                                        {row.label}
                                     </p>
                                     {blocked && (
                                         <p className="text-xs text-secondary">

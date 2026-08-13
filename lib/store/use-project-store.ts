@@ -374,6 +374,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         layers: project.layers.map((layer) => ({ ...layer, id: generateId() })),
         bookingMeta: project.bookingMeta,
         templateType: project.templateType,
+        appSource: project.appSource,
       } as ProjectCreateInput),
     });
     const created = result.data as Project;

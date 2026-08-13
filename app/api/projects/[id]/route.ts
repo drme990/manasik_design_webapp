@@ -205,21 +205,29 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     await collection.deleteOne({ id });
 
     // If this is a booking template, disconnect it from all booking
-    // products that reference it via templateId or imageTemplateId.
+    // products that reference it via any of the 4 template slots.
     // This prevents products from pointing to a deleted template.
     if (existing.kind === 'booking_template') {
       const mongoClient = getMongoClient();
       const bpCollection = mongoClient.getCollection<BookingProduct>(BOOKING_PRODUCTS_COLLECTION);
       if (bpCollection) {
-        // Set templateId to null for products using this template in the text slot
+        const now = Date.now();
+        // Clear all 4 possible slots that could reference this template
         await bpCollection.updateMany(
           { templateId: id },
-          { $set: { templateId: null, updatedAt: Date.now(), localModifiedAt: Date.now() } },
+          { $set: { templateId: null, updatedAt: now, localModifiedAt: now } },
         );
-        // Set imageTemplateId to null for products using this template in the image slot
         await bpCollection.updateMany(
           { imageTemplateId: id },
-          { $set: { imageTemplateId: null, updatedAt: Date.now(), localModifiedAt: Date.now() } },
+          { $set: { imageTemplateId: null, updatedAt: now, localModifiedAt: now } },
+        );
+        await bpCollection.updateMany(
+          { ghadaqTemplateId: id },
+          { $set: { ghadaqTemplateId: null, updatedAt: now, localModifiedAt: now } },
+        );
+        await bpCollection.updateMany(
+          { ghadaqImageTemplateId: id },
+          { $set: { ghadaqImageTemplateId: null, updatedAt: now, localModifiedAt: now } },
         );
       }
     }

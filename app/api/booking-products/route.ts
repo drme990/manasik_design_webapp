@@ -55,12 +55,16 @@ export async function POST(request: NextRequest) {
     const product: BookingProduct = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       backendProductId: body.backendProductId,
+      sizeIndex: body.sizeIndex ?? 0,
+      sizeName: body.sizeName,
       backendSlug: body.backendSlug,
       name: body.name,
       imageUri: body.imageUri,
       defaultCanvas: body.defaultCanvas,
       templateId: null,
       imageTemplateId: null,
+      ghadaqTemplateId: null,
+      ghadaqImageTemplateId: null,
       createdAt: now,
       updatedAt: now,
       localModifiedAt: now,
@@ -102,6 +106,8 @@ export async function POST(request: NextRequest) {
 interface BulkChange {
   bookingProductId?: string;
   backendProductId?: string;
+  sizeIndex?: number;
+  sizeName?: string;
   backendSlug?: string;
   name?: string;
   imageUri?: string;
@@ -109,7 +115,7 @@ interface BulkChange {
 }
 
 interface BulkUpdateBody {
-  slotKey: 'templateId' | 'imageTemplateId';
+  slotKey: 'templateId' | 'imageTemplateId' | 'ghadaqTemplateId' | 'ghadaqImageTemplateId';
   changes: BulkChange[];
 }
 
@@ -129,7 +135,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     const slotKey = body.slotKey;
-    if (slotKey !== 'templateId' && slotKey !== 'imageTemplateId') {
+    const validSlots = ['templateId', 'imageTemplateId', 'ghadaqTemplateId', 'ghadaqImageTemplateId'];
+    if (!validSlots.includes(slotKey)) {
       return NextResponse.json({ success: false, error: 'invalidSlotKey' }, { status: 400 });
     }
 
@@ -137,7 +144,7 @@ export async function PATCH(request: NextRequest) {
     const mongoClient = getMongoClient();
     const projectsCollection = mongoClient.getCollection<Project>(PROJECTS_COLLECTION);
 
-    // ── Validate template type for all non-null values ──────────────
+    // ── Validate template type + appSource for all non-null values ──
     if (projectsCollection) {
       const templateIds = new Set<string>();
       for (const change of body.changes) {
@@ -149,15 +156,35 @@ export async function PATCH(request: NextRequest) {
       for (const tplId of templateIds) {
         const tpl = await projectsCollection.findOne({ id: tplId });
         if (!tpl) continue;
-        if (slotKey === 'templateId' && tpl.templateType === 'image') {
+        const tplType = tpl.templateType ?? 'text';
+        const tplApp = tpl.appSource ?? 'manasik';
+
+        // Check templateType matches the slot's type
+        const slotIsImage = slotKey === 'imageTemplateId' || slotKey === 'ghadaqImageTemplateId';
+        if (slotIsImage && tplType === 'text') {
           return NextResponse.json(
-            { success: false, error: 'templateTypeMismatch', message: 'An image template cannot be assigned to the text template slot.' },
+            { success: false, error: 'templateTypeMismatch', message: 'A text template cannot be assigned to an image template slot.' },
             { status: 400 },
           );
         }
-        if (slotKey === 'imageTemplateId' && (tpl.templateType ?? 'text') === 'text') {
+        if (!slotIsImage && tplType === 'image') {
           return NextResponse.json(
-            { success: false, error: 'templateTypeMismatch', message: 'A text template cannot be assigned to the image template slot.' },
+            { success: false, error: 'templateTypeMismatch', message: 'An image template cannot be assigned to a text template slot.' },
+            { status: 400 },
+          );
+        }
+
+        // Check appSource matches the slot's app
+        const slotIsGhadaq = slotKey === 'ghadaqTemplateId' || slotKey === 'ghadaqImageTemplateId';
+        if (slotIsGhadaq && tplApp !== 'ghadaq') {
+          return NextResponse.json(
+            { success: false, error: 'appSourceMismatch', message: 'A Manasik template cannot be assigned to a Ghadaq slot.' },
+            { status: 400 },
+          );
+        }
+        if (!slotIsGhadaq && tplApp === 'ghadaq') {
+          return NextResponse.json(
+            { success: false, error: 'appSourceMismatch', message: 'A Ghadaq template cannot be assigned to a Manasik slot.' },
             { status: 400 },
           );
         }
@@ -183,8 +210,12 @@ export async function PATCH(request: NextRequest) {
         if (updated) results.push(updated);
       } else if (change.backendProductId) {
         // ── Create new product then set slot ────────────────────────
-        // Check if one already exists for this backend product
-        const existing = await collection.findOne({ backendProductId: change.backendProductId });
+        // Check if one already exists for this (backend product, size) pair
+        const sz = change.sizeIndex ?? 0;
+        const existing = await collection.findOne({
+          backendProductId: change.backendProductId,
+          sizeIndex: sz,
+        });
         if (existing) {
           const updates: Partial<BookingProduct> = {
             [slotKey]: change.value,
@@ -198,12 +229,16 @@ export async function PATCH(request: NextRequest) {
           const product: BookingProduct = {
             id: `${now}-${Math.random().toString(36).slice(2, 11)}`,
             backendProductId: change.backendProductId,
+            sizeIndex: sz,
+            sizeName: change.sizeName,
             backendSlug: change.backendSlug,
             name: change.name || change.backendProductId,
             imageUri: change.imageUri,
             defaultCanvas: { width: 1080, height: 1080 },
             templateId: slotKey === 'templateId' ? change.value : null,
             imageTemplateId: slotKey === 'imageTemplateId' ? change.value : null,
+            ghadaqTemplateId: slotKey === 'ghadaqTemplateId' ? change.value : null,
+            ghadaqImageTemplateId: slotKey === 'ghadaqImageTemplateId' ? change.value : null,
             createdAt: now,
             updatedAt: now,
             localModifiedAt: now,
