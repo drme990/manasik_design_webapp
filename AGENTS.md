@@ -189,7 +189,7 @@ store's `saveProject` automatically calls
 This endpoint:
 1. Re-renders the project to JPG via @napi-rs/canvas
 2. Uploads it to R2 at the **same key** (extracted from
-   `project.orderDesignUrl`), overwriting the old image
+   `project.orderDesignUrl`), overwriting the old image.
 3. The URL stays the same — the backend's order doesn't need updating
 
 This means the admin panel always shows the latest version of the
