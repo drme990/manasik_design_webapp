@@ -1,0 +1,137 @@
+name: Deploy Design App
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: design-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "COMMIT_SHA='${COMMIT_SHA}' bash -s" <<'REMOTE_SCRIPT'
+
+          set -euo pipefail
+
+          APP_DIR="/var/www/design"
+          RELEASES_DIR="$APP_DIR/releases"
+          SHARED_DIR="$APP_DIR/shared"
+
+          cd "$APP_DIR"
+
+          echo "===== DEPLOYMENT ====="
+          echo "Commit: $COMMIT_SHA"
+
+          echo
+          echo "===== FETCH ====="
+          git fetch origin main
+
+          REMOTE_SHA="$(git rev-parse origin/main)"
+
+          if [ "$REMOTE_SHA" != "$COMMIT_SHA" ]; then
+            echo "ERROR: GitHub commit and origin/main do not match."
+            echo "GitHub:     $COMMIT_SHA"
+            echo "origin/main: $REMOTE_SHA"
+            exit 1
+          fi
+
+          RELEASE_ID="$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short "$COMMIT_SHA")"
+          RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
+
+          echo
+          echo "===== RELEASE ====="
+          echo "Release: $RELEASE_DIR"
+
+          mkdir -p "$RELEASE_DIR"
+
+          echo
+          echo "===== ARCHIVE ====="
+          git archive "$COMMIT_SHA" | tar -x -C "$RELEASE_DIR"
+
+          echo
+          echo "===== ENV ====="
+          ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
+
+          echo
+          echo "===== INSTALL ====="
+          cd "$RELEASE_DIR"
+          npm ci
+
+          echo
+          echo "===== BUILD ====="
+          npm run build
+
+          echo
+          echo "===== BUILD SUCCESS ====="
+
+          echo
+          echo "===== PM2 ====="
+          pm2 delete design || true
+
+          pm2 start npm \
+            --name design \
+            --cwd "$RELEASE_DIR" \
+            -- start -- -p 3001 -H 127.0.0.1
+
+          echo
+          echo "===== SAVE PM2 ====="
+          pm2 save
+
+          echo
+          echo "===== HEALTH CHECK ====="
+
+          for i in {1..20}; do
+            if curl -fsS -o /dev/null http://127.0.0.1:3001/login; then
+              echo "Health check passed."
+              break
+            fi
+
+            if [ "$i" -eq 20 ]; then
+              echo "Health check failed."
+              pm2 logs design --lines 50 --nostream || true
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          echo
+          echo "===== DEPLOYMENT COMPLETE ====="
+          echo "Release: $RELEASE_DIR"
+
+          REMOTE_SCRIPT
