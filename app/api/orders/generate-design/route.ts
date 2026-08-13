@@ -3,6 +3,7 @@ import { getMongoClient } from '@/lib/db/mongodb';
 import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
+import { renderLimiter } from '@/lib/utils/concurrency-limiter';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'booking_products';
@@ -303,69 +304,79 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Create a design instance from the template ────────────────────
-    // We don't render the template directly — instead we create a COPY
-    // of the template as a new `kind: 'design'` project, with all
-    // dynamic field layers inflated with the order's actual data
-    // (customer name, reservation photo, etc.).
+    // ── Render + upload (concurrency-limited) ─────────────────────────
+    // Canvas rendering via @napi-rs/canvas is CPU-bound. The
+    // renderLimiter caps how many renders run in parallel so a burst
+    // of paid orders doesn't overload the VPS CPU. Excess requests
+    // queue up and process when a slot frees.
     //
-    // This design instance is what gets:
-    //   1. Saved to MongoDB as a standalone project
-    //   2. Rendered to JPG via @napi-rs/canvas
-    //   3. Uploaded to R2
-    //   4. Opened in the editor when the admin clicks "edit design"
-    //
-    // The template itself is never modified — editing the design
-    // instance doesn't affect future orders. The template only changes
-    // when the user explicitly edits it in the design app's templates
-    // section.
-    const productName = resolveProductName(body.orderData);
-    const designInstance = inflateTemplateToDesign(template, body.orderData, {
-      orderNumber: body.orderNumber,
-      productName,
-      itemIndex: body.itemIndex,
-    });
-
-    // ── Render the design instance to JPG ─────────────────────────────
-    // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
-    // draw each layer directly — no browser, no HTML, no Puppeteer.
-    // Dynamic fields have already been inflated to concrete text/image
-    // layers by inflateTemplateToDesign above.
-    const jpgBuffer = await renderTemplateToJpg(designInstance, body.orderData);
-
-    // ── Upload to R2 ──────────────────────────────────────────────────
-    // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
-    const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
-    // Use no-cache since this key gets overwritten when the admin
-    // edits + saves the design (re-render endpoint). Without this,
-    // Cloudflare CDN serves the stale cached version after overwrite.
-    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
-      cacheControl: 'no-cache',
-    });
-
-    // Store the R2 URL on the design instance so the re-render endpoint
-    // (triggered when the admin edits + saves) can overwrite the same key.
-    designInstance.orderDesignUrl = result.url;
-
-    // Save the design instance to MongoDB (with the R2 URL)
-    await projectsCollection.insertOne(designInstance);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        url: result.url,
-        key: result.key,
+    // The template lookup above is NOT limited (it's a fast DB read),
+    // but everything from inflation onward is CPU/IO-heavy.
+    return await renderLimiter.run(async () => {
+      // ── Create a design instance from the template ────────────────────
+      // We don't render the template directly — instead we create a COPY
+      // of the template as a new `kind: 'design'` project, with all
+      // dynamic field layers inflated with the order's actual data
+      // (customer name, reservation photo, etc.).
+      //
+      // This design instance is what gets:
+      //   1. Saved to MongoDB as a standalone project
+      //   2. Rendered to JPG via @napi-rs/canvas
+      //   3. Uploaded to R2
+      //   4. Opened in the editor when the admin clicks "edit design"
+      //
+      // The template itself is never modified — editing the design
+      // instance doesn't affect future orders. The template only changes
+      // when the user explicitly edits it in the design app's templates
+      // section.
+      const productName = resolveProductName(body.orderData);
+      const designInstance = inflateTemplateToDesign(template, body.orderData, {
         orderNumber: body.orderNumber,
+        productName,
         itemIndex: body.itemIndex,
-        // The design instance's project ID — the admin panel opens
-        // /editor/d/{projectId} to edit THIS design, not the template.
-        projectId: designInstance.id,
-        designName: designInstance.name,
-        // Keep the template ID for reference (e.g. logging)
-        templateId: template.id,
-        templateName: template.name,
-        templateType,
-      },
+      });
+
+      // ── Render the design instance to JPG ─────────────────────────────
+      // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
+      // draw each layer directly — no browser, no HTML, no Puppeteer.
+      // Dynamic fields have already been inflated to concrete text/image
+      // layers by inflateTemplateToDesign above.
+      const jpgBuffer = await renderTemplateToJpg(designInstance, body.orderData);
+
+      // ── Upload to R2 ──────────────────────────────────────────────────
+      // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
+      const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
+      // Use no-cache since this key gets overwritten when the admin
+      // edits + saves the design (re-render endpoint). Without this,
+      // Cloudflare CDN serves the stale cached version after overwrite.
+      const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
+        cacheControl: 'no-cache',
+      });
+
+      // Store the R2 URL on the design instance so the re-render endpoint
+      // (triggered when the admin edits + saves) can overwrite the same key.
+      designInstance.orderDesignUrl = result.url;
+
+      // Save the design instance to MongoDB (with the R2 URL)
+      await projectsCollection.insertOne(designInstance);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          url: result.url,
+          key: result.key,
+          orderNumber: body.orderNumber,
+          itemIndex: body.itemIndex,
+          // The design instance's project ID — the admin panel opens
+          // /editor/d/{projectId} to edit THIS design, not the template.
+          projectId: designInstance.id,
+          designName: designInstance.name,
+          // Keep the template ID for reference (e.g. logging)
+          templateId: template.id,
+          templateName: template.name,
+          templateType,
+        },
+      });
     });
   } catch (error) {
     console.error('[POST /api/orders/generate-design]', error);
