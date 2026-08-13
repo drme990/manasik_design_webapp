@@ -17,20 +17,84 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------------
+      # SSH SETUP
+      # ------------------------------------------------------------
       - name: Setup SSH
         shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
+
+          echo "===== SSH SETUP ====="
+          echo "Deploy host: ${DEPLOY_HOST}"
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          # Write private key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          # Make sure the key is actually readable
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
+
+          echo
+          echo "===== SSH KEYSCAN ====="
+
+          # Use IPv4 explicitly and give keyscan a timeout.
+          # We collect the server host keys into known_hosts.
+          SSH_KEYS="$(ssh-keyscan -4 -T 10 -H "$DEPLOY_HOST" 2>/dev/null || true)"
+
+          if [ -z "$SSH_KEYS" ]; then
+            echo "ERROR: ssh-keyscan returned no host keys."
+            echo "Host: $DEPLOY_HOST"
+            echo
+            echo "Testing TCP connectivity..."
+
+            if timeout 10 bash -c "</dev/tcp/$DEPLOY_HOST/22"; then
+              echo "TCP port 22 is reachable."
+            else
+              echo "ERROR: TCP port 22 is NOT reachable."
+            fi
+
+            exit 1
+          fi
+
+          printf '%s\n' "$SSH_KEYS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+          echo "SSH host key successfully added."
+
+      # ------------------------------------------------------------
+      # TEST SSH
+      # ------------------------------------------------------------
+      - name: Test SSH
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+
+          echo "===== TEST SSH ====="
+
+          ssh \
+            -4 \
+            -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'echo "GitHub Actions SSH connection successful"; hostname; whoami'
+
+      # ------------------------------------------------------------
+      # DEPLOY
+      # ------------------------------------------------------------
       - name: Deploy
         shell: bash
         env:
@@ -40,13 +104,43 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "===== START DEPLOYMENT ====="
+          echo "Commit: $COMMIT_SHA"
+
           ssh \
+            -4 \
             -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "COMMIT_SHA='${COMMIT_SHA}' bash -s" <<'REMOTE_SCRIPT'
 
           set -euo pipefail
+
+          # --------------------------------------------------------
+          # PATH / NVM
+          # --------------------------------------------------------
+
+          export NVM_DIR="/home/deploy/.nvm"
+
+          if [ ! -f "$NVM_DIR/nvm.sh" ]; then
+            echo "ERROR: NVM was not found at $NVM_DIR"
+            exit 1
+          fi
+
+          source "$NVM_DIR/nvm.sh"
+
+          nvm use 22
+
+          echo "Node: $(node -v)"
+          echo "npm:  $(npm -v)"
+
+          # --------------------------------------------------------
+          # DIRECTORIES
+          # --------------------------------------------------------
 
           APP_DIR="/var/www/design"
           RELEASES_DIR="$APP_DIR/releases"
@@ -54,21 +148,33 @@ jobs:
 
           cd "$APP_DIR"
 
+          echo
           echo "===== DEPLOYMENT ====="
           echo "Commit: $COMMIT_SHA"
 
+          # --------------------------------------------------------
+          # FETCH
+          # --------------------------------------------------------
+
           echo
           echo "===== FETCH ====="
+
           git fetch origin main
 
           REMOTE_SHA="$(git rev-parse origin/main)"
 
+          echo "GitHub commit: $COMMIT_SHA"
+          echo "origin/main:   $REMOTE_SHA"
+
           if [ "$REMOTE_SHA" != "$COMMIT_SHA" ]; then
+            echo
             echo "ERROR: GitHub commit and origin/main do not match."
-            echo "GitHub:     $COMMIT_SHA"
-            echo "origin/main: $REMOTE_SHA"
             exit 1
           fi
+
+          # --------------------------------------------------------
+          # RELEASE
+          # --------------------------------------------------------
 
           RELEASE_ID="$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short "$COMMIT_SHA")"
           RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
@@ -79,43 +185,71 @@ jobs:
 
           mkdir -p "$RELEASE_DIR"
 
+          # --------------------------------------------------------
+          # ARCHIVE
+          # --------------------------------------------------------
+
           echo
           echo "===== ARCHIVE ====="
+
           git archive "$COMMIT_SHA" | tar -x -C "$RELEASE_DIR"
+
+          # --------------------------------------------------------
+          # ENVIRONMENT
+          # --------------------------------------------------------
 
           echo
           echo "===== ENV ====="
-          ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
 
-          echo
-          echo "===== NODE ENVIRONMENT ====="
-          export NVM_DIR="/home/deploy/.nvm"
-
-          if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-            echo "ERROR: NVM not found at $NVM_DIR"
+          if [ ! -f "$SHARED_DIR/.env" ]; then
+            echo "ERROR: Missing $SHARED_DIR/.env"
             exit 1
           fi
 
-          source "$NVM_DIR/nvm.sh"
-          nvm use 22
+          ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
 
-          echo "Node: $(node -v)"
-          echo "npm:  $(npm -v)"
+          # --------------------------------------------------------
+          # NODE ENVIRONMENT
+          # --------------------------------------------------------
+
+          echo
+          echo "===== NODE ENVIRONMENT ====="
+
+          export PATH="$NVM_DIR/versions/node/v22.23.2/bin:$PATH"
+
+          node -v
+          npm -v
+
+          # --------------------------------------------------------
+          # INSTALL
+          # --------------------------------------------------------
 
           echo
           echo "===== INSTALL ====="
+
           cd "$RELEASE_DIR"
+
           npm ci
+
+          # --------------------------------------------------------
+          # BUILD
+          # --------------------------------------------------------
 
           echo
           echo "===== BUILD ====="
+
           npm run build
 
           echo
           echo "===== BUILD SUCCESS ====="
 
+          # --------------------------------------------------------
+          # PM2
+          # --------------------------------------------------------
+
           echo
           echo "===== PM2 ====="
+
           pm2 delete design || true
 
           pm2 start npm \
@@ -124,29 +258,90 @@ jobs:
             -- start -- -p 3001 -H 127.0.0.1
 
           echo
+          echo "===== PM2 STATUS ====="
+
+          pm2 status
+
+          # --------------------------------------------------------
+          # SAVE PM2
+          # --------------------------------------------------------
+
+          echo
           echo "===== SAVE PM2 ====="
+
           pm2 save
+
+          # --------------------------------------------------------
+          # HEALTH CHECK
+          # --------------------------------------------------------
 
           echo
           echo "===== HEALTH CHECK ====="
 
-          for i in {1..20}; do
-            if curl -fsS -o /dev/null http://127.0.0.1:3001/login; then
-              echo "Health check passed."
+          HEALTH_CHECK_PASSED=false
+
+          for i in {1..30}; do
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 5 \
+              -o /dev/null \
+              http://127.0.0.1:3001/login
+            then
+              echo "Health check passed on attempt $i."
+              HEALTH_CHECK_PASSED=true
               break
             fi
 
-            if [ "$i" -eq 20 ]; then
-              echo "Health check failed."
-              pm2 logs design --lines 50 --nostream || true
-              exit 1
-            fi
+            echo "Health check attempt $i failed. Waiting..."
 
             sleep 1
+
           done
 
+          if [ "$HEALTH_CHECK_PASSED" != "true" ]; then
+            echo
+            echo "ERROR: Health check failed."
+            echo
+            echo "===== PM2 STATUS ====="
+            pm2 status
+
+            echo
+            echo "===== PM2 LOGS ====="
+            pm2 logs design --lines 100 --nostream || true
+
+            exit 1
+          fi
+
+          # --------------------------------------------------------
+          # CLEAN OLD RELEASES
+          # --------------------------------------------------------
+
           echo
-          echo "===== DEPLOYMENT COMPLETE ====="
+          echo "===== CLEAN OLD RELEASES ====="
+
+          cd "$RELEASES_DIR"
+
+          # Keep the newest 5 releases.
+          ls -1dt */ 2>/dev/null \
+            | tail -n +6 \
+            | xargs -r rm -rf
+
+          echo
+          echo "Remaining releases:"
+          ls -lah
+
+          # --------------------------------------------------------
+          # FINAL
+          # --------------------------------------------------------
+
+          echo
+          echo "======================================"
+          echo " DEPLOYMENT COMPLETE"
+          echo "======================================"
+          echo "Commit:  $COMMIT_SHA"
           echo "Release: $RELEASE_DIR"
 
           REMOTE_SCRIPT
