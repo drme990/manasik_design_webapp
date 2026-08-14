@@ -70,6 +70,7 @@ export async function GET() {
     const products = await collection
       .find({ isDeleted: { $ne: true } }, { projection: PROJECTION })
       .sort({ displayOrder: 1, createdAt: -1 })
+      .allowDiskUse(true)
       .limit(1000)
       .toArray();
 

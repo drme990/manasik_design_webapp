@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
     const docs = await collection
       .find(query)
       .sort({ updatedAt: -1 })
+      .allowDiskUse(true)
       .toArray();
 
     // Convert MongoDB ObjectId _id to string for JSON serialization.

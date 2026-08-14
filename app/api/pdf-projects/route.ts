@@ -28,6 +28,7 @@ export async function GET() {
     const docs = await collection
       .find({ userId: session.id })
       .sort({ updatedAt: -1 })
+      .allowDiskUse(true)
       .toArray();
 
     // Convert MongoDB ObjectId _id to string for JSON serialization

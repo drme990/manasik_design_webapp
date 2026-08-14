@@ -4,6 +4,28 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+## Database indexes
+
+The `projects` collection can grow large (every order generates a design
+instance). Without indexes, MongoDB's in-memory sort hits its 32MB limit
+and returns: `Sort exceeded memory limit of 33554432 bytes, but did not
+opt in to external sorting.`
+
+**Always use `.allowDiskUse(true)` on any `.find().sort()` query** — this
+opts into external (disk-based) sorting as a safety net even without
+indexes.
+
+**Index setup script**: `npm run setup-indexes` (runs
+`scripts/setup-indexes.ts`). Creates all necessary indexes on all
+collections. Idempotent — safe to run multiple times. Run this once after
+deploying to a new environment.
+
+Key indexes on `projects`:
+- `id` (unique) — every `findOne({ id })` lookup
+- `userId + updatedAt` — GET /api/projects (user's designs)
+- `source + kind + updatedAt` — GET /api/projects?source=order
+- `kind + updatedAt` — GET /api/projects?kind=booking_template
+
 ## Caching architecture
 
 There is no IndexedDB, localStorage mirror, or offline-sync engine anywhere

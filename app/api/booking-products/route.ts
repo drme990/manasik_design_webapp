@@ -30,7 +30,7 @@ export async function GET() {
     }
 
     const collection = await getCollection();
-    const docs = await collection.find({}).sort({ updatedAt: -1 }).toArray();
+    const docs = await collection.find({}).sort({ updatedAt: -1 }).allowDiskUse(true).toArray();
 
     // Convert MongoDB ObjectId _id to string for JSON serialization
     const products = docs.map((doc) => ({
