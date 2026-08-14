@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPencil, LuTrash2, LuArrowLeft, LuSearch, LuChevronRight, LuChevronLeft, LuRefreshCw } from 'react-icons/lu';
+import { LuPencil, LuTrash2, LuArrowLeft, LuSearch, LuRefreshCw } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import AlertDialog from '@/components/ui/AlertDialog';
+import Pagination from '@/components/ui/Pagination';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
 
@@ -28,6 +29,7 @@ export default function OrdersDesignsPage() {
   const fetchOrderDesignsPage = useProjectStore((s) => s.fetchOrderDesignsPage);
   const storeDeleteProject = useProjectStore((s) => s.deleteProject);
   const page = useProjectStore((s) => s.orderDesignsPage);
+  const pageSize = useProjectStore((s) => s.orderDesignsPageSize);
   const total = useProjectStore((s) => s.orderDesignsTotal);
   const totalPages = useProjectStore((s) => s.orderDesignsTotalPages);
   const loading = useProjectStore((s) => s.orderDesignsPaginatedLoading);
@@ -68,9 +70,10 @@ export default function OrdersDesignsPage() {
 
   // ── Fetch with current filters ────────────────────────────────────
   const fetchWithFilters = useCallback(
-    (targetPage: number) => {
+    (targetPage: number, targetPageSize?: number) => {
       fetchOrderDesignsPage({
         page: targetPage,
+        limit: targetPageSize,
         fromDate,
         toDate,
         search: searchInput.trim(),
@@ -91,6 +94,9 @@ export default function OrdersDesignsPage() {
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return;
     fetchWithFilters(newPage);
+  };
+  const handlePageSizeChange = (newSize: number) => {
+    fetchWithFilters(1, newSize);
   };
 
   const handleDelete = async () => {
@@ -283,31 +289,15 @@ export default function OrdersDesignsPage() {
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="mt-8 flex items-center justify-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1 || loading}
-                  className="px-3"
-                >
-                  <LuChevronRight className="h-4 w-4 rtl:rotate-180" />
-                </Button>
-                <span className="text-sm text-secondary px-4">
-                  {t('page')} {page} {t('of')} {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages || loading}
-                  className="px-3"
-                >
-                  <LuChevronLeft className="h-4 w-4 rtl:rotate-180" />
-                </Button>
-              </div>
-            )}
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              disabled={loading}
+              pageSize={pageSize}
+              onPageSizeChange={handlePageSizeChange}
+              total={total}
+            />
           </>
         )}
 
