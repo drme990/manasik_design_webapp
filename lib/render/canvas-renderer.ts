@@ -81,6 +81,7 @@ const RENDER_SCALE = 1;
 // ─── Font registration ────────────────────────────────────────────────────
 
 let fontsRegistered = false;
+let fontsRegisterPromise: Promise<void> | null = null;
 /** Set of font family names that were successfully registered with the canvas engine. */
 const registeredFontFamilies = new Set<string>();
 
@@ -88,86 +89,93 @@ const registeredFontFamilies = new Set<string>();
  * Register Expo Arabic fonts from the public directory with the canvas
  * engine. Called once per process — fonts don't change at runtime.
  *
+ * Concurrent renders share the same registration promise (singleton
+ * pattern) so fonts are only registered once, even if multiple renders
+ * start simultaneously.
+ *
  * Tajawal and IBM Plex Sans Arabic (Google Fonts) are also registered
  * if their .ttf files are present in public/fonts/google/. If not, text
  * using those families falls back to Expo Arabic.
  */
 async function ensureFontsRegistered(): Promise<void> {
   if (fontsRegistered) return;
+  if (fontsRegisterPromise) return fontsRegisterPromise;
+  fontsRegisterPromise = (async () => {
 
-  // ── Expo Arabic (primary Arabic design font) ──────────────────────
-  // All weights registered under the same family name — the canvas
-  // engine reads the weight from the font file's internal metadata
-  // and matches it when ctx.font specifies a weight.
-  const expoDir = join(process.cwd(), 'public', 'fonts', 'ExpoArabic');
-  const expoFonts: Array<{ path: string; family: string }> = [
-    { path: 'ExpoArabic-Light.ttf', family: 'Expo Arabic' },
-    { path: 'ExpoArabic-Book.ttf', family: 'Expo Arabic' },
-    { path: 'ExpoArabic-Medium.ttf', family: 'Expo Arabic' },
-    { path: 'ExpoArabic-SemiBold.ttf', family: 'Expo Arabic' },
-    { path: 'ExpoArabic-Bold.otf', family: 'Expo Arabic' },
-  ];
+    // ── Expo Arabic (primary Arabic design font) ──────────────────────
+    // All weights registered under the same family name — the canvas
+    // engine reads the weight from the font file's internal metadata
+    // and matches it when ctx.font specifies a weight.
+    const expoDir = join(process.cwd(), 'public', 'fonts', 'ExpoArabic');
+    const expoFonts: Array<{ path: string; family: string }> = [
+      { path: 'ExpoArabic-Light.ttf', family: 'Expo Arabic' },
+      { path: 'ExpoArabic-Book.ttf', family: 'Expo Arabic' },
+      { path: 'ExpoArabic-Medium.ttf', family: 'Expo Arabic' },
+      { path: 'ExpoArabic-SemiBold.ttf', family: 'Expo Arabic' },
+      { path: 'ExpoArabic-Bold.otf', family: 'Expo Arabic' },
+    ];
 
-  for (const font of expoFonts) {
-    try {
-      const buffer = await readFile(join(expoDir, font.path));
-      const key = GlobalFonts.register(buffer, font.family);
-      if (key) registeredFontFamilies.add(font.family);
-    } catch {
-      // Font file missing — skip
+    for (const font of expoFonts) {
+      try {
+        const buffer = await readFile(join(expoDir, font.path));
+        const key = GlobalFonts.register(buffer, font.family);
+        if (key) registeredFontFamilies.add(font.family);
+      } catch {
+        // Font file missing — skip
+      }
     }
-  }
 
-  // ── Satoshi (Latin/UI font, may be used in designs) ───────────────
-  const satoshiDir = join(process.cwd(), 'public', 'fonts', 'Satoshi');
-  const satoshiFonts: Array<{ path: string; family: string }> = [
-    { path: 'Satoshi-Light.otf', family: 'Satoshi' },
-    { path: 'Satoshi-Regular.otf', family: 'Satoshi' },
-    { path: 'Satoshi-Medium.otf', family: 'Satoshi' },
-    { path: 'Satoshi-Bold.otf', family: 'Satoshi' },
-    { path: 'Satoshi-Black.otf', family: 'Satoshi' },
-    { path: 'Satoshi-Italic.otf', family: 'Satoshi' },
-    { path: 'Satoshi-BoldItalic.otf', family: 'Satoshi' },
-  ];
+    // ── Satoshi (Latin/UI font, may be used in designs) ───────────────
+    const satoshiDir = join(process.cwd(), 'public', 'fonts', 'Satoshi');
+    const satoshiFonts: Array<{ path: string; family: string }> = [
+      { path: 'Satoshi-Light.otf', family: 'Satoshi' },
+      { path: 'Satoshi-Regular.otf', family: 'Satoshi' },
+      { path: 'Satoshi-Medium.otf', family: 'Satoshi' },
+      { path: 'Satoshi-Bold.otf', family: 'Satoshi' },
+      { path: 'Satoshi-Black.otf', family: 'Satoshi' },
+      { path: 'Satoshi-Italic.otf', family: 'Satoshi' },
+      { path: 'Satoshi-BoldItalic.otf', family: 'Satoshi' },
+    ];
 
-  for (const font of satoshiFonts) {
-    try {
-      const buffer = await readFile(join(satoshiDir, font.path));
-      const key = GlobalFonts.register(buffer, font.family);
-      if (key) registeredFontFamilies.add(font.family);
-    } catch {
-      // Font file missing — skip
+    for (const font of satoshiFonts) {
+      try {
+        const buffer = await readFile(join(satoshiDir, font.path));
+        const key = GlobalFonts.register(buffer, font.family);
+        if (key) registeredFontFamilies.add(font.family);
+      } catch {
+        // Font file missing — skip
+      }
     }
-  }
 
-  // ── Tajawal + IBM Plex Sans Arabic (Google Fonts) ─────────────────
-  // These are loaded via next/font/google in the editor, but the canvas
-  // renderer needs the actual .ttf files. Download them from Google
-  // Fonts and place in public/fonts/google/:
-  //   https://fonts.google.com/specimen/Tajawal
-  //   https://fonts.google.com/specimen/IBM+Plex+Sans+Arabic
-  //
-  // If not present, text using these families falls back to Expo Arabic.
-  const googleFontDir = join(process.cwd(), 'public', 'fonts', 'google');
-  const googleFonts: Array<{ path: string; family: string }> = [
-    { path: 'Tajawal-Regular.ttf', family: 'Tajawal' },
-    { path: 'Tajawal-Bold.ttf', family: 'Tajawal' },
-    { path: 'Tajawal-ExtraBold.ttf', family: 'Tajawal' },
-    { path: 'IBMPlexSansArabic-Regular.ttf', family: 'IBM Plex Sans Arabic' },
-    { path: 'IBMPlexSansArabic-Medium.ttf', family: 'IBM Plex Sans Arabic' },
-    { path: 'IBMPlexSansArabic-Bold.ttf', family: 'IBM Plex Sans Arabic' },
-  ];
-  for (const font of googleFonts) {
-    try {
-      const buffer = await readFile(join(googleFontDir, font.path));
-      const key = GlobalFonts.register(buffer, font.family);
-      if (key) registeredFontFamilies.add(font.family);
-    } catch {
-      // Font file missing — skip
+    // ── Tajawal + IBM Plex Sans Arabic (Google Fonts) ─────────────────
+    // These are loaded via next/font/google in the editor, but the canvas
+    // renderer needs the actual .ttf files. Download them from Google
+    // Fonts and place in public/fonts/google/:
+    //   https://fonts.google.com/specimen/Tajawal
+    //   https://fonts.google.com/specimen/IBM+Plex+Sans+Arabic
+    //
+    // If not present, text using these families falls back to Expo Arabic.
+    const googleFontDir = join(process.cwd(), 'public', 'fonts', 'google');
+    const googleFonts: Array<{ path: string; family: string }> = [
+      { path: 'Tajawal-Regular.ttf', family: 'Tajawal' },
+      { path: 'Tajawal-Bold.ttf', family: 'Tajawal' },
+      { path: 'Tajawal-ExtraBold.ttf', family: 'Tajawal' },
+      { path: 'IBMPlexSansArabic-Regular.ttf', family: 'IBM Plex Sans Arabic' },
+      { path: 'IBMPlexSansArabic-Medium.ttf', family: 'IBM Plex Sans Arabic' },
+      { path: 'IBMPlexSansArabic-Bold.ttf', family: 'IBM Plex Sans Arabic' },
+    ];
+    for (const font of googleFonts) {
+      try {
+        const buffer = await readFile(join(googleFontDir, font.path));
+        const key = GlobalFonts.register(buffer, font.family);
+        if (key) registeredFontFamilies.add(font.family);
+      } catch {
+        // Font file missing — skip
+      }
     }
-  }
 
-  fontsRegistered = true;
+    fontsRegistered = true;
+  })();
 }
 
 /**
@@ -727,33 +735,38 @@ const GENDER_MALE_SVG_URL = 'https://storage.manasik.net/design/shapes/genderM.s
 const GENDER_FEMALE_SVG_URL = 'https://storage.manasik.net/design/shapes/genderF.svg';
 
 /**
- * Cache for loaded gender symbol images. These are loaded once per
- * render pass and reused across all layers.
+ * Cache for loaded gender symbol images. Loaded once per process and
+ * reused across all renders. Concurrent renders wait for the same
+ * load promise (singleton pattern) so they don't see null images
+ * while the first load is in progress.
  */
 let genderMaleImg: Awaited<ReturnType<typeof loadImage>> | null = null;
 let genderFemaleImg: Awaited<ReturnType<typeof loadImage>> | null = null;
-let genderSymbolsPreloaded = false;
+let genderSymbolsPromise: Promise<void> | null = null;
 
 /**
- * Preload the gender symbol SVGs from R2. Called once at the start of
- * a render pass. If loading fails, the renderer falls back to vector
- * path drawing (drawMaleSymbol / drawFemaleSymbol).
+ * Preload the gender symbol SVGs from R2. Called at the start of each
+ * render pass. The actual load happens only once per process —
+ * concurrent renders share the same promise and wait for it to resolve.
+ * If loading fails, the renderer falls back to vector path drawing.
  */
 async function preloadGenderSymbols(): Promise<void> {
-  if (genderSymbolsPreloaded) return;
-  genderSymbolsPreloaded = true;
-  try {
-    const [male, female] = await Promise.all([
-      loadImageFromUrl(GENDER_MALE_SVG_URL),
-      loadImageFromUrl(GENDER_FEMALE_SVG_URL),
-    ]);
-    genderMaleImg = male;
-    genderFemaleImg = female;
-  } catch {
-    // SVG loading failed — fall back to vector path drawing
-    genderMaleImg = null;
-    genderFemaleImg = null;
-  }
+  if (genderSymbolsPromise) return genderSymbolsPromise;
+  genderSymbolsPromise = (async () => {
+    try {
+      const [male, female] = await Promise.all([
+        loadImageFromUrl(GENDER_MALE_SVG_URL),
+        loadImageFromUrl(GENDER_FEMALE_SVG_URL),
+      ]);
+      genderMaleImg = male;
+      genderFemaleImg = female;
+    } catch {
+      // SVG loading failed — fall back to vector path drawing
+      genderMaleImg = null;
+      genderFemaleImg = null;
+    }
+  })();
+  return genderSymbolsPromise;
 }
 
 /**
@@ -1023,8 +1036,10 @@ function fillTextOrSymbol(
 // ─── Image loading ────────────────────────────────────────────────────────
 
 /**
- * Cache loaded images by URL within a single render pass to avoid
- * re-fetching the same image (e.g. background used on multiple layers).
+ * Cache loaded images by URL, shared across all renders. Images are
+ * keyed by URL so the same background/shape is fetched once and reused.
+ * The cache persists for the lifetime of the process — safe for
+ * concurrent renders since it only grows (never cleared).
  */
 const imageCache = new Map<string, Awaited<ReturnType<typeof loadImage>>>();
 
@@ -1033,6 +1048,11 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
   if (cached) return cached;
 
   let buffer: Buffer | null = null;
+
+  // Timeout for each individual fetch attempt. If the CDN is slow or
+  // unresponsive, we don't want to hang the entire render — we abort
+  // and fall through to the R2 direct download strategy.
+  const FETCH_TIMEOUT_MS = 15_000;
 
   // Strategy 1: HTTP fetch to the public CDN URL with multiple header
   // strategies. On Vercel production, Cloudflare CDN blocks bare
@@ -1054,13 +1074,16 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
 
   for (const strategy of fetchStrategies) {
     try {
-      const response = await fetch(url, strategy);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const response = await fetch(url, { ...strategy, signal: controller.signal });
+      clearTimeout(timeout);
       if (response.ok) {
         buffer = Buffer.from(await response.arrayBuffer());
         break;
       }
     } catch {
-      // Network error — try next strategy
+      // Network error or timeout — try next strategy
     }
   }
 
@@ -2438,14 +2461,16 @@ export async function renderTemplateToJpg(
   // Load user-uploaded custom fonts used in this project from R2
   await loadCustomFontsForProject(template);
 
-  // Clear the image cache for this render pass
-  imageCache.clear();
+  // NOTE: The image cache and gender symbols are module-level and
+  // shared across concurrent renders. We do NOT clear them here —
+  // clearing would race with other in-flight renders that may be
+  // reading from the cache. Instead, the cache persists across renders,
+  // which is safe (keyed by URL) and actually better for performance
+  // (same background/shape images are fetched once and reused).
 
   // Preload gender symbol SVGs from R2 (used by fillTextOrSymbol).
   // If this fails, the renderer falls back to vector path drawing.
-  genderSymbolsPreloaded = false;
-  genderMaleImg = null;
-  genderFemaleImg = null;
+  // Loaded once per process — subsequent renders reuse the cached images.
   await preloadGenderSymbols();
 
   // Render at 3x resolution for sharp, high-quality output.
