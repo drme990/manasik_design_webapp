@@ -12,7 +12,7 @@
  * wait their turn.
  *
  * The concurrency limit is configurable via the
- * `DESIGN_RENDER_CONCURRENCY` env var (default: 3).
+ * `DESIGN_RENDER_CONCURRENCY` env var (default: 10).
  */
 
 type PendingRequest = {
@@ -92,5 +92,5 @@ export class ConcurrencyLimiter {
  * at module load time (default: 3).
  */
 export const renderLimiter = new ConcurrencyLimiter(
-  parseInt(process.env.DESIGN_RENDER_CONCURRENCY || '3', 10),
+  parseInt(process.env.DESIGN_RENDER_CONCURRENCY || '10', 10),
 );
