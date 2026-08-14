@@ -4,12 +4,13 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft, LuCopy } from 'react-icons/lu';
 import { LuSmartphone } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import Drawer from '@/components/ui/Drawer';
+import Modal from '@/components/ui/Modal';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useProjectStore } from '@/lib/store/use-project-store';
@@ -30,6 +31,8 @@ export default function TemplatesPage() {
     const fetchTemplates = useProjectStore((s) => s.fetchTemplates);
     const storeCreateProject = useProjectStore((s) => s.createProject);
     const storeDeleteProject = useProjectStore((s) => s.deleteProject);
+    const storeUpdateProjectRemote = useProjectStore((s) => s.updateProjectRemote);
+    const storeDuplicateTemplateToApp = useProjectStore((s) => s.duplicateTemplateToApp);
     // loading is true only on the very first fetch (no data yet)
     const loading = templatesLoading && templates.length === 0;
     const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
@@ -46,6 +49,13 @@ export default function TemplatesPage() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [connectModalTemplate, setConnectModalTemplate] = useState<Project | null>(null);
     const galleryInputRef = useRef<HTMLInputElement>(null);
+    // Properties edit modal state
+    const [editPropsTemplate, setEditPropsTemplate] = useState<Project | null>(null);
+    const [editPropsName, setEditPropsName] = useState('');
+    const [editPropsApp, setEditPropsApp] = useState<TemplateApp>('manasik');
+    const [editPropsLoading, setEditPropsLoading] = useState(false);
+    // Copy to app state
+    const [copyingTemplateId, setCopyingTemplateId] = useState<string | null>(null);
 
     // Split templates by templateType. Legacy templates (undefined) are
     // treated as 'text' — the more restrictive option — so they show up in
@@ -182,6 +192,43 @@ export default function TemplatesPage() {
         setDrawerOpen(true);
     };
 
+    // ── Properties edit handlers ───────────────────────────────────────
+    const openEditProps = (template: Project) => {
+        setEditPropsTemplate(template);
+        setEditPropsName(template.name);
+        setEditPropsApp(template.appSource ?? 'manasik');
+    };
+
+    const handleSaveProps = async () => {
+        if (!editPropsTemplate) return;
+        const trimmed = editPropsName.trim();
+        if (!trimmed) return;
+        setEditPropsLoading(true);
+        try {
+            await storeUpdateProjectRemote(editPropsTemplate.id, {
+                name: trimmed,
+                appSource: editPropsApp,
+            });
+            setEditPropsTemplate(null);
+        } catch (err) {
+            console.error('Failed to update template properties:', err);
+        } finally {
+            setEditPropsLoading(false);
+        }
+    };
+
+    // ── Copy to another app handler ────────────────────────────────────
+    const handleCopyToApp = async (template: Project, targetApp: TemplateApp) => {
+        setCopyingTemplateId(template.id);
+        try {
+            await storeDuplicateTemplateToApp(template.id, targetApp);
+        } catch (err) {
+            console.error('Failed to copy template:', err);
+        } finally {
+            setCopyingTemplateId(null);
+        }
+    };
+
     // ── Template card grid ──────────────────────────────────────────────
     const renderTemplateGrid = (list: Project[]) => {
         if (list.length === 0) return null;
@@ -244,13 +291,46 @@ export default function TemplatesPage() {
                                         <LuBoxes className="h-4 w-4" />
                                         {t('assignProducts')}
                                     </button>
-                                    <Link
-                                        href={`/editor/t/${template.id}`}
+                                    <button
+                                        type="button"
+                                        onClick={() => openEditProps(template)}
                                         className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-                                        aria-label={t('editTemplate')}
+                                        aria-label={t('editProperties')}
+                                        title={t('editProperties')}
                                     >
                                         <LuPencil className="h-4 w-4" />
-                                    </Link>
+                                    </button>
+                                    {/* Copy to the other app — only show if the template
+                                        is for one app (not both/undefined). Copies to the
+                                        opposite app. */}
+                                    {(template.appSource ?? 'manasik') === 'manasik' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopyToApp(template, 'ghadaq')}
+                                            disabled={copyingTemplateId === template.id}
+                                            className="flex items-center justify-center rounded-lg border border-stroke p-2 text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            aria-label={t('copyToGhadaq')}
+                                            title={t('copyToGhadaq')}
+                                        >
+                                            {copyingTemplateId === template.id
+                                                ? <span className="text-xs">...</span>
+                                                : <LuCopy className="h-4 w-4" />}
+                                        </button>
+                                    )}
+                                    {(template.appSource ?? 'manasik') === 'ghadaq' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopyToApp(template, 'manasik')}
+                                            disabled={copyingTemplateId === template.id}
+                                            className="flex items-center justify-center rounded-lg border border-stroke p-2 text-blue-600 transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            aria-label={t('copyToManasik')}
+                                            title={t('copyToManasik')}
+                                        >
+                                            {copyingTemplateId === template.id
+                                                ? <span className="text-xs">...</span>
+                                                : <LuCopy className="h-4 w-4" />}
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => setDeleteTemplateId(template.id)}
@@ -497,6 +577,79 @@ export default function TemplatesPage() {
                 template={connectModalTemplate}
                 onSaved={(refreshed) => setBookingProducts(refreshed)}
             />
+
+            {/* Edit properties modal (name + app) */}
+            <Modal
+                isOpen={!!editPropsTemplate}
+                onClose={() => setEditPropsTemplate(null)}
+                title={t('editProperties')}
+            >
+                {editPropsTemplate && (
+                    <div className="space-y-5">
+                        {/* Template name */}
+                        <div>
+                            <label className="mb-1.5 block text-sm font-medium text-secondary">
+                                {t('templateName')}
+                            </label>
+                            <Input
+                                type="text"
+                                value={editPropsName}
+                                onChange={(e) => setEditPropsName(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* App selector */}
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-secondary">
+                                {t('templateApp')}
+                            </label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditPropsApp('manasik')}
+                                    className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors ${editPropsApp === 'manasik'
+                                        ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary'
+                                        : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary'
+                                        }`}
+                                >
+                                    <LuSmartphone className="h-4 w-4" />
+                                    {t('appManasik')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditPropsApp('ghadaq')}
+                                    className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors ${editPropsApp === 'ghadaq'
+                                        ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary'
+                                        : 'border-stroke bg-card-bg text-foreground hover:border-brand-primary'
+                                        }`}
+                                >
+                                    <LuSmartphone className="h-4 w-4" />
+                                    {t('appGhadaq')}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex justify-end gap-3 pt-2">
+                            <Button
+                                variant="ghost"
+                                onClick={() => setEditPropsTemplate(null)}
+                            >
+                                {t('cancel')}
+                            </Button>
+                            <Button
+                                variant="primary"
+                                onClick={handleSaveProps}
+                                loading={editPropsLoading}
+                                disabled={!editPropsName.trim()}
+                            >
+                                {t('saveProperties')}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </main>
     );
 }

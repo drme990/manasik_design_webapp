@@ -4,6 +4,7 @@ import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import { renderLimiter } from '@/lib/utils/concurrency-limiter';
+import { stripDesignOnlyText } from '@/lib/utils/product-name';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'booking_products';
@@ -103,10 +104,10 @@ function resolveProductName(
   }).item;
   if (!item) return undefined;
   if (item.sizeIndex && item.sizeIndex > 0 && item.sizeName) {
-    return item.sizeName.ar || item.sizeName.en;
+    return stripDesignOnlyText(item.sizeName.ar || item.sizeName.en);
   }
   if (!item.productName) return undefined;
-  return item.productName.ar || item.productName.en;
+  return stripDesignOnlyText(item.productName.ar || item.productName.en);
 }
 
 /**

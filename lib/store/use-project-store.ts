@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Project, ProjectCreateInput, ProjectUpdateInput } from '@/types';
+import type { Project, ProjectCreateInput, ProjectUpdateInput, TemplateApp } from '@/types';
 import { generateId } from '@/lib/utils/id';
 import { fetchWithAuth } from './fetch-with-auth';
 
@@ -108,6 +108,11 @@ interface ProjectState {
   deleteProjectOptimistic: (id: string) => void;
   /** Duplicate a project on the server and add the copy to the store. */
   duplicateProject: (id: string) => Promise<Project | null>;
+  /**
+   * Duplicate a template to a different app (manasik → ghadaq or vice
+   * versa). Creates a copy with the new appSource and a suffixed name.
+   */
+  duplicateTemplateToApp: (id: string, targetApp: TemplateApp) => Promise<Project | null>;
   /** Rename a project on the server and update the store. */
   renameProject: (id: string, newName: string) => Promise<void>;
   /**
@@ -469,6 +474,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: created.kind === 'design'
         ? sortByUpdated(upsertInArray(state.projects, created))
         : state.projects,
+      templates: created.kind === 'booking_template'
+        ? sortByUpdated(upsertInArray(state.templates, created))
+        : state.templates,
+    }));
+    return created;
+  },
+
+  duplicateTemplateToApp: async (id, targetApp) => {
+    const project = await get().getProject(id);
+    if (!project) return null;
+
+    const appLabel = targetApp === 'ghadaq' ? 'غدق' : 'مناسك';
+    const result = await fetchWithAuth('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: `${project.name} — ${appLabel}`,
+        kind: project.kind,
+        canvasWidth: project.canvasWidth,
+        canvasHeight: project.canvasHeight,
+        backgroundColor: project.backgroundColor,
+        backgroundUri: project.backgroundUri,
+        layers: project.layers.map((layer) => ({ ...layer, id: generateId() })),
+        bookingMeta: project.bookingMeta,
+        templateType: project.templateType,
+        appSource: targetApp,
+      } as ProjectCreateInput),
+    });
+    const created = result.data as Project;
+    set((state) => ({
+      projectMap: { ...state.projectMap, [created.id]: created },
       templates: created.kind === 'booking_template'
         ? sortByUpdated(upsertInArray(state.templates, created))
         : state.templates,

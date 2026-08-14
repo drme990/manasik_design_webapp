@@ -119,7 +119,18 @@
     "appGhadaq": "غدق",
     "selectApp": "اختر التطبيق",
     "appManasikDesc": "قالب لطلبات تطبيق مناسك",
-    "appGhadaqDesc": "قالب لطلبات تطبيق غدق"
+    "appGhadaqDesc": "قالب لطلبات تطبيق غدق",
+    "editProperties": "خصائص القالب",
+    "templateName": "اسم القالب",
+    "templateApp": "التطبيق",
+    "saveProperties": "حفظ",
+    "copyToApp": "نسخ إلى تطبيق",
+    "copyToManasik": "نسخ إلى مناسك",
+    "copyToGhadaq": "نسخ إلى غدق",
+    "copying": "جاري النسخ...",
+    "propertiesSaved": "تم حفظ الخصائص",
+    "copySuccess": "تم نسخ القالب",
+    "copyFailed": "فشل نسخ القالب"
   },
   "home": {
     "hero": {
