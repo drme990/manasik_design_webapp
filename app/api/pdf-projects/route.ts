@@ -25,15 +25,25 @@ export async function GET() {
     }
 
     const collection = await getCollection();
-    const projects = await collection
+    const docs = await collection
       .find({ userId: session.id })
       .sort({ updatedAt: -1 })
       .toArray();
 
+    // Convert MongoDB ObjectId _id to string for JSON serialization
+    const projects = docs.map((doc) => ({
+      ...doc,
+      _id: doc._id?.toString(),
+    }));
+
     return NextResponse.json({ success: true, data: projects });
   } catch (error) {
-    console.error('[GET /api/pdf-projects]', error);
-    return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[GET /api/pdf-projects]', message, error);
+    return NextResponse.json(
+      { success: false, error: 'serverError', message },
+      { status: 500 },
+    );
   }
 }
 

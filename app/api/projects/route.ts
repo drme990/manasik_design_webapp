@@ -34,29 +34,55 @@ export async function GET(request: NextRequest) {
     const sourceFilter = request.nextUrl.searchParams.get('source');
 
     const collection = await getCollection();
-    const query: Record<string, unknown> = { userId: session.id };
-    if (kindFilter) {
-      query.kind = kindFilter;
-    } else {
+    const query: Record<string, unknown> = {};
+
+    // Order-generated designs (source='order') are created by the
+    // backend callback, not by a user. They inherit the template
+    // creator's userId, which may be a different admin. So for
+    // source=order, we DON'T filter by userId — all admins should
+    // see all order designs. For other queries, we filter by userId
+    // so users only see their own projects.
+    if (sourceFilter === 'order') {
+      query.source = 'order';
       query.kind = { $ne: 'booking_template' };
+    } else {
+      query.userId = session.id;
+      if (kindFilter) {
+        query.kind = kindFilter;
+      } else {
+        query.kind = { $ne: 'booking_template' };
+      }
+      if (sourceFilter) {
+        query.source = sourceFilter;
+      } else if (!kindFilter || kindFilter === 'design') {
+        // By default, hide order-generated designs from the main list —
+        // they're shown in a separate /orders-designs section. Only
+        // exclude them when no explicit source filter is provided.
+        query.source = { $ne: 'order' };
+      }
     }
-    if (sourceFilter) {
-      query.source = sourceFilter;
-    } else if (!kindFilter || kindFilter === 'design') {
-      // By default, hide order-generated designs from the main list —
-      // they're shown in a separate /orders-designs section. Only
-      // exclude them when no explicit source filter is provided.
-      query.source = { $ne: 'order' };
-    }
-    const projects = await collection
+
+    const docs = await collection
       .find(query)
       .sort({ updatedAt: -1 })
       .toArray();
 
+    // Convert MongoDB ObjectId _id to string for JSON serialization.
+    // NextResponse.json() may fail to serialize ObjectId in some
+    // Next.js versions, causing a 500 error.
+    const projects = docs.map((doc) => ({
+      ...doc,
+      _id: doc._id?.toString(),
+    }));
+
     return NextResponse.json({ success: true, data: projects });
   } catch (error) {
-    console.error('[GET /api/projects]', error);
-    return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[GET /api/projects]', message, error);
+    return NextResponse.json(
+      { success: false, error: 'serverError', message },
+      { status: 500 },
+    );
   }
 }
 
@@ -98,7 +124,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: project }, { status: 201 });
   } catch (error) {
-    console.error('[POST /api/projects]', error);
-    return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[POST /api/projects]', message, error);
+    return NextResponse.json(
+      { success: false, error: 'serverError', message },
+      { status: 500 },
+    );
   }
 }

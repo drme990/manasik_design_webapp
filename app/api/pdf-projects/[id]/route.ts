@@ -39,10 +39,17 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
     }
 
-    return NextResponse.json({ success: true, data: project });
+    return NextResponse.json({
+      success: true,
+      data: { ...project, _id: project._id?.toString() },
+    });
   } catch (error) {
-    console.error('[GET /api/pdf-projects/[id]]', error);
-    return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[GET /api/pdf-projects/[id]]', message, error);
+    return NextResponse.json(
+      { success: false, error: 'serverError', message },
+      { status: 500 },
+    );
   }
 }
 
@@ -79,10 +86,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     await collection.updateOne({ id }, { $set: updates });
     const updated = await collection.findOne({ id });
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({
+      success: true,
+      data: updated ? { ...updated, _id: updated._id?.toString() } : null,
+    });
   } catch (error) {
-    console.error('[PATCH /api/pdf-projects/[id]]', error);
-    return NextResponse.json({ success: false, error: 'serverError' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[PATCH /api/pdf-projects/[id]]', message, error);
+    return NextResponse.json(
+      { success: false, error: 'serverError', message },
+      { status: 500 },
+    );
   }
 }
 
