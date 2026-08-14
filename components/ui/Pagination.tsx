@@ -15,7 +15,7 @@ interface PaginationProps {
   total?: number;
 }
 
-const PAGE_SIZE_OPTIONS = [12, 24, 48, 100, 250] as const;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250] as const;
 
 /**
  * Pagination component matching the admin panel's layout.

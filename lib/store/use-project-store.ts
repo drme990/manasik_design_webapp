@@ -180,7 +180,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // Order designs pagination state
   orderDesignsPage: 1,
-  orderDesignsPageSize: 24,
+  orderDesignsPageSize: 25,
   orderDesignsTotal: 0,
   orderDesignsTotalPages: 0,
   orderDesignsPaginatedLoading: false,
