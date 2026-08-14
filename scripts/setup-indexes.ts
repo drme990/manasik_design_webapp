@@ -62,6 +62,14 @@ async function main() {
   );
   console.log('  ✓ idx_kind_updatedAt (kind, updatedAt)');
 
+  // Index for name search (regex queries can't use indexes efficiently,
+  // but this helps with case-insensitive prefix matches)
+  await db.collection('projects').createIndex(
+    { name: 1 },
+    { name: 'idx_name' },
+  );
+  console.log('  ✓ idx_name (name)');
+
   // ── booking_products collection ──────────────────────────────────
   // Indexes:
   //   - id (unique) — used by findOne({ id })

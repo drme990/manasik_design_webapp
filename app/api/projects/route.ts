@@ -30,8 +30,22 @@ export async function GET(request: NextRequest) {
 
     // Optional ?kind= filter — e.g. /api/projects?kind=booking_template
     // Optional ?source= filter — e.g. /api/projects?source=order
+    // Optional ?page= and ?limit= for pagination (default: all)
+    // Optional ?fromDate= and ?toDate= for date range filter (ISO date
+    //   strings, e.g. 2026-08-14). Filters by updatedAt.
+    // Optional ?search= for substring match on project name
     const kindFilter = request.nextUrl.searchParams.get('kind');
     const sourceFilter = request.nextUrl.searchParams.get('source');
+    const pageParam = request.nextUrl.searchParams.get('page');
+    const limitParam = request.nextUrl.searchParams.get('limit');
+    const fromDate = request.nextUrl.searchParams.get('fromDate');
+    const toDate = request.nextUrl.searchParams.get('toDate');
+    const search = request.nextUrl.searchParams.get('search');
+
+    // Parse pagination params (only when both are provided)
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : null;
+    const limit = limitParam ? Math.max(1, Math.min(500, parseInt(limitParam, 10))) : null;
+    const isPaginated = page !== null && limit !== null;
 
     const collection = await getCollection();
     const query: Record<string, unknown> = {};
@@ -62,19 +76,65 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const docs = await collection
+    // Date range filter on updatedAt (timestamps are ms since epoch).
+    // fromDate/toDate are ISO date strings (YYYY-MM-DD). We convert
+    // to ms timestamps: fromDate → start of day, toDate → end of day.
+    if (fromDate || toDate) {
+      const dateFilter: Record<string, number> = {};
+      if (fromDate) {
+        const fromMs = new Date(fromDate + 'T00:00:00').getTime();
+        if (!isNaN(fromMs)) dateFilter.$gte = fromMs;
+      }
+      if (toDate) {
+        const toMs = new Date(toDate + 'T23:59:59.999').getTime();
+        if (!isNaN(toMs)) dateFilter.$lte = toMs;
+      }
+      if (Object.keys(dateFilter).length > 0) {
+        query.updatedAt = dateFilter;
+      }
+    }
+
+    // Search filter — case-insensitive substring match on project name
+    if (search && search.trim()) {
+      query.name = { $regex: search.trim(), $options: 'i' };
+    }
+
+    // Build the cursor — always sort by updatedAt desc + allow disk use
+    let cursor = collection
       .find(query)
       .sort({ updatedAt: -1 })
-      .allowDiskUse(true)
-      .toArray();
+      .allowDiskUse(true);
+
+    // Apply pagination if requested
+    if (isPaginated) {
+      cursor = cursor.skip((page! - 1) * limit!).limit(limit!);
+    }
+
+    const docs = await cursor.toArray();
 
     // Convert MongoDB ObjectId _id to string for JSON serialization.
-    // NextResponse.json() may fail to serialize ObjectId in some
-    // Next.js versions, causing a 500 error.
     const projects = docs.map((doc) => ({
       ...doc,
       _id: doc._id?.toString(),
     }));
+
+    // If paginated, also return total count + pagination metadata
+    if (isPaginated) {
+      const total = await collection.countDocuments(query);
+      const totalPages = Math.ceil(total / limit!);
+      return NextResponse.json({
+        success: true,
+        data: projects,
+        pagination: {
+          page: page!,
+          limit: limit!,
+          total,
+          totalPages,
+          hasNext: page! < totalPages,
+          hasPrev: page! > 1,
+        },
+      });
+    }
 
     return NextResponse.json({ success: true, data: projects });
   } catch (error) {

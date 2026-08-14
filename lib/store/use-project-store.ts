@@ -41,6 +41,23 @@ interface ProjectState {
   /** Per-id cache for single-project lookups (editor page). */
   projectMap: Record<string, Project>;
 
+  // ── Order designs pagination state ────────────────────────────────
+  /** Current page of order designs (1-based). */
+  orderDesignsPage: number;
+  /** Page size for order designs. */
+  orderDesignsPageSize: number;
+  /** Total number of order designs (across all pages). */
+  orderDesignsTotal: number;
+  /** Total number of pages. */
+  orderDesignsTotalPages: number;
+  /** True while a paginated order designs fetch is in progress. */
+  orderDesignsPaginatedLoading: boolean;
+  /** Date filter for order designs (ISO date string or empty). */
+  orderDesignsFromDate: string;
+  orderDesignsToDate: string;
+  /** Search filter for order designs. */
+  orderDesignsSearch: string;
+
   // ── Actions: reads ────────────────────────────────────────────────
   /** Fetch the full projects list from the API. */
   fetchProjects: () => Promise<void>;
@@ -48,6 +65,14 @@ interface ProjectState {
   fetchTemplates: () => Promise<void>;
   /** Fetch order-generated designs (source='order') from the API. */
   fetchOrderDesigns: () => Promise<void>;
+  /** Fetch a single page of order designs with filters + pagination. */
+  fetchOrderDesignsPage: (params: {
+    page?: number;
+    limit?: number;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+  }) => Promise<void>;
   /**
    * Get a single project by ID. Returns the cached value from the store
    * immediately (if present), then refreshes from the API in the
@@ -153,6 +178,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   orderDesignsLoading: false,
   projectMap: {},
 
+  // Order designs pagination state
+  orderDesignsPage: 1,
+  orderDesignsPageSize: 24,
+  orderDesignsTotal: 0,
+  orderDesignsTotalPages: 0,
+  orderDesignsPaginatedLoading: false,
+  orderDesignsFromDate: '',
+  orderDesignsToDate: '',
+  orderDesignsSearch: '',
+
   // ── Reads ──────────────────────────────────────────────────────────
 
   fetchProjects: async () => {
@@ -199,6 +234,57 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       console.error('Failed to fetch order designs:', error);
       set({ orderDesignsLoading: false });
+    }
+  },
+
+  fetchOrderDesignsPage: async (params) => {
+    const {
+      page = get().orderDesignsPage,
+      limit = get().orderDesignsPageSize,
+      fromDate = get().orderDesignsFromDate,
+      toDate = get().orderDesignsToDate,
+      search = get().orderDesignsSearch,
+    } = params;
+
+    set({ orderDesignsPaginatedLoading: true });
+    try {
+      const qs = new URLSearchParams({
+        source: 'order',
+        page: String(page),
+        limit: String(limit),
+      });
+      if (fromDate) qs.set('fromDate', fromDate);
+      if (toDate) qs.set('toDate', toDate);
+      if (search) qs.set('search', search);
+
+      const result = await fetchWithAuth(`/api/projects?${qs.toString()}`);
+      const orderDesigns = (result.data || []) as Project[];
+      const pagination = result.pagination as {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasNext: boolean;
+        hasPrev: boolean;
+      } | undefined;
+
+      const map: Record<string, Project> = {};
+      for (const p of orderDesigns) map[p.id] = p;
+      set({
+        orderDesigns,
+        projectMap: { ...get().projectMap, ...map },
+        orderDesignsPaginatedLoading: false,
+        orderDesignsPage: pagination?.page ?? page,
+        orderDesignsPageSize: pagination?.limit ?? limit,
+        orderDesignsTotal: pagination?.total ?? orderDesigns.length,
+        orderDesignsTotalPages: pagination?.totalPages ?? 1,
+        orderDesignsFromDate: fromDate,
+        orderDesignsToDate: toDate,
+        orderDesignsSearch: search,
+      });
+    } catch (error) {
+      console.error('Failed to fetch order designs page:', error);
+      set({ orderDesignsPaginatedLoading: false });
     }
   },
 
