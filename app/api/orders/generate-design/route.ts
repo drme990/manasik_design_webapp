@@ -4,7 +4,6 @@ import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import { renderLimiter } from '@/lib/utils/concurrency-limiter';
-import { stripDesignOnlyText } from '@/lib/utils/product-name';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'booking_products';
@@ -86,11 +85,11 @@ function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string
 }
 
 /**
- * Extract the current item's product name from the order data payload.
+ * Extract the current item's design name from the order data payload.
  * Used to give the design instance a human-readable name.
  *
- * If the ordered size is not the default (sizeIndex > 0), the size name
- * is used instead — matching the dynamic field resolution logic.
+ * Priority: sizeDesignName (if non-default size) → sizeName → productName.
+ * Falls back to the customer-facing name if no design name is set.
  */
 function resolveProductName(
   orderData: Record<string, unknown>,
@@ -100,14 +99,17 @@ function resolveProductName(
       productName?: { ar?: string; en?: string };
       sizeIndex?: number;
       sizeName?: { ar?: string; en?: string };
+      sizeDesignName?: string;
     };
   }).item;
   if (!item) return undefined;
-  if (item.sizeIndex && item.sizeIndex > 0 && item.sizeName) {
-    return stripDesignOnlyText(item.sizeName.ar || item.sizeName.en);
+  // For non-default sizes, prefer sizeDesignName → sizeName
+  if (item.sizeIndex && item.sizeIndex > 0) {
+    if (item.sizeDesignName) return item.sizeDesignName;
+    if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
   }
   if (!item.productName) return undefined;
-  return stripDesignOnlyText(item.productName.ar || item.productName.en);
+  return item.productName.ar || item.productName.en;
 }
 
 /**

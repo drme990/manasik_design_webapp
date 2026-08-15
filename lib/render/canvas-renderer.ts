@@ -10,7 +10,6 @@ import type {
   DynamicFieldLayer,
 } from '@/types';
 import { COLLAGE_LAYOUTS } from '@/lib/constants/presets';
-import { stripDesignOnlyText } from '@/lib/utils/product-name';
 import { extractKeyFromUrl, downloadFromR2 } from '@/lib/storage/r2';
 import { getMongoClient } from '@/lib/db/mongodb';
 
@@ -41,6 +40,7 @@ interface OrderDataPayload {
     quantity?: number;
     sizeIndex?: number;
     sizeName?: { ar?: string; en?: string };
+    sizeDesignName?: string;
   }>;
   item?: {
     productId?: string;
@@ -48,6 +48,7 @@ interface OrderDataPayload {
     quantity?: number;
     sizeIndex?: number;
     sizeName?: { ar?: string; en?: string };
+    sizeDesignName?: string;
   };
   reservationData?: Array<{ key: string; value: string }>;
   reservation?: Record<string, string>;
@@ -583,14 +584,15 @@ function resolveFieldValue(
       // not the default (sizeIndex > 0), display the size name instead
       // of the product name. This lets a single template work for all
       // size variants of a product (e.g. "كبيرة" vs "صغيرة").
-      if (item.sizeIndex && item.sizeIndex > 0 && item.sizeName) {
-        return stripDesignOnlyText(item.sizeName.ar || item.sizeName.en);
+      // Prefer sizeDesignName over the customer-facing size name.
+      if (item.sizeIndex && item.sizeIndex > 0) {
+        if (item.sizeDesignName) return item.sizeDesignName;
+        if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
       }
       const name = item.productName;
       if (!name) return undefined;
       // Always prefer Arabic — templates are designed for Arabic content.
-      // Strip [[...]] design-only markers + inner text from the name.
-      return stripDesignOnlyText(name.ar || name.en);
+      return name.ar || name.en;
     }
     return (item as Record<string, unknown>)[key]?.toString();
   }
