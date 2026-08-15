@@ -9,6 +9,20 @@ function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
 }
 
+/**
+ * Verify a callback request from the backend (shared secret).
+ * The backend uses this to proxy order-design queries from the
+ * admin panel without needing a user JWT session.
+ */
+function verifyCallbackSecret(request: NextRequest): boolean {
+  const secret = process.env.CALLBACK_SECRET;
+  if (!secret) return false;
+  const provided = request.headers.get('x-callback-secret');
+  if (!provided) return false;
+  if (provided.length !== secret.length) return false;
+  return provided === secret;
+}
+
 async function getCollection() {
   const client = getMongoClient();
   if (!client.isConnected()) {
@@ -23,8 +37,11 @@ async function getCollection() {
 
 export async function GET(request: NextRequest) {
   try {
+    // Auth: accept either a user JWT session OR a callback secret
+    // (for backend proxying order-design queries from the admin panel).
     const session = await verifySession();
-    if (!session) {
+    const isCallback = verifyCallbackSecret(request);
+    if (!session && !isCallback) {
       return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 });
     }
 
@@ -41,6 +58,15 @@ export async function GET(request: NextRequest) {
     const fromDate = request.nextUrl.searchParams.get('fromDate');
     const toDate = request.nextUrl.searchParams.get('toDate');
     const search = request.nextUrl.searchParams.get('search');
+
+    // Callback secret auth can ONLY access source=order (order designs).
+    // This prevents the backend from reading user-private projects.
+    if (isCallback && sourceFilter !== 'order') {
+      return NextResponse.json(
+        { success: false, error: 'Callback secret auth requires source=order' },
+        { status: 403 },
+      );
+    }
 
     // Parse pagination params (only when both are provided)
     const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : null;
@@ -60,7 +86,9 @@ export async function GET(request: NextRequest) {
       query.source = 'order';
       query.kind = { $ne: 'booking_template' };
     } else {
-      query.userId = session.id;
+      // Non-order queries require a user session (callback auth is
+      // restricted to source=order only, checked above).
+      query.userId = session!.id;
       if (kindFilter) {
         query.kind = kindFilter;
       } else {

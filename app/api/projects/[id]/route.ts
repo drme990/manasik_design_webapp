@@ -12,6 +12,20 @@ function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
 }
 
+/**
+ * Verify a callback request from the backend (shared secret).
+ * Used by the admin panel's order-designs page to delete designs
+ * via the backend proxy without a user JWT session.
+ */
+function verifyCallbackSecret(request: NextRequest): boolean {
+  const secret = process.env.CALLBACK_SECRET;
+  if (!secret) return false;
+  const provided = request.headers.get('x-callback-secret');
+  if (!provided) return false;
+  if (provided.length !== secret.length) return false;
+  return provided === secret;
+}
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -196,20 +210,33 @@ function collectProjectR2Keys(project: Project): string[] {
   return [...new Set(keys)];
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await verifySession();
-    if (!session) {
+    const isCallback = verifyCallbackSecret(request);
+    if (!session && !isCallback) {
       return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
-    const existing = await verifyAccess(id, session.id, session.role);
+    // For callback auth, skip userId check — the backend is trusted.
+    // For session auth, use the normal access check.
+    const existing = isCallback
+      ? await (await getCollection()).findOne({ id })
+      : await verifyAccess(id, session!.id, session!.role);
     if (!existing) {
       return NextResponse.json({ success: false, error: 'notFound' }, { status: 404 });
     }
 
-    if (existing.kind === 'booking_template' && !isAdmin(session.role)) {
+    // Callback auth can only delete order designs (source='order')
+    if (isCallback && existing.source !== 'order') {
+      return NextResponse.json(
+        { success: false, error: 'Callback auth can only delete order designs' },
+        { status: 403 },
+      );
+    }
+
+    if (existing.kind === 'booking_template' && !isCallback && !isAdmin(session!.role)) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
     }
 

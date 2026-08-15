@@ -15,7 +15,7 @@ interface PaginationProps {
   total?: number;
 }
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250] as const;
+const PAGE_SIZE_OPTIONS = [16, 52, 100, 140, 200] as const;
 
 /**
  * Pagination component matching the admin panel's layout.
@@ -33,7 +33,7 @@ export default function Pagination({
   totalPages,
   onPageChange,
   disabled = false,
-  pageSize = 24,
+  pageSize = 52,
   onPageSizeChange,
   total,
 }: PaginationProps) {

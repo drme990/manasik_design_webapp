@@ -14,6 +14,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       defaultTheme="manasik"
       enableSystem={false}
       themes={['light', 'black', 'manasik', 'ghadaq', 'colors']}
+      storageKey="admin-panel-theme"
       disableTransitionOnChange
     >
       {children}

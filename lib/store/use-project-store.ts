@@ -57,6 +57,13 @@ interface ProjectState {
   orderDesignsToDate: string;
   /** Search filter for order designs. */
   orderDesignsSearch: string;
+  /**
+   * Cache for order designs pages, keyed by `${fromDate}|${toDate}|${search}|${page}|${limit}`.
+   * Stores the API response (projects + pagination) so navigating
+   * between days or pages is instant when the data was already fetched.
+   * Entries expire after 60 seconds to stay fresh.
+   */
+  orderDesignsCache: Map<string, { data: Project[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } | undefined; ts: number }>;
 
   // ── Actions: reads ────────────────────────────────────────────────
   /** Fetch the full projects list from the API. */
@@ -185,13 +192,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // Order designs pagination state
   orderDesignsPage: 1,
-  orderDesignsPageSize: 25,
+  orderDesignsPageSize: 52,
   orderDesignsTotal: 0,
   orderDesignsTotalPages: 0,
   orderDesignsPaginatedLoading: false,
   orderDesignsFromDate: '',
   orderDesignsToDate: '',
   orderDesignsSearch: '',
+  orderDesignsCache: new Map(),
 
   // ── Reads ──────────────────────────────────────────────────────────
 
@@ -251,6 +259,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       search = get().orderDesignsSearch,
     } = params;
 
+    // ── Cache lookup ──────────────────────────────────────────────
+    // If we already fetched this exact query recently (within 60s),
+    // serve it instantly without a network round-trip. This makes
+    // day navigation feel instant when switching back to a previously
+    // viewed day.
+    const cacheKey = `${fromDate}|${toDate}|${search}|${page}|${limit}`;
+    const cache = get().orderDesignsCache;
+    const cached = cache.get(cacheKey);
+    const CACHE_TTL = 60_000; // 60 seconds
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      const orderDesigns = cached.data;
+      const pagination = cached.pagination;
+      const map: Record<string, Project> = {};
+      for (const p of orderDesigns) map[p.id] = p;
+      set({
+        orderDesigns,
+        projectMap: { ...get().projectMap, ...map },
+        orderDesignsPaginatedLoading: false,
+        orderDesignsPage: pagination?.page ?? page,
+        orderDesignsPageSize: pagination?.limit ?? limit,
+        orderDesignsTotal: pagination?.total ?? orderDesigns.length,
+        orderDesignsTotalPages: pagination?.totalPages ?? 1,
+        orderDesignsFromDate: fromDate,
+        orderDesignsToDate: toDate,
+        orderDesignsSearch: search,
+      });
+      return;
+    }
+
     set({ orderDesignsPaginatedLoading: true });
     try {
       const qs = new URLSearchParams({
@@ -287,6 +324,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         orderDesignsToDate: toDate,
         orderDesignsSearch: search,
       });
+
+      // ── Store in cache ───────────────────────────────────────────
+      const newCache = new Map(cache);
+      newCache.set(cacheKey, { data: orderDesigns, pagination, ts: Date.now() });
+      // Prune expired entries to avoid unbounded growth
+      const now = Date.now();
+      for (const [key, entry] of newCache) {
+        if (now - entry.ts > CACHE_TTL) newCache.delete(key);
+      }
+      set({ orderDesignsCache: newCache });
     } catch (error) {
       console.error('Failed to fetch order designs page:', error);
       set({ orderDesignsPaginatedLoading: false });

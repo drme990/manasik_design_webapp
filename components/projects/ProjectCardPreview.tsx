@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { LuImage } from 'react-icons/lu';
 import type { Project } from '@/types';
 import LayerRenderer from '@/components/editor/LayerRenderer';
@@ -16,6 +16,9 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
     () => [...project.layers].filter((l) => l.visible).sort((a, b) => a.zIndex - b.zIndex),
     [project.layers]
   );
+
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const scale = useMemo(() => {
     const maxReference = 1200;
@@ -46,7 +49,9 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
 
   // If the project has a preview image URL (from R2), render it as an
   // image. This is the fast path — no layer rendering needed.
-  if (previewImageUrl) {
+  // Shows a skeleton shimmer while loading and falls back to the
+  // placeholder icon on error.
+  if (previewImageUrl && !imgError) {
     return (
       <div
         className={`relative h-full w-full overflow-hidden ${className}`}
@@ -54,12 +59,18 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
           backgroundColor: project.backgroundColor ?? '#ffffff',
         }}
       >
+        {/* Skeleton shimmer while the image loads */}
+        {!imgLoaded && (
+          <div className="absolute inset-0 animate-pulse bg-muted" />
+        )}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imgSrc}
           alt={project.name}
-          className="h-full w-full object-contain"
+          className={`h-full w-full object-contain transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
           loading="lazy"
+          onLoad={() => setImgLoaded(true)}
+          onError={() => setImgError(true)}
         />
       </div>
     );

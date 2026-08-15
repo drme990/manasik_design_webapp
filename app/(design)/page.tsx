@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n/strings';
-import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage, LuDownload, LuLoaderCircle, LuShoppingBag } from 'react-icons/lu';
+import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage, LuDownload, LuLoaderCircle } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -390,18 +390,6 @@ export default function ProjectsPage() {
               <div>
                 <p className="font-semibold text-foreground">{navT('templates')}</p>
                 <p className="text-sm text-secondary">{t('subtitle')}</p>
-              </div>
-            </Link>
-            <Link
-              href="/orders-designs"
-              className="flex items-center gap-4 rounded-xl border border-stroke bg-card-bg p-4 transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
-                <LuShoppingBag className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">{navT('ordersDesigns')}</p>
-                <p className="text-sm text-secondary">{navT('ordersDesigns')}</p>
               </div>
             </Link>
             <Link
