@@ -99,6 +99,35 @@ export interface Project extends SyncableDocument {
    * design in the editor (the re-render endpoint overwrites the same R2 key).
    */
   orderDesignUrl?: string;
+  /**
+   * Metadata snapshot from the order that generated this design.
+   * Only present when source='order'. Used by the /orders-designs page
+   * to display order info (order number, products, sacrificeFor) without
+   * a round-trip to the backend.
+   */
+  orderMeta?: {
+    orderNumber: string;
+    /** 1-based item index for multi-item orders */
+    itemIndex?: number;
+    /** Product name snapshot (customer-facing) */
+    productName?: string;
+    /** Size design name (preferred for display) or size name */
+    sizeName?: string;
+    /** sacrificeFor reservation value */
+    sacrificeFor?: string;
+    /**
+     * Effective execution date (YYYY-MM-DD) — same logic as the
+     * execution page: reservationData.executionDate, fallback to
+     * orderCreatedAt + 1 day. Used by the /orders-designs API to
+     * filter by the same date range as the execution page.
+     */
+    executionDate?: string;
+    /**
+     * Order's creation timestamp (ms since epoch). Used to sort designs
+     * in the same order as the execution page (ascending by createdAt).
+     */
+    orderCreatedAt?: number;
+  };
 }
 
 export interface ProjectCreateInput {

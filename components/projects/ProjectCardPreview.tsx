@@ -28,9 +28,25 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
 
   const bg = project.backgroundThumbnailUri || project.backgroundUri;
 
-  // If the project has a thumbnail URL (from R2), render it as an image.
-  // This is the fast path — no layer rendering needed, just a single <img>.
-  if (project.thumbnail) {
+  // Determine the preview image URL:
+  // - Order-generated designs (source='order') use `orderDesignUrl` —
+  //   the actual rendered JPG stored in R2. This is the exact image
+  //   the admin panel shows, so the thumbnail always matches.
+  // - Other projects use `thumbnail` (a separate R2 upload).
+  const previewImageUrl = project.source === 'order'
+    ? project.orderDesignUrl
+    : project.thumbnail;
+
+  // Order designs are overwritten at the same R2 key when the admin
+  // edits + saves. Append a cache-busting query param (updatedAt) so
+  // the browser always fetches the latest version, not a stale CDN copy.
+  const imgSrc = previewImageUrl && project.source === 'order'
+    ? `${previewImageUrl}${previewImageUrl.includes('?') ? '&' : '?'}v=${project.updatedAt}`
+    : previewImageUrl;
+
+  // If the project has a preview image URL (from R2), render it as an
+  // image. This is the fast path — no layer rendering needed.
+  if (previewImageUrl) {
     return (
       <div
         className={`relative h-full w-full overflow-hidden ${className}`}
@@ -40,7 +56,7 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={project.thumbnail}
+          src={imgSrc}
           alt={project.name}
           className="h-full w-full object-contain"
           loading="lazy"
@@ -94,6 +110,7 @@ const ProjectCardPreview = memo(ProjectCardPreviewInner, (prev, next) =>
   prev.project.id === next.project.id &&
   prev.project.updatedAt === next.project.updatedAt &&
   prev.project.thumbnail === next.project.thumbnail &&
+  prev.project.orderDesignUrl === next.project.orderDesignUrl &&
   prev.project.layers === next.project.layers &&
   prev.project.backgroundUri === next.project.backgroundUri &&
   prev.project.backgroundThumbnailUri === next.project.backgroundThumbnailUri &&

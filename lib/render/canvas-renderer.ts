@@ -64,6 +64,18 @@ interface OrderDataPayload {
   }>;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Check if a size name is a "default" placeholder that should be ignored
+ * in favor of the product name. Matches "default", "الافتراضي" (and
+ * common variants) case-insensitively.
+ */
+function isDefaultSizeName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === 'default' || n === 'الافتراضي' || n === 'الافتراضى';
+}
+
 // ─── Render config ────────────────────────────────────────────────────────
 
 /**
@@ -580,11 +592,12 @@ function resolveFieldValue(
     const item = orderData.item || orderData.items?.[0];
     if (!item) return undefined;
     if (key === 'productName') {
-      // Always prefer the size's design name, regardless of sizeIndex.
-      // This lets each size have its own design-specific label (e.g.
-      // "خروف كبير" vs "خروف صغير") even for single-size products.
+      // Priority: sizeDesignName → sizeName (skip "default") → productName
       if (item.sizeDesignName) return item.sizeDesignName;
-      if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
+      if (item.sizeName) {
+        const sn = item.sizeName.ar || item.sizeName.en;
+        if (sn && !isDefaultSizeName(sn)) return sn;
+      }
       const name = item.productName;
       if (!name) return undefined;
       // Always prefer Arabic — templates are designed for Arabic content.

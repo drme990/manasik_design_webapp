@@ -76,21 +76,74 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Date range filter on updatedAt (timestamps are ms since epoch).
-    // fromDate/toDate are ISO date strings (YYYY-MM-DD). We convert
-    // to ms timestamps: fromDate → start of day, toDate → end of day.
+    // Date range filter.
+    // For source=order: filter by orderMeta.executionDate (YYYY-MM-DD string)
+    //   — same field the execution page uses. fromDate/toDate are ISO date
+    //   strings, so we can compare them directly as strings.
+    //   Legacy designs (generated before orderMeta existed) fall back to
+    //   the design's createdAt timestamp, approximating the execution date
+    //   as createdAt + 1 day (same legacy logic as the execution page).
+    // For everything else: filter on updatedAt (ms since epoch).
     if (fromDate || toDate) {
-      const dateFilter: Record<string, number> = {};
-      if (fromDate) {
-        const fromMs = new Date(fromDate + 'T00:00:00').getTime();
-        if (!isNaN(fromMs)) dateFilter.$gte = fromMs;
-      }
-      if (toDate) {
-        const toMs = new Date(toDate + 'T23:59:59.999').getTime();
-        if (!isNaN(toMs)) dateFilter.$lte = toMs;
-      }
-      if (Object.keys(dateFilter).length > 0) {
-        query.updatedAt = dateFilter;
+      if (sourceFilter === 'order') {
+        // Build the executionDate string filter for new designs
+        const execDateFilter: Record<string, string> = {};
+        if (fromDate) execDateFilter.$gte = fromDate;
+        if (toDate) execDateFilter.$lte = toDate;
+
+        // Build the createdAt ms filter for legacy designs (no orderMeta)
+        const legacyDateFilter: Record<string, number> = {};
+        if (fromDate) {
+          // execution date ≈ createdAt + 1 day, so createdAt ≈ executionDate - 1 day
+          // We want orders whose effective execution date falls in [fromDate, toDate].
+          // For legacy: createdAt + 1 day in [fromDate, toDate]
+          //   → createdAt in [fromDate - 1 day, toDate - 1 day]
+          const fromMinus1 = new Date(fromDate + 'T00:00:00');
+          fromMinus1.setDate(fromMinus1.getDate() - 1);
+          legacyDateFilter.$gte = fromMinus1.getTime();
+        }
+        if (toDate) {
+          const toMinus1 = new Date(toDate + 'T23:59:59.999');
+          toMinus1.setDate(toMinus1.getDate() - 1);
+          legacyDateFilter.$lte = toMinus1.getTime();
+        }
+
+        // Use $or: either orderMeta.executionDate matches (new designs)
+        // or orderMeta.executionDate doesn't exist AND createdAt matches
+        // the shifted range (legacy designs).
+        const orClauses: Record<string, unknown>[] = [];
+        if (Object.keys(execDateFilter).length > 0) {
+          orClauses.push({ 'orderMeta.executionDate': execDateFilter });
+        }
+        if (Object.keys(legacyDateFilter).length > 0) {
+          orClauses.push({
+            'orderMeta.executionDate': { $exists: false },
+            createdAt: legacyDateFilter,
+          });
+        }
+        if (orClauses.length > 0) {
+          // Preserve any existing $or (e.g. from other filters) — though
+          // currently there isn't one, this is safe.
+          if (query.$or) {
+            query.$and = [{ $or: query.$or }, { $or: orClauses }];
+            delete query.$or;
+          } else {
+            query.$or = orClauses;
+          }
+        }
+      } else {
+        const dateFilter: Record<string, number> = {};
+        if (fromDate) {
+          const fromMs = new Date(fromDate + 'T00:00:00').getTime();
+          if (!isNaN(fromMs)) dateFilter.$gte = fromMs;
+        }
+        if (toDate) {
+          const toMs = new Date(toDate + 'T23:59:59.999').getTime();
+          if (!isNaN(toMs)) dateFilter.$lte = toMs;
+        }
+        if (Object.keys(dateFilter).length > 0) {
+          query.updatedAt = dateFilter;
+        }
       }
     }
 
@@ -99,10 +152,21 @@ export async function GET(request: NextRequest) {
       query.name = { $regex: search.trim(), $options: 'i' };
     }
 
-    // Build the cursor — always sort by updatedAt desc + allow disk use
+    // Build the cursor — sort order depends on the source:
+    // - source=order: sort by orderMeta.orderCreatedAt ascending (oldest
+    //   first) to match the execution page's ordering. Legacy designs
+    //   without orderMeta.orderCreatedAt will sort first (MongoDB sorts
+    //   missing values first in ascending order), which is correct since
+    //   they're from older orders.
+    // - everything else: sort by updatedAt descending (newest first)
+    const sortField = sourceFilter === 'order'
+      ? 'orderMeta.orderCreatedAt'
+      : 'updatedAt';
+    const sortDir: 1 | -1 = sourceFilter === 'order' ? 1 : -1;
+
     let cursor = collection
       .find(query)
-      .sort({ updatedAt: -1 })
+      .sort({ [sortField]: sortDir })
       .allowDiskUse(true);
 
     // Apply pagination if requested

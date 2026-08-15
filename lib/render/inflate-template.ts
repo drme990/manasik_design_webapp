@@ -57,6 +57,20 @@ interface OrderDataPayload {
     phone: string;
     name: string;
   }>;
+  /** Order's creation timestamp (ms since epoch) — from the backend */
+  orderCreatedAt?: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Check if a size name is a "default" placeholder that should be ignored
+ * in favor of the product name. Matches "default", "الافتراضي" (and
+ * common variants) case-insensitively.
+ */
+function isDefaultSizeName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === 'default' || n === 'الافتراضي' || n === 'الافتراضى';
 }
 
 // ─── Field resolution ─────────────────────────────────────────────────────
@@ -294,11 +308,12 @@ function resolveFieldValue(
     const item = orderData.item || orderData.items?.[0];
     if (!item) return undefined;
     if (key === 'productName') {
-      // Always prefer the size's design name, regardless of sizeIndex.
-      // This lets each size have its own design-specific label (e.g.
-      // "خروف كبير" vs "خروف صغير") even for single-size products.
+      // Priority: sizeDesignName → sizeName (skip "default") → productName
       if (item.sizeDesignName) return item.sizeDesignName;
-      if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
+      if (item.sizeName) {
+        const sn = item.sizeName.ar || item.sizeName.en;
+        if (sn && !isDefaultSizeName(sn)) return sn;
+      }
       const name = item.productName;
       if (!name) return undefined;
       // Always prefer the Arabic name — templates are designed for
@@ -878,6 +893,40 @@ export function inflateTemplateToDesign(
     return Array.isArray(result) ? result : [result];
   });
 
+  // ── Build orderMeta snapshot for the /orders-designs page ──
+  // Stores key order info so the list page can display it without a
+  // round-trip to the backend.
+  const item = data.item || data.items?.[0];
+  const sacrificeFor = data.reservation?.sacrificeFor
+    || data.reservationData?.find((r) => r.key === 'sacrificeFor')?.value;
+  // Priority: sizeDesignName → sizeName (skip "default") → undefined
+  let sizeName: string | undefined;
+  if (item?.sizeDesignName) {
+    sizeName = item.sizeDesignName;
+  } else if (item?.sizeName) {
+    const sn = item.sizeName.ar || item.sizeName.en;
+    sizeName = sn && !isDefaultSizeName(sn) ? sn : undefined;
+  }
+  const productName = item?.productName
+    ? (item.productName.ar || item.productName.en)
+    : undefined;
+
+  // ── Effective execution date ──
+  // Same logic as the execution page: use reservationData.executionDate
+  // if present, otherwise fall back to orderCreatedAt + 1 day (legacy).
+  const rawExecutionDate = data.reservation?.executionDate
+    || data.reservationData?.find((r) => r.key === 'executionDate')?.value;
+  let executionDate: string | undefined;
+  if (rawExecutionDate) {
+    // executionDate is stored as a string — take the first 10 chars
+    // (YYYY-MM-DD) in case it includes time info.
+    executionDate = rawExecutionDate.slice(0, 10);
+  } else if (typeof data.orderCreatedAt === 'number') {
+    // Fallback: createdAt + 1 day (matches execution page's legacy logic)
+    const fallback = new Date(data.orderCreatedAt + 86400000);
+    executionDate = `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(fallback.getDate()).padStart(2, '0')}`;
+  }
+
   return {
     ...template,
     // New identity — this is a new project, not the template
@@ -895,6 +944,17 @@ export function inflateTemplateToDesign(
 
     // Human-readable name for the projects list
     name,
+
+    // Order metadata snapshot for the /orders-designs list page
+    orderMeta: {
+      orderNumber: options.orderNumber,
+      itemIndex: options.itemIndex,
+      productName,
+      sizeName,
+      sacrificeFor,
+      executionDate,
+      orderCreatedAt: data.orderCreatedAt,
+    },
 
     // Inflated layers with actual order data
     layers: inflatedLayers,

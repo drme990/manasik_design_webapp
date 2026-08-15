@@ -85,12 +85,23 @@ function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string
 }
 
 /**
+ * Check if a size name is a "default" placeholder that should be ignored
+ * in favor of the product name. Matches "default", "الافتراضي" (and
+ * common variants) case-insensitively.
+ */
+function isDefaultSizeName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === 'default' || n === 'الافتراضي' || n === 'الافتراضى';
+}
+
+/**
  * Extract the current item's design name from the order data payload.
  * Used to give the design instance a human-readable name.
  *
  * Priority: sizeDesignName → sizeName → productName.
  * The size design name is always used (even for the default size) so
  * each size can have its own design-specific label.
+ * "default"/"الافتراضي" size names are skipped — product name is used.
  */
 function resolveProductName(
   orderData: Record<string, unknown>,
@@ -104,9 +115,12 @@ function resolveProductName(
     };
   }).item;
   if (!item) return undefined;
-  // Always prefer the size's design name, regardless of sizeIndex
+  // Priority: sizeDesignName → sizeName (skip "default") → productName
   if (item.sizeDesignName) return item.sizeDesignName;
-  if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
+  if (item.sizeName) {
+    const sn = item.sizeName.ar || item.sizeName.en;
+    if (sn && !isDefaultSizeName(sn)) return sn;
+  }
   if (!item.productName) return undefined;
   return item.productName.ar || item.productName.en;
 }
