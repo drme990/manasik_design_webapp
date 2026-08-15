@@ -20,6 +20,37 @@ import ConnectProductsModal from '@/components/templates/ConnectProductsModal';
 import type { BookingProduct, Project, TemplateApp } from '@/types';
 
 type TabId = 'text' | 'image';
+type AppFilter = 'all' | TemplateApp;
+
+const STORAGE_KEY = 'templates-filters';
+
+interface PersistedFilters {
+    tab: TabId;
+    app: AppFilter;
+}
+
+function loadPersistedFilters(): PersistedFilters {
+    if (typeof window === 'undefined') return { tab: 'text', app: 'all' };
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { tab: 'text', app: 'all' };
+        const parsed = JSON.parse(raw) as Partial<PersistedFilters>;
+        return {
+            tab: parsed.tab === 'image' ? 'image' : 'text',
+            app: parsed.app === 'manasik' || parsed.app === 'ghadaq' ? parsed.app : 'all',
+        };
+    } catch {
+        return { tab: 'text', app: 'all' };
+    }
+}
+
+function persistFilters(filters: PersistedFilters) {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+    } catch {
+        // ignore quota / privacy mode errors
+    }
+}
 
 export default function TemplatesPage() {
     const t = useTranslations('templates');
@@ -42,7 +73,10 @@ export default function TemplatesPage() {
     const [drawerTab, setDrawerTab] = useState<TabId>('text');
     // Which app the created template is for — manasik or ghadaq.
     const [drawerApp, setDrawerApp] = useState<TemplateApp>('manasik');
-    const [activeTab, setActiveTab] = useState<TabId>('text');
+    // Persisted filters — restored from localStorage on mount
+    const [initialFilters] = useState(loadPersistedFilters);
+    const [activeTab, setActiveTab] = useState<TabId>(initialFilters.tab);
+    const [appFilter, setAppFilter] = useState<AppFilter>(initialFilters.app);
     const [customWidth, setCustomWidth] = useState('1080');
     const [customHeight, setCustomHeight] = useState('1080');
     const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
@@ -60,13 +94,20 @@ export default function TemplatesPage() {
     // Split templates by templateType. Legacy templates (undefined) are
     // treated as 'text' — the more restrictive option — so they show up in
     // the text tab and never expose image dynamic fields.
+    // Also filter by appSource when an app filter is selected.
     const textTemplates = useMemo(
-        () => templates.filter((tpl) => (tpl.templateType ?? 'text') === 'text'),
-        [templates],
+        () => templates.filter((tpl) =>
+            (tpl.templateType ?? 'text') === 'text' &&
+            (appFilter === 'all' || (tpl.appSource ?? 'manasik') === appFilter),
+        ),
+        [templates, appFilter],
     );
     const imageTemplates = useMemo(
-        () => templates.filter((tpl) => tpl.templateType === 'image'),
-        [templates],
+        () => templates.filter((tpl) =>
+            tpl.templateType === 'image' &&
+            (appFilter === 'all' || (tpl.appSource ?? 'manasik') === appFilter),
+        ),
+        [templates, appFilter],
     );
 
     const handlePickGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,6 +155,11 @@ export default function TemplatesPage() {
         };
         load();
     }, [fetchTemplates]);
+
+    // Persist filters to localStorage whenever they change
+    useEffect(() => {
+        persistFilters({ tab: activeTab, app: appFilter });
+    }, [activeTab, appFilter]);
 
     // Count how many products are assigned to a template (in either slot)
     const getProductCount = (templateId: string): number =>
@@ -222,6 +268,10 @@ export default function TemplatesPage() {
         setCopyingTemplateId(template.id);
         try {
             await storeDuplicateTemplateToApp(template.id, targetApp);
+            // Refresh booking products so product counts reflect the
+            // newly copied connections
+            const products = await listBookingProducts();
+            setBookingProducts(products);
         } catch (err) {
             console.error('Failed to copy template:', err);
         } finally {
@@ -496,7 +546,49 @@ export default function TemplatesPage() {
                     <p className="mt-1 text-secondary">{t('subtitle')}</p>
                 </div>
 
-                {/* Tabs — text templates vs image templates */}
+                {/* App filter — same tab style as the type filter below */}
+                <div className="mb-2 flex gap-1 border-b border-stroke">
+                    <button
+                        onClick={() => setAppFilter('all')}
+                        className={`relative px-4 py-3 text-sm font-medium transition-colors ${appFilter === 'all'
+                            ? 'text-brand-primary'
+                            : 'text-secondary hover:text-foreground'
+                            }`}
+                    >
+                        {t('filterAll')}
+                        {appFilter === 'all' && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-brand-primary" />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setAppFilter('manasik')}
+                        className={`relative inline-flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors ${appFilter === 'manasik'
+                            ? 'text-brand-primary'
+                            : 'text-secondary hover:text-foreground'
+                            }`}
+                    >
+                        <LuSmartphone className="h-4 w-4" />
+                        {t('appManasik')}
+                        {appFilter === 'manasik' && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-brand-primary" />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setAppFilter('ghadaq')}
+                        className={`relative inline-flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors ${appFilter === 'ghadaq'
+                            ? 'text-brand-primary'
+                            : 'text-secondary hover:text-foreground'
+                            }`}
+                    >
+                        <LuSmartphone className="h-4 w-4" />
+                        {t('appGhadaq')}
+                        {appFilter === 'ghadaq' && (
+                            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-brand-primary" />
+                        )}
+                    </button>
+                </div>
+
+                {/* Type tabs — text templates vs image templates */}
                 <div className="mb-6 flex gap-1 border-b border-stroke">
                     <button
                         onClick={() => setActiveTab('text')}
