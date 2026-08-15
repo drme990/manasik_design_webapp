@@ -294,15 +294,11 @@ function resolveFieldValue(
     const item = orderData.item || orderData.items?.[0];
     if (!item) return undefined;
     if (key === 'productName') {
-      // If the product has more than one size and the ordered size is
-      // not the default (sizeIndex > 0), display the size name instead
-      // of the product name. This lets a single template work for all
-      // size variants of a product (e.g. "كبيرة" vs "صغيرة").
-      // Prefer sizeDesignName over the customer-facing size name.
-      if (item.sizeIndex && item.sizeIndex > 0) {
-        if (item.sizeDesignName) return item.sizeDesignName;
-        if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
-      }
+      // Always prefer the size's design name, regardless of sizeIndex.
+      // This lets each size have its own design-specific label (e.g.
+      // "خروف كبير" vs "خروف صغير") even for single-size products.
+      if (item.sizeDesignName) return item.sizeDesignName;
+      if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
       const name = item.productName;
       if (!name) return undefined;
       // Always prefer the Arabic name — templates are designed for

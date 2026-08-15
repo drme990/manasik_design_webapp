@@ -88,8 +88,9 @@ function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string
  * Extract the current item's design name from the order data payload.
  * Used to give the design instance a human-readable name.
  *
- * Priority: sizeDesignName (if non-default size) → sizeName → productName.
- * Falls back to the customer-facing name if no design name is set.
+ * Priority: sizeDesignName → sizeName → productName.
+ * The size design name is always used (even for the default size) so
+ * each size can have its own design-specific label.
  */
 function resolveProductName(
   orderData: Record<string, unknown>,
@@ -103,11 +104,9 @@ function resolveProductName(
     };
   }).item;
   if (!item) return undefined;
-  // For non-default sizes, prefer sizeDesignName → sizeName
-  if (item.sizeIndex && item.sizeIndex > 0) {
-    if (item.sizeDesignName) return item.sizeDesignName;
-    if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
-  }
+  // Always prefer the size's design name, regardless of sizeIndex
+  if (item.sizeDesignName) return item.sizeDesignName;
+  if (item.sizeName) return item.sizeName.ar || item.sizeName.en;
   if (!item.productName) return undefined;
   return item.productName.ar || item.productName.en;
 }
