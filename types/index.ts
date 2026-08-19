@@ -8,3 +8,4 @@ export * from './storage';
 export * from './variable';
 export * from './color';
 export * from './collage';
+export * from './order-design-version';

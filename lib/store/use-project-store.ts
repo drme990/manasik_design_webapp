@@ -440,14 +440,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
 
     // If this is an order-generated design, re-render it to JPG and
-    // overwrite the old R2 image (same key/URL). This is fire-and-forget
-    // — the save itself already succeeded; the re-render just updates
-    // the image. Errors are logged but don't fail the save.
+    // create a new version snapshot. This is fire-and-forget — the save
+    // itself already succeeded; the re-render just updates the image and
+    // records the version. The user is NOT blocked.
+    //
+    // We pass the saved project data in the request body so the re-render
+    // route uses the exact same data that was just PATCHed to MongoDB —
+    // no read-after-write race condition (the route doesn't need to fetch
+    // from MongoDB at all).
+    //
+    // The admin panel syncs the order's URL with the latest version on
+    // window focus (via POST /api/admin/orders/sync-designs), so even if
+    // the design app → backend notification fails, the order's URL will
+    // be updated when the admin returns to the /order-designs page.
     if (saved.source === 'order' && saved.orderDesignUrl) {
       fetchWithAuth(`/api/projects/${saved.id}/re-render`, {
         method: 'POST',
-      }).catch((err) => {
-        console.error('Failed to re-render order design:', err);
+        body: JSON.stringify({ project: saved }),
+      }).catch(() => {
+        // Best-effort — the save itself succeeded
       });
     }
 

@@ -1382,19 +1382,38 @@ function renderTextLayer(ctx: SKRSContext2D, layer: TextLayer): void {
   // When only one span exists, use wrapText (same as measurement) to
   // avoid line-count mismatch with wrapTextWithSpans. When multiple
   // spans exist, use wrapTextWithSpans for per-field RTL rendering.
+  //
+  // IMPORTANT: The editor updates `layer.text` when the user edits text
+  // directly, but may NOT sync the `spans` array. When the spans are
+  // stale (their concatenated text doesn't match `layer.text`), we fall
+  // back to using `layer.text` as a single span — this ensures the
+  // rendered image always reflects the user's edits.
   type LineSeg = { text: string; span: { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } };
   let lines: Array<LineSeg[]>;
 
-  if (hasSpans && layer.spans!.length > 1) {
+  // Check if spans are in sync with text. If the concatenated span text
+  // doesn't match layer.text, the spans are stale (user edited text
+  // directly) — use layer.text as the source of truth.
+  const spansText = hasSpans
+    ? layer.spans!.map((s) => s.text).join('').trim()
+    : '';
+  const spansInSync = hasSpans && spansText === layer.text.trim();
+
+  if (spansInSync && layer.spans!.length > 1) {
     lines = wrapTextWithSpans(ctx, layer.spans!, layer, renderFontSize, wrapWidth);
   } else {
-    // Plain text or single span — wrap into lines. Each line is drawn as
+    // Plain text or stale spans — wrap into lines. Each line is drawn as
     // a single fillText call; the canvas bidi algorithm handles internal
     // RTL ordering (Arabic letters, parentheses) automatically.
+    // When spans exist but are stale, use the first span's styling as
+    // the default (preserves color/font from the original spans).
     ctx.font = buildFontStringWithSize(layer, renderFontSize);
     const plainLines = wrapText(ctx, layer.text, wrapWidth);
+    const defaultSpan = hasSpans && layer.spans!.length > 0
+      ? layer.spans![0]
+      : {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean };
     lines = plainLines.map((line) => {
-      return [{ text: line, span: {} as { color?: string; fontFamily?: string; bold?: boolean; italic?: boolean } }];
+      return [{ text: line, span: defaultSpan }];
     });
   }
 

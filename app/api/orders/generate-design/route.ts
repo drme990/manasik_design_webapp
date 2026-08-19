@@ -4,6 +4,7 @@ import { uploadToR2 } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import { renderLimiter } from '@/lib/utils/concurrency-limiter';
+import { createVersion, AUTO_ACTOR } from '@/lib/services/design-version-service';
 import type { BookingProduct, Project, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'booking_products';
@@ -158,6 +159,20 @@ interface GenerateDesignRequest {
   hasReservationPhoto: boolean;
   itemIndex?: number;
   orderData: Record<string, unknown>;
+  /**
+   * History trigger (see `order-history-enhanced.md` §7). The backend
+   * knows whether this is an auto generation (webhook / status change)
+   * or an admin regeneration (admin button). Defaults to 'auto' for
+   * backward compatibility with older backends that don't send this.
+   */
+  trigger?: 'auto' | 'admin_regenerate';
+  /**
+   * Idempotency key for the saved version. When provided, the design app
+   * uses it as the `operationId` so retries don't create duplicate
+   * versions. When omitted, the design app derives a stable one from
+   * (orderNumber, productId, itemIndex).
+   */
+  operationId?: string;
 }
 
 /**
@@ -415,10 +430,59 @@ export async function POST(request: NextRequest) {
       // Save the design instance to MongoDB (with the R2 URL)
       await projectsCollection.insertOne(designInstance);
 
+      // ── Save an immutable version snapshot ─────────────────────────────
+      // Every generation creates an append-only version. The trigger is
+      // determined by the backend ('auto' for webhook / status change,
+      // 'admin_regenerate' for the admin "Regenerate" button). The
+      // archived JPG is uploaded to a separate immutable R2 key (never
+      // overwritten) so historical previews stay correct even after the
+      // design is edited or regenerated.
+      //
+      // The archived URL is returned to the backend as the order's design
+      // URL — every version has a unique URL, so the admin panel always
+      // loads the correct image for the current version (no cache-busting
+      // needed, no stale CDN entries).
+      //
+      // Idempotency: the backend sends a stable operationId for auto
+      // generation (derived from the webhook event / order identity) so
+      // retries don't create duplicate versions. For admin regeneration,
+      // the backend sends a fresh operationId per request.
+      const versionTrigger = body.trigger === 'admin_regenerate' ? 'admin_regenerate' : 'auto';
+      const versionOperationId =
+        body.operationId ||
+        `auto:${body.orderNumber}:${body.productId}:${body.itemIndex ?? 1}`;
+      let versionResult;
+      try {
+        versionResult = await createVersion({
+          orderNumber: body.orderNumber,
+          productId: body.productId,
+          itemIndex: body.itemIndex,
+          projectId: designInstance.id,
+          jpgBuffer,
+          project: designInstance,
+          trigger: versionTrigger,
+          actor: AUTO_ACTOR,
+          operationId: versionOperationId,
+        });
+      } catch (versionError) {
+        // Version creation is best-effort — the design itself was
+        // generated and uploaded successfully. Don't fail the whole
+        // request if history recording fails.
+        console.error('[generate-design] createVersion failed:', versionError);
+        versionResult = undefined;
+      }
+
+      // Use the archived (immutable) URL as the order's design URL when a
+      // version was created. Fall back to the mutable URL if version
+      // creation failed (best-effort — the design is still usable).
+      const orderDesignUrl = versionResult?.version?.archivedUrl || result.url;
+
       return NextResponse.json({
         success: true,
         data: {
-          url: result.url,
+          // Return the archived (immutable) URL — every version has a
+          // unique URL so the admin panel loads the right image instantly.
+          url: orderDesignUrl,
           key: result.key,
           orderNumber: body.orderNumber,
           itemIndex: body.itemIndex,
@@ -430,6 +494,11 @@ export async function POST(request: NextRequest) {
           templateId: template.id,
           templateName: template.name,
           templateType,
+          // The newly-created version number (or the existing one if this
+          // was a duplicate operation). The backend uses this to set
+          // `designUrls[].currentVersion` so the admin panel can mark the
+          // current version in the history UI.
+          version: versionResult?.version?.version,
         },
       });
     });

@@ -107,6 +107,13 @@ export interface Project extends SyncableDocument {
    */
   orderMeta?: {
     orderNumber: string;
+    /**
+     * Backend product ID (string ObjectId) this design was generated for.
+     * Stored on the design instance so the re-render endpoint can identify
+     * the design's history identity `(orderNumber, productId, itemIndex)`
+     * without a round-trip to the backend.
+     */
+    productId?: string;
     /** 1-based item index for multi-item orders */
     itemIndex?: number;
     /** Product name snapshot (customer-facing) */

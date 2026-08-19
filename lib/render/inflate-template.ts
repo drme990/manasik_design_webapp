@@ -948,6 +948,10 @@ export function inflateTemplateToDesign(
     // Order metadata snapshot for the /orders-designs list page
     orderMeta: {
       orderNumber: options.orderNumber,
+      // Backend product ID — stored so the re-render endpoint can identify
+      // the design's history identity (orderNumber, productId, itemIndex)
+      // without a round-trip to the backend.
+      productId: item?.productId ? String(item.productId) : undefined,
       itemIndex: options.itemIndex,
       productName,
       sizeName,
