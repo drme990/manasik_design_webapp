@@ -23,14 +23,33 @@ function verifyCallback(request: NextRequest): boolean {
 }
 
 /**
- * Check if an R2 key belongs to the design app's own storage (design/).
- * Only design-app-owned assets should be deleted. Files in other folders
- * (e.g. images/customers/) are owned by the backend — they're
- * customer-uploaded photos referenced by design instances but not owned
- * by them. Deleting them would destroy the original customer photos.
+ * R2 key prefixes for project-specific assets that are safe to delete
+ * when the project is deleted. Shared/global assets (shapes, fonts) are
+ * NOT included here — they're referenced by many projects and must never
+ * be deleted as part of a single project's cleanup.
+ */
+const PROJECT_SPECIFIC_PREFIXES = [
+  'design/projects-images/',  // images uploaded to this project
+  'design/thumbnails/',       // this project's thumbnail
+  'design/orders-design/',    // generated order design JPGs
+];
+
+/**
+ * Check if an R2 key belongs to a project-specific asset that can be
+ * safely deleted when the project is deleted.
+ *
+ * Shared assets under `design/` that must NOT be deleted:
+ *   - `design/shapes/`    — user-uploaded PNG shapes, shared across all
+ *                            projects and templates
+ *   - `design/fonts/`     — font files, shared across all projects
+ *
+ * Files outside `design/` (e.g. `images/customers/`) are owned by the
+ * backend — they're customer-uploaded photos referenced by design
+ * instances but not owned by them. Deleting them would destroy the
+ * original customer photos.
  */
 function isDesignOwnedKey(key: string): boolean {
-  return key.startsWith('design/');
+  return PROJECT_SPECIFIC_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /**
@@ -134,6 +153,12 @@ export async function POST(request: NextRequest) {
 
     // Deduplicate
     const uniqueKeys = [...new Set(r2Keys)];
+
+    // Audit log: record what's being deleted
+    console.log(
+      `[POST /api/orders/delete-designs] Deleting ${projectIds.length} project(s): ${projectIds.join(', ')}. ` +
+      `R2 keys to delete (${uniqueKeys.length}): ${uniqueKeys.join(', ') || 'none'}`,
+    );
 
     // Delete projects from MongoDB
     const deleteResult = await collection.deleteMany({

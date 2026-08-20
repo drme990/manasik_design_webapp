@@ -131,14 +131,32 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * Check if an R2 key belongs to the design app's own storage (design/).
- * Only design-app-owned assets should be deleted on project deletion.
- * Files in other folders (e.g. images/customers/) are owned by the
+ * R2 key prefixes for project-specific assets that are safe to delete
+ * when the project is deleted. Shared/global assets (shapes, fonts) are
+ * NOT included here — they're referenced by many projects and must never
+ * be deleted as part of a single project's cleanup.
+ */
+const PROJECT_SPECIFIC_PREFIXES = [
+  'design/projects-images/',  // images uploaded to this project
+  'design/thumbnails/',       // this project's thumbnail
+  'design/orders-design/',    // generated order design JPGs
+];
+
+/**
+ * Check if an R2 key belongs to a project-specific asset that can be
+ * safely deleted when the project is deleted.
+ *
+ * Shared assets under `design/` that must NOT be deleted:
+ *   - `design/shapes/`    — user-uploaded PNG shapes, shared across all
+ *                            projects and templates
+ *   - `design/fonts/`     — font files, shared across all projects
+ *
+ * Files outside `design/` (e.g. `images/customers/`) are owned by the
  * backend and must NOT be deleted — they're customer-uploaded photos
  * referenced by design instances but not owned by them.
  */
 function isDesignOwnedKey(key: string): boolean {
-  return key.startsWith('design/');
+  return PROJECT_SPECIFIC_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /**
@@ -242,6 +260,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // Collect all R2 keys to delete (images, thumbnail, etc.)
     const r2Keys = collectProjectR2Keys(existing);
+
+    // Audit log: record what's being deleted and by whom
+    const actor = isCallback
+      ? 'backend-callback'
+      : `${session!.id} (${session!.role})`;
+    console.log(
+      `[DELETE /api/projects/[id]] Deleting project ${id} (kind=${existing.kind}, source=${existing.source || 'n/a'}) by ${actor}. ` +
+      `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}`,
+    );
 
     const collection = await getCollection();
     await collection.deleteOne({ id });
