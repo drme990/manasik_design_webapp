@@ -218,12 +218,17 @@ store's `saveProject` automatically calls
 `POST /api/projects/[id]/re-render` in the background (fire-and-forget).
 This endpoint:
 1. Re-renders the project to JPG via @napi-rs/canvas
-2. Uploads it to R2 at the **same key** (extracted from
-   `project.orderDesignUrl`), overwriting the old image.
-3. The URL stays the same — the backend's order doesn't need updating
+2. Creates a new immutable version snapshot in `order_design_versions`
+   (each version gets a unique archived URL in R2)
+3. Updates the order's `designUrls[].url` and `currentVersion` **directly
+   in the shared MongoDB** via `lib/services/backend-notify.ts` — no HTTP
+   call to the backend needed
+4. Also overwrites the mutable R2 key (backward compat, best-effort)
 
-This means the admin panel always shows the latest version of the
-design without any additional sync between the design app and backend.
+The design app and backend share the same MongoDB instance
+(`DATA_BASE_URL`), so the design app can update the `orders` collection
+directly. The backend's `/api/admin/orders/sync-designs` endpoint is a
+safety net that catches up on window focus if the direct write failed.
 
 ### Cache-busting for order designs
 

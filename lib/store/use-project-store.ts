@@ -449,10 +449,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // no read-after-write race condition (the route doesn't need to fetch
     // from MongoDB at all).
     //
-    // The admin panel syncs the order's URL with the latest version on
-    // window focus (via POST /api/admin/orders/sync-designs), so even if
-    // the design app → backend notification fails, the order's URL will
-    // be updated when the admin returns to the /order-designs page.
+    // The re-render route updates the order's designUrls directly in the
+    // shared MongoDB (no HTTP call to the backend). The admin panel's
+    // sync-designs endpoint is a safety net that catches up on window
+    // focus if the direct write failed.
     if (saved.source === 'order' && saved.orderDesignUrl) {
       fetchWithAuth(`/api/projects/${saved.id}/re-render`, {
         method: 'POST',
