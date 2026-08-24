@@ -33,10 +33,10 @@ jobs:
             ghcr.io/drme990/manasik_design_webapp:latest
             ghcr.io/drme990/manasik_design_webapp:${{ github.sha }}
 
-      # NEW: Deploy the new design image
       - name: Deploy design
         run: |
           cd ~/production
+          sed -i "s|image: ghcr.io/drme990/manasik_design_webapp:.*|image: ghcr.io/drme990/manasik_design_webapp:${{ github.sha }}|" docker-compose.yml
           docker compose pull design
           docker compose up -d design
           docker image prune -f
