@@ -78,6 +78,30 @@ export function generateImageKey(file: File | { name: string; type: string }): s
 }
 
 /**
+ * Generate an R2 key for a project/template background image.
+ *
+ * Stored under `design/template-bg/` with the project ID as a prefix so
+ * the file is clearly identifiable and tied to its owner. This separates
+ * background images from regular layer images (`design/projects-images/`)
+ * so that design-instance deletion (which shares the template's bg URL)
+ * can be handled safely — the bg is only deleted when the TEMPLATE is
+ * deleted, never when a design instance is deleted.
+ *
+ * @param projectId The project (template or design) that owns this bg
+ * @param file      The uploaded file (used for the extension)
+ */
+export function generateBackgroundKey(
+  projectId: string,
+  file: File | { name: string; type: string },
+): string {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const rand = Math.random().toString(36).slice(2, 8);
+  const safeExt = ext && /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
+  const safeId = projectId.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 40) || 'unknown';
+  return `design/template-bg/${safeId}-${Date.now()}-${rand}.${safeExt}`;
+}
+
+/**
  * Generate an S3 key for a user-uploaded font file under `design/fonts/`.
  * The filename is sanitized to a safe family-id slug; the original extension
  * is preserved so browsers can sniff the format.

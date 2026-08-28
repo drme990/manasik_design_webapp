@@ -74,8 +74,10 @@ function generateThumbnail(file: File): Promise<File | null> {
 
 /**
  * Upload a file via XHR with progress tracking. Returns the public URL.
+ * @param uploadUrl Optional override for the upload endpoint URL
+ *   (e.g. `/api/upload?type=background&projectId=xxx` for bg images).
  */
-function uploadFile(file: File): Promise<string> {
+function uploadFile(file: File, uploadUrl: string = '/api/upload'): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
@@ -96,7 +98,7 @@ function uploadFile(file: File): Promise<string> {
     xhr.addEventListener('error', () => reject(new Error('Network error')));
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
 
-    xhr.open('POST', '/api/upload');
+    xhr.open('POST', uploadUrl);
     xhr.send(formData);
   });
 }
@@ -129,9 +131,20 @@ export function createInstantPreview(file: File): Promise<{
  * Used by the instant-add flow: the layer is already on the canvas with a
  * temporary object URL; this function uploads the real file and returns the
  * R2 URL + thumbnail URL so the caller can swap the layer's `uri`.
+ *
+ * @param projectId When provided, the image is uploaded as a background
+ *   image (`?type=background&projectId=xxx`) which uses a dedicated R2
+ *   prefix `design/template-bg/` so it's not accidentally deleted when
+ *   a design instance sharing the template's bg is deleted.
  */
-export async function uploadImageInBackground(file: File): Promise<UploadedImage> {
-  const url = await uploadFile(file);
+export async function uploadImageInBackground(
+  file: File,
+  projectId?: string,
+): Promise<UploadedImage> {
+  const uploadUrl = projectId
+    ? `/api/upload?type=background&projectId=${encodeURIComponent(projectId)}`
+    : '/api/upload';
+  const url = await uploadFile(file, uploadUrl);
   const { width, height } = await loadImageDimensions(url);
 
   // Generate and upload thumbnail silently
@@ -152,8 +165,8 @@ export async function uploadImageInBackground(file: File): Promise<UploadedImage
  * Upload a file with XHR progress events (no progress tracking).
  * Used for thumbnails (small files, progress not needed).
  */
-function uploadFileSilent(file: File): Promise<string> {
-  return uploadFile(file);
+function uploadFileSilent(file: File, uploadUrl?: string): Promise<string> {
+  return uploadFile(file, uploadUrl);
 }
 
 /**

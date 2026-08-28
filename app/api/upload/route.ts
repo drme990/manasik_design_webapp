@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
-import { uploadToR2, generateImageKey } from '@/lib/storage/r2';
+import { uploadToR2, generateImageKey, generateBackgroundKey } from '@/lib/storage/r2';
 
 // Force Node.js runtime — required for @aws-sdk + Buffer
 export const runtime = 'nodejs';
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file');
+    const { searchParams } = new URL(request.url);
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json(
@@ -50,7 +51,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const key = generateImageKey(file);
+    // Background images use a dedicated prefix (`design/template-bg/`)
+    // so they're clearly identifiable and not accidentally deleted when
+    // a design instance (which shares the template's bg URL) is deleted.
+    // The client passes `?type=background&projectId=xxx` for bg uploads.
+    const uploadType = searchParams.get('type');
+    const projectId = searchParams.get('projectId');
+    const key =
+      uploadType === 'background' && projectId
+        ? generateBackgroundKey(projectId, file)
+        : generateImageKey(file);
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await uploadToR2(key, buffer, file.type || 'application/octet-stream');
 

@@ -784,7 +784,7 @@ export default function EditorPage() {
         }));
 
         // --- Background upload ---
-        const uploadPromise = uploadImageInBackground(file)
+        const uploadPromise = uploadImageInBackground(file, project.id)
             .then((uploaded) => {
                 try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
                 updateProjectState((prev) => ({
@@ -823,7 +823,7 @@ export default function EditorPage() {
         const file = current.bgPendingFile;
         const tempUri = current.backgroundUri?.startsWith('blob:') ? current.backgroundUri : URL.createObjectURL(file);
         updateProjectState((prev) => ({ ...prev, bgUploadStatus: 'uploading' }));
-        const uploadPromise = uploadImageInBackground(file)
+        const uploadPromise = uploadImageInBackground(file, current.id)
             .then((uploaded) => {
                 try { URL.revokeObjectURL(tempUri); } catch { /* ignore */ }
                 updateProjectState((prev) => ({

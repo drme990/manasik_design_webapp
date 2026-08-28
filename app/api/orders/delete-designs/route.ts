@@ -102,6 +102,12 @@ export async function POST(request: NextRequest) {
     // Collect R2 keys: order design image, thumbnail, layer images.
     // Only collect keys under the `design/` folder — customer photos
     // at `images/customers/...` are NOT deleted (owned by the backend).
+    //
+    // IMPORTANT: Background images are NOT deleted here. These are
+    // design instances (source='order') that share the template's bg URL.
+    // Deleting the bg would break the template and all other design
+    // instances that reference the same bg. The bg is only cleaned up
+    // when the template itself is deleted (see DELETE /api/projects/[id]).
     const r2Keys: string[] = [];
     for (const project of projects) {
       // The generated design JPG (stored on the project as orderDesignUrl)
@@ -111,15 +117,7 @@ export async function POST(request: NextRequest) {
       }
       // Project thumbnail
       r2Keys.push(generateThumbnailKey(project.id));
-      // Background image
-      if (project.backgroundUri) {
-        const key = extractKeyFromUrl(project.backgroundUri);
-        if (key && isDesignOwnedKey(key)) r2Keys.push(key);
-      }
-      if (project.backgroundThumbnailUri) {
-        const key = extractKeyFromUrl(project.backgroundThumbnailUri);
-        if (key && isDesignOwnedKey(key)) r2Keys.push(key);
-      }
+      // Layer image URIs
       // Layer image URIs
       for (const layer of project.layers) {
         if (layer.type === 'image') {

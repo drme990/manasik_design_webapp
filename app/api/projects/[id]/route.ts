@@ -135,11 +135,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
  * when the project is deleted. Shared/global assets (shapes, fonts) are
  * NOT included here — they're referenced by many projects and must never
  * be deleted as part of a single project's cleanup.
+ *
+ * `design/template-bg/` is only deleted for booking_template projects —
+ * design instances (source='order') share the template's bg URL, so
+ * deleting a design instance must NOT delete the bg (the template owns it).
  */
 const PROJECT_SPECIFIC_PREFIXES = [
   'design/projects-images/',  // images uploaded to this project
   'design/thumbnails/',       // this project's thumbnail
   'design/orders-design/',    // generated order design JPGs
+  'design/template-bg/',      // template background images (templates only!)
 ];
 
 /**
@@ -168,6 +173,12 @@ function isDesignOwnedKey(key: string): boolean {
  * in order-generated designs may reference customer photos stored at
  * `images/customers/...` — those are owned by the backend and must not
  * be deleted here.
+ *
+ * IMPORTANT: Background images (`design/template-bg/`) are ONLY deleted
+ * for booking_template projects. Design instances (source='order') share
+ * the template's bg URL — deleting the bg when a design instance is
+ * deleted would break the template and all other design instances that
+ * reference the same bg.
  */
 function collectProjectR2Keys(project: Project): string[] {
   const keys: string[] = [];
@@ -175,14 +186,21 @@ function collectProjectR2Keys(project: Project): string[] {
   // Thumbnail (stored at a predictable key)
   keys.push(generateThumbnailKey(project.id));
 
-  // Background image
-  if (project.backgroundUri) {
-    const key = extractKeyFromUrl(project.backgroundUri);
-    if (key && isDesignOwnedKey(key)) keys.push(key);
-  }
-  if (project.backgroundThumbnailUri) {
-    const key = extractKeyFromUrl(project.backgroundThumbnailUri);
-    if (key && isDesignOwnedKey(key)) keys.push(key);
+  // Background image — only delete for templates, NOT for design instances.
+  // Design instances (source='order') inherit the template's bg URL via
+  // the spread in inflateTemplateToDesign. Deleting it here would remove
+  // the bg from R2, breaking the template and every other design instance
+  // that shares the same bg.
+  const isTemplate = project.kind === 'booking_template';
+  if (isTemplate) {
+    if (project.backgroundUri) {
+      const key = extractKeyFromUrl(project.backgroundUri);
+      if (key && isDesignOwnedKey(key)) keys.push(key);
+    }
+    if (project.backgroundThumbnailUri) {
+      const key = extractKeyFromUrl(project.backgroundThumbnailUri);
+      if (key && isDesignOwnedKey(key)) keys.push(key);
+    }
   }
 
   // Layer URIs
