@@ -389,6 +389,9 @@ export default function EditorPage() {
     const scheduleThumbnailUpdate = useCallback((project: Project) => {
         // Don't generate thumbnails for blank projects
         if (isProjectBlank(project)) return;
+        // Order designs don't have thumbnails — the design JPG itself
+        // is used as the thumbnail (see ProjectCardPreview).
+        if (project.kind === 'order_design') return;
         // Cancel any pending debounce — we only care about the latest state
         if (thumbnailDebounceRef.current) {
             clearTimeout(thumbnailDebounceRef.current);
@@ -478,10 +481,14 @@ export default function EditorPage() {
             try { sessionStorage.removeItem(`manasik:project:${updated.id}`); } catch { /* ignore */ }
             hasUnsavedRef.current = false;
             setHasUnsavedChanges(false);
-            // Capture + upload the thumbnail in the background (non-blocking)
-            captureThumbnailBlob(saved.backgroundColor ?? '#ffffff').then((blob) => {
-                if (blob) uploadThumbnailInBackground(blob, saved.id);
-            });
+            // Capture + upload the thumbnail in the background (non-blocking).
+            // Order designs don't have thumbnails — the design JPG itself
+            // is used as the thumbnail (see ProjectCardPreview).
+            if (saved.kind !== 'order_design') {
+                captureThumbnailBlob(saved.backgroundColor ?? '#ffffff').then((blob) => {
+                    if (blob) uploadThumbnailInBackground(blob, saved.id);
+                });
+            }
         } catch (error) {
             console.error('Failed to save project to server:', error);
             toast.showToast({ message: t('saveFailedMessage'), variant: 'error' });
@@ -620,7 +627,10 @@ export default function EditorPage() {
         // Capture the thumbnail now — this needs the canvas DOM node, so it
         // must complete before we navigate away and unmount the page. It's a
         // local snapshot (no network), so the delay is small (~100ms).
-        const blob = await captureThumbnailBlob(toSave.backgroundColor ?? '#ffffff');
+        // Order designs don't have thumbnails — skip the capture.
+        const blob = toSave.kind === 'order_design'
+            ? null
+            : await captureThumbnailBlob(toSave.backgroundColor ?? '#ffffff');
 
         // Optimistic UI — leave immediately; persist to the server and
         // upload the thumbnail in the background without blocking on them.

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
-import { getMongoClient } from '@/lib/db/mongodb';
-import { uploadToR2 } from '@/lib/storage/r2';
+import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from '@/lib/db/project-collections';
+import { uploadToR2, deleteFromR2, generateOrderDesignKey, extractKeyFromUrl } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import {
   createVersion,
@@ -10,40 +10,12 @@ import {
 import { notifyBackendOfDesignUrlUpdate } from '@/lib/services/backend-notify';
 import type { Project } from '@/types';
 
-const COLLECTION = 'projects';
-
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
 }
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-async function getCollection() {
-  const client = getMongoClient();
-  if (!client.isConnected()) {
-    await client.connect();
-  }
-  const collection = client.getCollection<Project>(COLLECTION);
-  if (!collection) {
-    throw new Error('Projects collection not available');
-  }
-  return collection;
-}
-
-/**
- * Extract the R2 key from a public R2 URL.
- * e.g. https://cdn.manasik.net/design/orders-design/ORD-123.jpg
- *      → design/orders-design/ORD-123.jpg
- */
-function extractKeyFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.pathname.slice(1); // remove leading /
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -110,7 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let project: Project | null = body?.project ?? null;
 
     if (!project) {
-      const collection = await getCollection();
+      const collection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
       project = await collection.findOne({ id });
     }
 
@@ -128,17 +100,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (project.source !== 'order') {
+    if (project.kind !== 'order_design') {
       return NextResponse.json(
         { success: false, error: 'notOrderDesign', message: 'Only order-generated designs can be re-rendered.' },
         { status: 400 },
       );
     }
 
-    // Determine the mutable R2 key (for backward-compat overwrite)
+    // Determine the mutable R2 key (Tier 2 — explicit delete + re-add)
     let mutableKey: string | null = null;
     if (project.orderDesignUrl) {
       mutableKey = extractKeyFromUrl(project.orderDesignUrl);
+    } else if (project.orderMeta?.orderNumber) {
+      // No existing URL — generate the canonical key
+      mutableKey = generateOrderDesignKey(project.orderMeta.orderNumber, project.orderMeta.itemIndex);
     }
 
     const meta = project.orderMeta;
@@ -147,6 +122,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // mutable key (backward compat) and return.
       if (mutableKey) {
         const jpgBuffer = await renderTemplateToJpg(project, {});
+        try { await deleteFromR2(mutableKey); } catch { /* first upload — fine */ }
         await uploadToR2(mutableKey, jpgBuffer, 'image/jpeg', {
           cacheControl: 'no-cache',
         });
@@ -192,11 +168,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         operationId: generateOperationId(),
         // NO skipIfUnchanged — every save creates a new version.
       });
-    } catch  {
+    } catch {
       // Version creation failed — but the render succeeded. Fall back to
       // overwriting the mutable key so the admin at least sees the new
       // design, even without a version snapshot.
       if (mutableKey) {
+        try { await deleteFromR2(mutableKey); } catch { /* best-effort */ }
         await uploadToR2(mutableKey, jpgBuffer, 'image/jpeg', {
           cacheControl: 'no-cache',
         });
@@ -233,8 +210,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // ── Also overwrite the mutable key (backward compat) ───────────────
     // Some older code might still reference the mutable URL. Overwrite it
     // with the new design so those references stay current. Best-effort.
+    // Tier 2 — explicit delete + re-add with the same key.
     if (mutableKey) {
       try {
+        try { await deleteFromR2(mutableKey); } catch { /* best-effort */ }
         await uploadToR2(mutableKey, jpgBuffer, 'image/jpeg', {
           cacheControl: 'no-cache',
         });

@@ -1,7 +1,7 @@
 import type { AnyLayer } from './layer';
 import type { SyncableDocument } from './storage';
 
-export type ProjectKind = 'design' | 'booking_template';
+export type ProjectKind = 'design' | 'order_design' | 'booking_template';
 
 /**
  * Where the project came from.

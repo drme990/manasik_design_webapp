@@ -2,7 +2,7 @@
  * Create database indexes for all collections used by the design app.
  *
  * This fixes the "Sort exceeded memory limit of 33554432 bytes" error
- * that occurs when the `projects` collection grows large and MongoDB
+ * that occurs when the `design_projects` collection grows large and MongoDB
  * can't sort in memory without an index on the sort field.
  *
  * Usage:
@@ -32,31 +32,24 @@ async function main() {
     process.exit(1);
   }
 
-  // ── projects collection ──────────────────────────────────────────
-  // This is the largest collection and the one causing the sort error.
+  // ── design_projects collection ───────────────────────────────────
+  // User designs (kind='design') + order-generated designs (kind='order_design').
   // Indexes:
   //   - id (unique) — used by every findOne({ id }) lookup
   //   - userId + updatedAt — used by GET /api/projects (user's designs)
-  //   - source + kind + updatedAt — used by GET /api/projects?source=order
-  //   - kind + updatedAt — used by GET /api/projects?kind=booking_template
-  console.log('\nCreating indexes on "projects" collection...');
+  //   - kind + updatedAt — used by GET /api/projects?source=order and ?kind=design
+  console.log('\nCreating indexes on "design_projects" collection...');
 
-  await db.collection('projects').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  await db.collection('design_projects').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
   console.log('  ✓ idx_id_unique (id, unique)');
 
-  await db.collection('projects').createIndex(
+  await db.collection('design_projects').createIndex(
     { userId: 1, updatedAt: -1 },
     { name: 'idx_userId_updatedAt' },
   );
   console.log('  ✓ idx_userId_updatedAt (userId, updatedAt)');
 
-  await db.collection('projects').createIndex(
-    { source: 1, kind: 1, updatedAt: -1 },
-    { name: 'idx_source_kind_updatedAt' },
-  );
-  console.log('  ✓ idx_source_kind_updatedAt (source, kind, updatedAt)');
-
-  await db.collection('projects').createIndex(
+  await db.collection('design_projects').createIndex(
     { kind: 1, updatedAt: -1 },
     { name: 'idx_kind_updatedAt' },
   );
@@ -64,74 +57,98 @@ async function main() {
 
   // Index for name search (regex queries can't use indexes efficiently,
   // but this helps with case-insensitive prefix matches)
-  await db.collection('projects').createIndex(
+  await db.collection('design_projects').createIndex(
     { name: 1 },
     { name: 'idx_name' },
   );
   console.log('  ✓ idx_name (name)');
 
-  // ── booking_products collection ──────────────────────────────────
-  // Indexes:
-  //   - id (unique) — used by findOne({ id })
-  //   - backendProductId + sizeIndex — used by generate-design route
-  //   - updatedAt — used by GET /api/booking-products sort
-  console.log('\nCreating indexes on "booking_products" collection...');
+  // ── design_booking_templates collection ──────────────────────────
+  // Booking templates (kind='booking_template').
+  console.log('\nCreating indexes on "design_booking_templates" collection...');
 
-  await db.collection('booking_products').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  await db.collection('design_booking_templates').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
   console.log('  ✓ idx_id_unique (id, unique)');
 
-  await db.collection('booking_products').createIndex(
-    { backendProductId: 1, sizeIndex: 1 },
-    { name: 'idx_backendProductId_sizeIndex' },
+  await db.collection('design_booking_templates').createIndex(
+    { kind: 1, updatedAt: -1 },
+    { name: 'idx_kind_updatedAt' },
   );
-  console.log('  ✓ idx_backendProductId_sizeIndex (backendProductId, sizeIndex)');
+  console.log('  ✓ idx_kind_updatedAt (kind, updatedAt)');
 
-  await db.collection('booking_products').createIndex(
-    { updatedAt: -1 },
-    { name: 'idx_updatedAt' },
-  );
-  console.log('  ✓ idx_updatedAt (updatedAt)');
-
-  // ── pdf_projects collection ──────────────────────────────────────
-  console.log('\nCreating indexes on "pdf_projects" collection...');
-
-  await db.collection('pdf_projects').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
-  console.log('  ✓ idx_id_unique (id, unique)');
-
-  await db.collection('pdf_projects').createIndex(
+  await db.collection('design_booking_templates').createIndex(
     { userId: 1, updatedAt: -1 },
     { name: 'idx_userId_updatedAt' },
   );
   console.log('  ✓ idx_userId_updatedAt (userId, updatedAt)');
 
-  // ── fonts collection ─────────────────────────────────────────────
-  console.log('\nCreating indexes on "fonts" collection...');
+  // ── design_booking_products collection ───────────────────────────
+  // Indexes:
+  //   - id (unique) — used by findOne({ id })
+  //   - backendProductId + sizeIndex — used by generate-design route
+  //   - updatedAt — used by GET /api/booking-products sort
+  console.log('\nCreating indexes on "design_booking_products" collection...');
 
-  await db.collection('fonts').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  await db.collection('design_booking_products').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
   console.log('  ✓ idx_id_unique (id, unique)');
 
-  await db.collection('fonts').createIndex(
+  await db.collection('design_booking_products').createIndex(
+    { backendProductId: 1, sizeIndex: 1 },
+    { name: 'idx_backendProductId_sizeIndex' },
+  );
+  console.log('  ✓ idx_backendProductId_sizeIndex (backendProductId, sizeIndex)');
+
+  await db.collection('design_booking_products').createIndex(
+    { updatedAt: -1 },
+    { name: 'idx_updatedAt' },
+  );
+  console.log('  ✓ idx_updatedAt (updatedAt)');
+
+  // ── design_pdf_projects collection ───────────────────────────────
+  console.log('\nCreating indexes on "design_pdf_projects" collection...');
+
+  await db.collection('design_pdf_projects').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  console.log('  ✓ idx_id_unique (id, unique)');
+
+  await db.collection('design_pdf_projects').createIndex(
+    { userId: 1, updatedAt: -1 },
+    { name: 'idx_userId_updatedAt' },
+  );
+  console.log('  ✓ idx_userId_updatedAt (userId, updatedAt)');
+
+  // ── design_user_fonts collection ─────────────────────────────────
+  // BUG FIX: setup-indexes.ts was referencing 'fonts' instead of
+  // 'design_user_fonts'. Indexes were being created on the wrong
+  // collection. This is now fixed.
+  console.log('\nCreating indexes on "design_user_fonts" collection...');
+
+  await db.collection('design_user_fonts').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  console.log('  ✓ idx_id_unique (id, unique)');
+
+  await db.collection('design_user_fonts').createIndex(
     { userId: 1 },
     { name: 'idx_userId' },
   );
   console.log('  ✓ idx_userId (userId)');
 
-  // ── shapes collection ────────────────────────────────────────────
-  console.log('\nCreating indexes on "shapes" collection...');
+  // ── design_user_shapes collection ────────────────────────────────
+  // BUG FIX: was 'shapes', now 'design_user_shapes'.
+  console.log('\nCreating indexes on "design_user_shapes" collection...');
 
-  await db.collection('shapes').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
+  await db.collection('design_user_shapes').createIndex({ id: 1 }, { unique: true, name: 'idx_id_unique' });
   console.log('  ✓ idx_id_unique (id, unique)');
 
-  await db.collection('shapes').createIndex(
+  await db.collection('design_user_shapes').createIndex(
     { userId: 1 },
     { name: 'idx_userId' },
   );
   console.log('  ✓ idx_userId (userId)');
 
-  // ── saved_colors collection ──────────────────────────────────────
-  console.log('\nCreating indexes on "saved_colors" collection...');
+  // ── design_saved_colors collection ───────────────────────────────
+  // BUG FIX: was 'saved_colors', now 'design_saved_colors'.
+  console.log('\nCreating indexes on "design_saved_colors" collection...');
 
-  await db.collection('saved_colors').createIndex(
+  await db.collection('design_saved_colors').createIndex(
     { userId: 1 },
     { unique: true, name: 'idx_userId_unique' },
   );
@@ -139,7 +156,9 @@ async function main() {
 
   console.log('\n✅ All indexes created successfully!\n');
   console.log('Note: This script is idempotent — safe to run again.');
-  console.log('For new deployments, run this once after the first deploy.\n');
+  console.log('For new deployments, run this once after the first deploy.');
+  console.log('After renaming collections, run the migration script first,');
+  console.log('then run this script to create indexes on the new collections.\n');
 
   await closeMongoClient();
 }

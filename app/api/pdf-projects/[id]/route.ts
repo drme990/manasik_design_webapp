@@ -3,7 +3,7 @@ import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import type { PdfProject } from '@/types';
 
-const COLLECTION = 'pdf_projects';
+const COLLECTION = 'design_pdf_projects';
 
 interface RouteParams {
   params: Promise<{ id: string }>;

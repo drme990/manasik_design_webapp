@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMongoClient } from '@/lib/db/mongodb';
-import { deleteMultipleFromR2, extractKeyFromUrl, generateThumbnailKey } from '@/lib/storage/r2';
-import type { Project } from '@/types';
-
-const PROJECTS_COLLECTION = 'projects';
+import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from '@/lib/db/project-collections';
+import { deleteMultipleFromR2, extractKeyFromUrl } from '@/lib/storage/r2';
+import type { ImageLayer, ShapeLayer } from '@/types';
 
 /**
  * Shared secret for callback authentication.
@@ -59,8 +57,11 @@ function isDesignOwnedKey(key: string): boolean {
  * an order. This cleans up:
  *   - The design project documents from MongoDB
  *   - The generated JPG from R2 (design/orders-design/{orderNumber}*.jpg)
- *   - The project thumbnail from R2 (design/thumbnails/{projectId}.webp)
  *   - Any design-app-owned image layer assets uploaded to R2
+ *
+ * Note: Order designs do NOT have thumbnails — the design JPG itself
+ * is used as the thumbnail (see ProjectCardPreview). So there's no
+ * thumbnail key to delete.
  *
  * IMPORTANT: Only deletes R2 assets under the `design/` folder. Image
  * layers in order-generated designs may reference customer photos at
@@ -85,29 +86,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: { deleted: 0 } });
     }
 
-    const client = getMongoClient();
-    if (!client.isConnected()) {
-      await client.connect();
-    }
-    const collection = client.getCollection<Project>(PROJECTS_COLLECTION);
-    if (!collection) {
-      throw new Error('Projects collection not available');
-    }
+    const collection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
 
     // Find all projects to collect R2 keys for cleanup
     const projects = await collection
       .find({ id: { $in: projectIds } })
       .toArray();
 
-    // Collect R2 keys: order design image, thumbnail, layer images.
+    // Collect R2 keys: order design image, layer images.
     // Only collect keys under the `design/` folder — customer photos
     // at `images/customers/...` are NOT deleted (owned by the backend).
     //
     // IMPORTANT: Background images are NOT deleted here. These are
-    // design instances (source='order') that share the template's bg URL.
+    // design instances (kind='order_design') that share the template's bg URL.
     // Deleting the bg would break the template and all other design
     // instances that reference the same bg. The bg is only cleaned up
     // when the template itself is deleted (see DELETE /api/projects/[id]).
+    //
+    // IMPORTANT: Order designs do NOT have thumbnails. The design JPG
+    // itself is used as the thumbnail (see ProjectCardPreview). Skip
+    // thumbnail key collection for order designs.
     const r2Keys: string[] = [];
     for (const project of projects) {
       // The generated design JPG (stored on the project as orderDesignUrl)
@@ -115,13 +113,10 @@ export async function POST(request: NextRequest) {
         const key = extractKeyFromUrl(project.orderDesignUrl);
         if (key && isDesignOwnedKey(key)) r2Keys.push(key);
       }
-      // Project thumbnail
-      r2Keys.push(generateThumbnailKey(project.id));
-      // Layer image URIs
       // Layer image URIs
       for (const layer of project.layers) {
         if (layer.type === 'image') {
-          const img = layer as import('@/types').ImageLayer;
+          const img = layer as ImageLayer;
           if (img.uri) {
             const key = extractKeyFromUrl(img.uri);
             if (key && isDesignOwnedKey(key)) r2Keys.push(key);
@@ -140,7 +135,7 @@ export async function POST(request: NextRequest) {
           }
         }
         if (layer.type === 'shape') {
-          const shape = layer as import('@/types').ShapeLayer;
+          const shape = layer as ShapeLayer;
           if (shape.uri) {
             const key = extractKeyFromUrl(shape.uri);
             if (key && isDesignOwnedKey(key)) r2Keys.push(key);

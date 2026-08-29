@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
+import { findProjectById, getProjectCollection } from '@/lib/db/project-collections';
 import { deleteMultipleFromR2, extractKeyFromUrl, generateThumbnailKey } from '@/lib/storage/r2';
 import type { Project, ProjectUpdateInput, ImageLayer, ShapeLayer } from '@/types';
 import type { BookingProduct } from '@/types/booking';
 
-const COLLECTION = 'projects';
-const BOOKING_PRODUCTS_COLLECTION = 'booking_products';
+const BOOKING_PRODUCTS_COLLECTION = 'design_booking_products';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
@@ -30,21 +30,8 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-async function getCollection() {
-  const client = getMongoClient();
-  if (!client.isConnected()) {
-    await client.connect();
-  }
-  const collection = client.getCollection<Project>(COLLECTION);
-  if (!collection) {
-    throw new Error('Projects collection not available');
-  }
-  return collection;
-}
-
 async function verifyAccess(projectId: string, userId: string, role?: string): Promise<Project | null> {
-  const collection = await getCollection();
-  const project = await collection.findOne({ id: projectId });
+  const { project } = await findProjectById(projectId);
   if (!project) return null;
   if (project.kind === 'booking_template') return project;
   if (project.userId === userId) return project;
@@ -88,12 +75,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const existing = await verifyAccess(id, session.id, session.role);
-    if (!existing) {
+    const { project: existing, collectionName } = await findProjectById(id);
+    if (!existing || !collectionName) {
       return NextResponse.json({ success: false, error: 'notFound' }, { status: 404 });
     }
 
+    // Access control: templates require admin; designs require owner or admin
     if (existing.kind === 'booking_template' && !isAdmin(session.role)) {
+      return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
+    }
+    if (existing.kind !== 'booking_template' && existing.userId !== session.id && !isAdmin(session.role)) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
     }
 
@@ -112,7 +103,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       syncStatus: 'synced',
     };
 
-    const collection = await getCollection();
+    const collection = await getProjectCollection(collectionName);
     await collection.updateOne({ id }, { $set: updates });
     const updated = await collection.findOne({ id });
 
@@ -137,7 +128,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
  * be deleted as part of a single project's cleanup.
  *
  * `design/template-bg/` is only deleted for booking_template projects —
- * design instances (source='order') share the template's bg URL, so
+ * design instances (kind='order_design') share the template's bg URL, so
  * deleting a design instance must NOT delete the bg (the template owns it).
  */
 const PROJECT_SPECIFIC_PREFIXES = [
@@ -175,23 +166,32 @@ function isDesignOwnedKey(key: string): boolean {
  * be deleted here.
  *
  * IMPORTANT: Background images (`design/template-bg/`) are ONLY deleted
- * for booking_template projects. Design instances (source='order') share
- * the template's bg URL — deleting the bg when a design instance is
+ * for booking_template projects. Design instances (kind='order_design')
+ * share the template's bg URL — deleting the bg when a design instance is
  * deleted would break the template and all other design instances that
  * reference the same bg.
+ *
+ * IMPORTANT: Order designs (kind='order_design') do NOT have thumbnails.
+ * The design JPG itself is used as the thumbnail (see ProjectCardPreview).
+ * Skip thumbnail key collection for order designs.
  */
 function collectProjectR2Keys(project: Project): string[] {
   const keys: string[] = [];
 
-  // Thumbnail (stored at a predictable key)
-  keys.push(generateThumbnailKey(project.id));
+  const isOrderDesign = project.kind === 'order_design';
+  const isTemplate = project.kind === 'booking_template';
+
+  // Thumbnail — only for templates and user designs, NOT order designs.
+  // Order designs use the design JPG itself as the thumbnail.
+  if (!isOrderDesign) {
+    keys.push(generateThumbnailKey(project.id));
+  }
 
   // Background image — only delete for templates, NOT for design instances.
-  // Design instances (source='order') inherit the template's bg URL via
+  // Design instances (kind='order_design') inherit the template's bg URL via
   // the spread in inflateTemplateToDesign. Deleting it here would remove
   // the bg from R2, breaking the template and every other design instance
   // that shares the same bg.
-  const isTemplate = project.kind === 'booking_template';
   if (isTemplate) {
     if (project.backgroundUri) {
       const key = extractKeyFromUrl(project.backgroundUri);
@@ -257,23 +257,31 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     // For callback auth, skip userId check — the backend is trusted.
     // For session auth, use the normal access check.
-    const existing = isCallback
-      ? await (await getCollection()).findOne({ id })
-      : await verifyAccess(id, session!.id, session!.role);
-    if (!existing) {
+    const { project: existing, collectionName } = await findProjectById(id);
+
+    if (!existing || !collectionName) {
       return NextResponse.json({ success: false, error: 'notFound' }, { status: 404 });
     }
 
-    // Callback auth can only delete order designs (source='order')
-    if (isCallback && existing.source !== 'order') {
+    // Callback auth can only delete order designs (kind='order_design')
+    if (isCallback && existing.kind !== 'order_design') {
       return NextResponse.json(
         { success: false, error: 'Callback auth can only delete order designs' },
         { status: 403 },
       );
     }
 
-    if (existing.kind === 'booking_template' && !isCallback && !isAdmin(session!.role)) {
-      return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
+    // Session auth access control:
+    //   - Templates: admin only
+    //   - Designs: owner or admin
+    if (!isCallback) {
+      const isTemplate = existing.kind === 'booking_template';
+      const canAccess = isTemplate
+        ? isAdmin(session!.role)
+        : existing.userId === session!.id || isAdmin(session!.role);
+      if (!canAccess) {
+        return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
+      }
     }
 
     // Collect all R2 keys to delete (images, thumbnail, etc.)
@@ -288,7 +296,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}`,
     );
 
-    const collection = await getCollection();
+    const collection = await getProjectCollection(collectionName);
     await collection.deleteOne({ id });
 
     // If this is a booking template, disconnect it from all booking

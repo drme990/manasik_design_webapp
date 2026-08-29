@@ -70,6 +70,12 @@ export async function uploadToR2(
   };
 }
 
+/**
+ * Generate an R2 key for a user-uploaded layer image.
+ *
+ * Tier 1 — Immutable asset. Every upload gets a unique key
+ * ({timestamp}-{rand}). Old images stay in R2 until explicitly deleted.
+ */
 export function generateImageKey(file: File | { name: string; type: string }): string {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   const rand = Math.random().toString(36).slice(2, 10);
@@ -80,12 +86,16 @@ export function generateImageKey(file: File | { name: string; type: string }): s
 /**
  * Generate an R2 key for a project/template background image.
  *
- * Stored under `design/template-bg/` with the project ID as a prefix so
- * the file is clearly identifiable and tied to its owner. This separates
- * background images from regular layer images (`design/projects-images/`)
- * so that design-instance deletion (which shares the template's bg URL)
- * can be handled safely — the bg is only deleted when the TEMPLATE is
- * deleted, never when a design instance is deleted.
+ * Stored under `design/template-bg/{templateId}/` with the project ID as
+ * a subfolder so all bg images for a template are grouped together and
+ * easy to list/delete. This separates background images from regular
+ * layer images (`design/projects-images/`) so that design-instance
+ * deletion (which shares the template's bg URL) can be handled safely —
+ * the bg is only deleted when the TEMPLATE is deleted, never when a
+ * design instance is deleted.
+ *
+ * Tier 1 — Immutable asset. Every upload gets a unique key
+ * ({timestamp}-{rand}). Old bg images stay in R2 until explicitly deleted.
  *
  * @param projectId The project (template or design) that owns this bg
  * @param file      The uploaded file (used for the extension)
@@ -98,7 +108,7 @@ export function generateBackgroundKey(
   const rand = Math.random().toString(36).slice(2, 8);
   const safeExt = ext && /^[a-z0-9]+$/.test(ext) ? ext : 'jpg';
   const safeId = projectId.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 40) || 'unknown';
-  return `design/template-bg/${safeId}-${Date.now()}-${rand}.${safeExt}`;
+  return `design/template-bg/${safeId}/${Date.now()}-${rand}.${safeExt}`;
 }
 
 /**
@@ -106,6 +116,9 @@ export function generateBackgroundKey(
  * The filename is sanitized to a safe family-id slug; the original extension
  * is preserved so browsers can sniff the format.
  * Fonts are global (shared across all projects) — no per-user subfolder.
+ *
+ * Tier 1 — Immutable asset. Every upload gets a unique key
+ * ({slug}-{rand}).
  */
 export function generateFontKey(file: File | { name: string; type: string }): string {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
@@ -126,6 +139,9 @@ export function generateFontKey(file: File | { name: string; type: string }): st
 /**
  * Generate an R2 key for a user-uploaded PNG shape.
  * Stored under `design/shapes/` so all custom shapes are grouped together.
+ *
+ * Tier 1 — Immutable asset. Every upload gets a unique key
+ * ({slug}-{rand}).
  */
 export function generateShapeKey(file: File | { name: string; type: string }): string {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
@@ -145,9 +161,41 @@ export function generateShapeKey(file: File | { name: string; type: string }): s
 /**
  * Generate an R2 key for a project thumbnail.
  * Stored under `design/thumbnails/` with the project ID as the filename.
+ *
+ * Tier 2 — Mutable asset. Uses a stable key so the URL never changes.
+ * Replacement is explicit: delete old + upload new with same key
+ * (see thumbnail route for the delete-then-readd flow).
+ * Cache-busting is handled via `?v={timestamp}` query param in the DB.
  */
 export function generateThumbnailKey(projectId: string): string {
   return `design/thumbnails/${projectId}.webp`;
+}
+
+/**
+ * Generate the R2 key for an order design JPG.
+ *
+ * Path layout:
+ *   - Single item:  `design/orders-design/{orderNumber}.jpg`
+ *   - Multiple items: `design/orders-design/{orderNumber}-{itemIndex}.jpg`
+ *
+ * Tier 2 — Mutable asset. Uses a stable key so the URL never changes.
+ * Replacement is explicit: delete old + upload new with same key.
+ * The `no-cache` Cache-Control header ensures the CDN always fetches fresh.
+ *
+ * The order number is sanitized so it only contains characters that are
+ * safe in R2/S3 keys (alphanumeric, dash, underscore).
+ */
+export function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string {
+  const safe = orderNumber
+    .trim()
+    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'unknown';
+
+  if (itemIndex && itemIndex > 1) {
+    return `design/orders-design/${safe}-${itemIndex}.jpg`;
+  }
+  return `design/orders-design/${safe}.jpg`;
 }
 
 /**

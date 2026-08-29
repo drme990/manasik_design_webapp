@@ -3,7 +3,7 @@
  * `designUrls` array on every order.
  *
  * What it does:
- * 1. Finds all projects with `source: 'order'` in the `projects` collection
+ * 1. Finds all projects with `kind: 'order_design'` in the `design_projects` collection
  *    (these are the design instances created when the admin generates a
  *    design for an order).
  * 2. Deletes their rendered JPGs from R2 (keys under `design/orders-design/`).
@@ -24,6 +24,7 @@
 import { getMongoClient, closeMongoClient } from '@/lib/db/mongodb';
 import { listR2KeysByPrefix, deleteMultipleFromR2 } from '@/lib/storage/r2';
 import type { Project } from '@/types';
+import type { Filter } from 'mongodb';
 
 // ─── Config ────────────────────────────────────────────────────────────
 // Hardcoded MongoDB URI — tsx doesn't load .env.local automatically.
@@ -31,8 +32,15 @@ import type { Project } from '@/types';
 const MONGODB_URI = 'mongodb://localhost:27017/manasik';
 
 const ORDERS_COLLECTION = 'orders';
-const PROJECTS_COLLECTION = 'projects';
+const PROJECTS_COLLECTION = 'design_projects';
 const R2_ORDER_DESIGN_PREFIX = 'design/orders-design/';
+
+/** Minimal order shape needed by this script. */
+interface OrderDoc {
+  _id: unknown;
+  orderNumber?: string;
+  designUrls?: unknown[];
+}
 
 // Parse CLI flags
 const args = process.argv.slice(2);
@@ -44,7 +52,7 @@ async function main() {
   await client.connect();
 
   const projects = client.getCollection<Project>(PROJECTS_COLLECTION);
-  const orders = client.getCollection<any>(ORDERS_COLLECTION);
+  const orders = client.getCollection<OrderDoc>(ORDERS_COLLECTION);
   if (!projects || !orders) {
     console.error('Failed to get MongoDB collections');
     process.exit(1);
@@ -52,13 +60,13 @@ async function main() {
 
   // ── Step 1: Find all order-design projects ────────────────────────
   console.log('\n1. Finding order-design projects...');
-  const orderDesigns = await projects.find({ source: 'order' } as any).toArray();
+  const orderDesigns = await projects.find({ kind: 'order_design' } as Filter<Project>).toArray();
   console.log(`   Found ${orderDesigns.length} order-design project(s)`);
 
   if (orderDesigns.length > 0) {
     // List them
     for (const design of orderDesigns) {
-      const orderNum = (design as any).orderNumber || 'unknown';
+      const orderNum = design.orderMeta?.orderNumber || 'unknown';
       console.log(`   - ${design._id} | order: ${orderNum} | url: ${design.orderDesignUrl || '(none)'}`);
     }
   }
@@ -109,7 +117,7 @@ async function main() {
     console.log(`   [DRY RUN] Would delete ${orderDesigns.length} project document(s)`);
   } else {
     const ids = orderDesigns.map((d) => d._id);
-    const result = await projects.deleteMany({ _id: { $in: ids } } as any);
+    const result = await projects.deleteMany({ _id: { $in: ids } } as Filter<Project>);
     console.log(`   Deleted ${result.deletedCount} project document(s)`);
   }
 
@@ -119,7 +127,7 @@ async function main() {
   // Count how many orders have designUrls
   const ordersWithDesigns = await orders.countDocuments({
     designUrls: { $exists: true, $ne: [] },
-  } as any);
+  } as Filter<OrderDoc>);
   console.log(`   Found ${ordersWithDesigns} order(s) with non-empty designUrls`);
 
   if (ordersWithDesigns === 0) {
@@ -128,8 +136,8 @@ async function main() {
     console.log(`   [DRY RUN] Would clear designUrls on ${ordersWithDesigns} order(s)`);
   } else {
     const result = await orders.updateMany(
-      { designUrls: { $exists: true, $ne: [] } } as any,
-      { $set: { designUrls: [] } } as any,
+      { designUrls: { $exists: true, $ne: [] } } as Filter<OrderDoc>,
+      { $set: { designUrls: [] } },
     );
     console.log(`   Cleared designUrls on ${result.modifiedCount} order(s)`);
   }

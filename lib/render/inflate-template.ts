@@ -933,8 +933,8 @@ export function inflateTemplateToDesign(
     id: generateId(),
     _id: undefined,
 
-    // It's a design, not a template
-    kind: 'design',
+    // It's an order-generated design, not a template
+    kind: 'order_design',
     templateType: undefined,
     bookingMeta: undefined,
 

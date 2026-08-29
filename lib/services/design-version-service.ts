@@ -38,8 +38,8 @@ import type {
   OrderDesignVersionCounter,
 } from '@/types/order-design-version';
 
-const VERSIONS_COLLECTION = 'order_design_versions';
-const COUNTERS_COLLECTION = 'order_design_version_counters';
+const VERSIONS_COLLECTION = 'design_order_versions';
+const COUNTERS_COLLECTION = 'design_order_version_counters';
 
 /**
  * Synthetic actor used for automatic generation. The backend's webhook
@@ -163,7 +163,7 @@ async function getVersionsCollection() {
   const client = getMongoClient();
   if (!client.isConnected()) await client.connect();
   const collection = client.getCollection<OrderDesignVersion>(VERSIONS_COLLECTION);
-  if (!collection) throw new Error('order_design_versions collection not available');
+  if (!collection) throw new Error('design_order_versions collection not available');
   return collection;
 }
 
@@ -171,7 +171,7 @@ async function getCountersCollection() {
   const client = getMongoClient();
   if (!client.isConnected()) await client.connect();
   const collection = client.getCollection<OrderDesignVersionCounter>(COUNTERS_COLLECTION);
-  if (!collection) throw new Error('order_design_version_counters collection not available');
+  if (!collection) throw new Error('design_order_version_counters collection not available');
   return collection;
 }
 

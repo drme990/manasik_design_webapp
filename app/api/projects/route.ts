@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
-import { getMongoClient } from '@/lib/db/mongodb';
+import { getProjectCollection, DESIGN_PROJECTS_COLLECTION, BOOKING_TEMPLATES_COLLECTION } from '@/lib/db/project-collections';
 import type { Project, ProjectCreateInput } from '@/types';
-
-const COLLECTION = 'projects';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
@@ -21,18 +19,6 @@ function verifyCallbackSecret(request: NextRequest): boolean {
   if (!provided) return false;
   if (provided.length !== secret.length) return false;
   return provided === secret;
-}
-
-async function getCollection() {
-  const client = getMongoClient();
-  if (!client.isConnected()) {
-    await client.connect();
-  }
-  const collection = client.getCollection<Project>(COLLECTION);
-  if (!collection) {
-    throw new Error('Projects collection not available');
-  }
-  return collection;
 }
 
 export async function GET(request: NextRequest) {
@@ -73,35 +59,37 @@ export async function GET(request: NextRequest) {
     const limit = limitParam ? Math.max(1, Math.min(500, parseInt(limitParam, 10))) : null;
     const isPaginated = page !== null && limit !== null;
 
-    const collection = await getCollection();
+    // Determine which collection to query based on the filters.
+    // - kind=booking_template → design_booking_templates
+    // - source=order (order designs) → design_projects (kind='order_design')
+    // - everything else (user designs) → design_projects (kind='design')
+    const isOrderQuery = sourceFilter === 'order';
+    const isTemplateQuery = kindFilter === 'booking_template';
+    const collectionName = isTemplateQuery
+      ? BOOKING_TEMPLATES_COLLECTION
+      : DESIGN_PROJECTS_COLLECTION;
+
+    const collection = await getProjectCollection(collectionName);
     const query: Record<string, unknown> = {};
 
-    // Order-generated designs (source='order') are created by the
+    // Order-generated designs (kind='order_design') are created by the
     // backend callback, not by a user. They inherit the template
     // creator's userId, which may be a different admin. So for
     // source=order, we DON'T filter by userId — all admins should
     // see all order designs. For other queries, we filter by userId
     // so users only see their own projects.
-    if (sourceFilter === 'order') {
-      query.source = 'order';
-      query.kind = { $ne: 'booking_template' };
-    } else {
+    if (isOrderQuery) {
+      // Order designs are now identified by kind='order_design'
+      query.kind = 'order_design';
+    } else if (isTemplateQuery) {
+      query.kind = 'booking_template';
       // Non-order queries require a user session (callback auth is
       // restricted to source=order only, checked above).
       query.userId = session!.id;
-      if (kindFilter) {
-        query.kind = kindFilter;
-      } else {
-        query.kind = { $ne: 'booking_template' };
-      }
-      if (sourceFilter) {
-        query.source = sourceFilter;
-      } else if (!kindFilter || kindFilter === 'design') {
-        // By default, hide order-generated designs from the main list —
-        // they're shown in a separate /orders-designs section. Only
-        // exclude them when no explicit source filter is provided.
-        query.source = { $ne: 'order' };
-      }
+    } else {
+      // User designs (kind='design') — exclude order designs
+      query.userId = session!.id;
+      query.kind = 'design';
     }
 
     // Date range filter.
@@ -113,7 +101,7 @@ export async function GET(request: NextRequest) {
     //   as createdAt + 1 day (same legacy logic as the execution page).
     // For everything else: filter on updatedAt (ms since epoch).
     if (fromDate || toDate) {
-      if (sourceFilter === 'order') {
+      if (isOrderQuery) {
         // Build the executionDate string filter for new designs
         const execDateFilter: Record<string, string> = {};
         if (fromDate) execDateFilter.$gte = fromDate;
@@ -187,10 +175,10 @@ export async function GET(request: NextRequest) {
     //   missing values first in ascending order), which is correct since
     //   they're from older orders.
     // - everything else: sort by updatedAt descending (newest first)
-    const sortField = sourceFilter === 'order'
+    const sortField = isOrderQuery
       ? 'orderMeta.orderCreatedAt'
       : 'updatedAt';
-    const sortDir: 1 | -1 = sourceFilter === 'order' ? 1 : -1;
+    const sortDir: 1 | -1 = isOrderQuery ? 1 : -1;
 
     let cursor = collection
       .find(query)
@@ -272,7 +260,11 @@ export async function POST(request: NextRequest) {
       userId: session.id,
     };
 
-    const collection = await getCollection();
+    // Save to the correct collection based on kind
+    const collectionName = body.kind === 'booking_template'
+      ? BOOKING_TEMPLATES_COLLECTION
+      : DESIGN_PROJECTS_COLLECTION;
+    const collection = await getProjectCollection(collectionName);
     await collection.insertOne(project);
 
     return NextResponse.json({ success: true, data: project }, { status: 201 });

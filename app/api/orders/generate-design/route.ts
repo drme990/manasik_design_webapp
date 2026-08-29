@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMongoClient } from '@/lib/db/mongodb';
-import { uploadToR2 } from '@/lib/storage/r2';
+import { getProjectCollection, DESIGN_PROJECTS_COLLECTION, BOOKING_TEMPLATES_COLLECTION } from '@/lib/db/project-collections';
+import { uploadToR2, deleteFromR2, generateOrderDesignKey } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import { renderLimiter } from '@/lib/utils/concurrency-limiter';
 import { createVersion, AUTO_ACTOR } from '@/lib/services/design-version-service';
-import type { BookingProduct, Project, TemplateType } from '@/types';
+import type { BookingProduct,  TemplateType } from '@/types';
 
-const BOOKING_COLLECTION = 'booking_products';
-const PROJECTS_COLLECTION = 'projects';
+const BOOKING_COLLECTION = 'design_booking_products';
 
 /**
  * Shared secret for callback authentication.
@@ -44,45 +44,6 @@ async function getBookingCollection() {
     throw new Error('Booking products collection not available');
   }
   return collection;
-}
-
-async function getProjectsCollection() {
-  const client = getMongoClient();
-  if (!client.isConnected()) {
-    await client.connect();
-  }
-  const collection = client.getCollection<Project>(PROJECTS_COLLECTION);
-  if (!collection) {
-    throw new Error('Projects collection not available');
-  }
-  return collection;
-}
-
-/**
- * Generate the R2 key for an order design.
- *
- * Path layout:
- *   - Single item:  `design/orders-design/{orderNumber}.jpg`
- *   - Multiple items: `design/orders-design/{orderNumber}-{itemIndex}.jpg`
- *
- * The order number is sanitized so it only contains characters that are
- * safe in R2/S3 keys (alphanumeric, dash, underscore). Anything else is
- * replaced with a dash. Leading/trailing dashes are stripped.
- */
-function generateOrderDesignKey(orderNumber: string, itemIndex?: number): string {
-  const safe = orderNumber
-    .trim()
-    .replace(/[^a-zA-Z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '') || 'unknown';
-
-  // For multi-item orders, append the 1-based item index.
-  // itemIndex=1 or undefined → just {orderNumber}.jpg (backward compat)
-  // itemIndex>1 → {orderNumber}-{itemIndex}.jpg
-  if (itemIndex && itemIndex > 1) {
-    return `design/orders-design/${safe}-${itemIndex}.jpg`;
-  }
-  return `design/orders-design/${safe}.jpg`;
 }
 
 /**
@@ -343,8 +304,8 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Load the template project ─────────────────────────────────────
-    const projectsCollection = await getProjectsCollection();
-    const template = await projectsCollection.findOne({
+    const templatesCollection = await getProjectCollection(BOOKING_TEMPLATES_COLLECTION);
+    const template = await templatesCollection.findOne({
       id: templateId,
       kind: 'booking_template',
     });
@@ -415,7 +376,10 @@ export async function POST(request: NextRequest) {
 
       // ── Upload to R2 ──────────────────────────────────────────────────
       // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
+      // Tier 2 — explicit delete + re-add with the same key.
       const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
+      // Delete old (best-effort — may not exist on first generation)
+      try { await deleteFromR2(key); } catch { /* first generation — fine */ }
       // Use no-cache since this key gets overwritten when the admin
       // edits + saves the design (re-render endpoint). Without this,
       // Cloudflare CDN serves the stale cached version after overwrite.
@@ -428,7 +392,8 @@ export async function POST(request: NextRequest) {
       designInstance.orderDesignUrl = result.url;
 
       // Save the design instance to MongoDB (with the R2 URL)
-      await projectsCollection.insertOne(designInstance);
+      const designsCollection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
+      await designsCollection.insertOne(designInstance);
 
       // ── Save an immutable version snapshot ─────────────────────────────
       // Every generation creates an append-only version. The trigger is

@@ -32,18 +32,20 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
   const bg = project.backgroundThumbnailUri || project.backgroundUri;
 
   // Determine the preview image URL:
-  // - Order-generated designs (source='order') use `orderDesignUrl` —
+  // - Order-generated designs (kind='order_design') use `orderDesignUrl` —
   //   the actual rendered JPG stored in R2. This is the exact image
   //   the admin panel shows, so the thumbnail always matches.
+  //   (Also check source='order' for backward compat with old docs.)
   // - Other projects use `thumbnail` (a separate R2 upload).
-  const previewImageUrl = project.source === 'order'
+  const isOrderDesign = project.kind === 'order_design' || project.source === 'order';
+  const previewImageUrl = isOrderDesign
     ? project.orderDesignUrl
     : project.thumbnail;
 
   // Order designs are overwritten at the same R2 key when the admin
   // edits + saves. Append a cache-busting query param (updatedAt) so
   // the browser always fetches the latest version, not a stale CDN copy.
-  const imgSrc = previewImageUrl && project.source === 'order'
+  const imgSrc = previewImageUrl && isOrderDesign
     ? `${previewImageUrl}${previewImageUrl.includes('?') ? '&' : '?'}v=${project.updatedAt}`
     : previewImageUrl;
 

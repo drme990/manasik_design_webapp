@@ -3,7 +3,7 @@ import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import type { PdfProject, PdfProjectCreateInput } from '@/types';
 
-const COLLECTION = 'pdf_projects';
+const COLLECTION = 'design_pdf_projects';
 
 async function getCollection() {
   const client = getMongoClient();

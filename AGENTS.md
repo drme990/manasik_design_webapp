@@ -6,10 +6,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Database indexes
 
-The `projects` collection can grow large (every order generates a design
-instance). Without indexes, MongoDB's in-memory sort hits its 32MB limit
-and returns: `Sort exceeded memory limit of 33554432 bytes, but did not
-opt in to external sorting.`
+The `design_projects` collection can grow large (every order generates a
+design instance). Without indexes, MongoDB's in-memory sort hits its 32MB
+limit and returns: `Sort exceeded memory limit of 33554432 bytes, but did
+not opt in to external sorting.`
 
 **Always use `.allowDiskUse(true)` on any `.find().sort()` query** — this
 opts into external (disk-based) sorting as a safety net even without
@@ -20,11 +20,61 @@ indexes.
 collections. Idempotent — safe to run multiple times. Run this once after
 deploying to a new environment.
 
-Key indexes on `projects`:
+Key indexes on `design_projects`:
 - `id` (unique) — every `findOne({ id })` lookup
 - `userId + updatedAt` — GET /api/projects (user's designs)
-- `source + kind + updatedAt` — GET /api/projects?source=order
+- `kind + updatedAt` — GET /api/projects?source=order and ?kind=design
+
+Key indexes on `design_booking_templates`:
+- `id` (unique) — every `findOne({ id })` lookup
 - `kind + updatedAt` — GET /api/projects?kind=booking_template
+- `userId + updatedAt` — user's templates
+
+## DB Collection Naming
+
+All design app collections are prefixed with `design_` to avoid
+collisions with backend-owned collections in the shared `manasik`
+database.
+
+| Collection | Purpose | `kind` values |
+|---|---|---|
+| `design_projects` | User designs + order-generated designs | `design` (user) or `order_design` (order) |
+| `design_booking_templates` | Booking templates | `booking_template` |
+| `design_booking_products` | Product → template mapping | — |
+| `design_order_versions` | Immutable design version snapshots | — |
+| `design_order_version_counters` | Version number counters | — |
+| `design_pdf_projects` | PDF projects | — |
+| `design_user_fonts` | User fonts | — |
+| `design_user_shapes` | PNG shapes | — |
+| `design_saved_colors` | User palettes | — |
+
+**Backend-owned collections (NOT renamed):** `orders`, `products`,
+`order_design_logs`, `users_admin_panel`, etc.
+
+### `kind` field values
+
+| `kind` | Collection | Meaning |
+|---|---|---|
+| `design` | `design_projects` | User-created design |
+| `order_design` | `design_projects` | Order-generated design (was `kind: 'design'` + `source: 'order'`) |
+| `booking_template` | `design_booking_templates` | Booking template |
+
+The `source` field (`'user'` or `'order'`) is kept on documents for
+backward compatibility, but new code should check `kind === 'order_design'`
+instead of `source === 'order'`.
+
+### Migration
+
+The collection rename + split is done by `scripts/rename-collections.ts`.
+Run it once during deployment:
+
+```
+npx tsx scripts/rename-collections.ts
+npx tsx scripts/setup-indexes.ts
+```
+
+The migration script is idempotent — it checks if the new collection
+already exists before renaming/splitting.
 
 ## Caching architecture
 
@@ -91,6 +141,92 @@ ports of `localhost`.
 - Both apps' cookie setters use `domain: COOKIE_DOMAIN` when set
 - Backend `sameSite` changed from `none` to `lax` in production (works
   for subdomain SSO, more secure)
+
+## R2 Storage Architecture
+
+### Folder Structure
+
+| Prefix | Purpose | Cache-Control |
+|---|---|---|
+| `design/template-bg/{templateId}/` | Template background images | `immutable` |
+| `design/projects-images/` | Layer images (user-uploaded in editor) | `immutable` |
+| `design/orders-design/` | Mutable order design JPGs | `no-cache` |
+| `design/orders-design/versions/` | Immutable version archives | `immutable` |
+| `design/fonts/` | User fonts | `immutable` |
+| `design/shapes/` | PNG shapes | `immutable` |
+| `design/thumbnails/` | Template/user-design thumbnails (NOT order designs) | `immutable` (cache-bust via `?v=`) |
+
+### Key Naming Conventions
+
+```
+design/template-bg/{templateId}/{timestamp}-{rand}.{ext}
+design/projects-images/{timestamp}-{rand}.{ext}
+design/orders-design/{orderNumber}.jpg                    ← mutable (Tier 2)
+design/orders-design/{orderNumber}-{itemIndex}.jpg         ← mutable (Tier 2)
+design/orders-design/versions/{orderNumber}/{productId}/{itemIndex}/v{version}.jpg
+design/thumbnails/{projectId}.webp                         ← mutable (Tier 2)
+design/fonts/{slug}-{rand}.{ext}
+design/shapes/{slug}-{rand}.{ext}
+```
+
+### Replacement Policy — No Accidental Overwrites
+
+**Rule: every new upload gets a unique key.** Nothing replaces anything
+by default. This is enforced by the `{timestamp}-{rand}` suffix in every
+key generator.
+
+#### Tier 1 — Immutable assets (unique key per upload, never overwritten)
+
+Every upload produces a brand-new R2 object with a unique key. The old
+object stays in R2 until explicitly deleted. The DB stores the full URL,
+so updating the DB pointer is the only thing that changes what the user
+sees.
+
+Assets: template bg, layer images, fonts, shapes, version archives.
+
+**To replace a Tier 1 asset:** upload new → update DB pointer →
+(optionally) delete old R2 object.
+
+#### Tier 2 — Mutable assets (intentional overwrite by design)
+
+Only two asset types are intentionally mutable — they use a stable,
+predictable key so the URL never changes.
+
+| Asset | Key pattern | Why mutable |
+|---|---|---|
+| Order design (current) | `design/orders-design/{orderNumber}[-{itemIndex}].jpg` | URL stays stable so admin/customer always see latest |
+| Project thumbnail | `design/thumbnails/{projectId}.webp` | URL stays stable, cache-busted with `?v={timestamp}` |
+
+**To replace a Tier 2 asset — explicit delete + re-add with same key:**
+1. Delete the old object at the same key (best-effort, ignore "not found")
+2. Upload the new object to the same key
+3. Update the DB with the new URL + cache-bust param (thumbnails only)
+
+This "delete then re-add with same key" flow is cleaner than a blind
+overwrite because it's explicit — the delete is a clear intent signal.
+
+### Order Design Thumbnails
+
+- **Order designs** (`kind: 'order_design'`): NO separate thumbnail. The
+  `orderDesignUrl` (the design JPG itself) is used as the thumbnail in
+  `ProjectCardPreview`.
+- **Templates** (`kind: 'booking_template'`): Keep
+  `design/thumbnails/{projectId}.webp` with explicit delete + re-add flow.
+- **User designs** (`kind: 'design'`): Keep
+  `design/thumbnails/{projectId}.webp` with explicit delete + re-add flow.
+
+### Key Generation (Single Source of Truth)
+
+All key generators are in `lib/storage/r2.ts`:
+- `generateImageKey` — Tier 1, layer images
+- `generateBackgroundKey` — Tier 1, template bg (includes templateId as subfolder)
+- `generateFontKey` — Tier 1, fonts
+- `generateShapeKey` — Tier 1, shapes
+- `generateThumbnailKey` — Tier 2, thumbnails (stable key)
+- `generateOrderDesignKey` — Tier 2, order designs (stable key)
+
+No upload route should construct a key manually — always use these
+generators.
 
 ## Order design callback
 
@@ -197,19 +333,21 @@ conversion:
 - Dynamic text fields → concrete text layers with resolved values
 - Dynamic image fields → concrete image layers with resolved URLs
 - All other layers pass through unchanged
-- The instance is marked `source: 'order'` and stores the R2 URL in
-  `orderDesignUrl`
+- The instance is marked `kind: 'order_design'` (and `source: 'order'`
+  for backward compat) and stores the R2 URL in `orderDesignUrl`
 
 ### Order designs section
 
-Order-generated designs (`source: 'order'`) are hidden from the main
+Order-generated designs (`kind: 'order_design'`) are hidden from the main
 `/projects` list and shown in a separate `/orders-designs` section in
 the design app. This keeps user-created designs separate from
 auto-generated order designs.
 
-The API filters by `source`:
-- `GET /api/projects` — excludes `source: 'order'` by default
-- `GET /api/projects?source=order` — returns only order designs
+The API filters by `kind`:
+- `GET /api/projects` — returns only `kind: 'design'` (user designs)
+- `GET /api/projects?source=order` — returns only `kind: 'order_design'`
+  (the `source=order` param is kept for backward compat with the admin
+  panel's proxy calls)
 
 ### Re-render on save
 

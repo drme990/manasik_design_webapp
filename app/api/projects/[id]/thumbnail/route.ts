@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
-import { getMongoClient } from '@/lib/db/mongodb';
-import { uploadToR2, generateThumbnailKey } from '@/lib/storage/r2';
-import type { Project } from '@/types';
-
-const COLLECTION = 'projects';
+import { findProjectById, getProjectCollection } from '@/lib/db/project-collections';
+import { uploadToR2, deleteFromR2, generateThumbnailKey } from '@/lib/storage/r2';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
@@ -16,9 +13,15 @@ interface RouteParams {
 
 /**
  * POST /api/projects/[id]/thumbnail
- * Receives a compressed WebP/JPthumbnail image (FormData) and uploads it
+ * Receives a compressed WebP/JPEG thumbnail image (FormData) and uploads it
  * to R2 under `design/thumbnails/{projectId}.webp`. Updates the project's
  * `thumbnail` field in MongoDB with the public URL.
+ *
+ * Uses the explicit delete + re-add flow (Tier 2 mutable asset):
+ *   1. Delete the old thumbnail at the same key (best-effort — ignore
+ *      "not found" errors on first upload)
+ *   2. Upload the new thumbnail to the same key
+ *   3. Update the DB with the new URL + cache-bust param
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
@@ -29,21 +32,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
 
-    // Verify project exists and user has access
-    const client = getMongoClient();
-    if (!client.isConnected()) {
-      await client.connect();
-    }
-    const collection = client.getCollection<Project>(COLLECTION);
-    if (!collection) {
-      throw new Error('Projects collection not available');
-    }
-
-    const existing = await collection.findOne({ id });
-    if (!existing) {
+    // Find the project across both collections (designs + templates)
+    const { project: existing, collectionName } = await findProjectById(id);
+    if (!existing || !collectionName) {
       return NextResponse.json({ success: false, error: 'notFound' }, { status: 404 });
     }
-    if (existing.kind !== 'booking_template' && existing.userId !== session.id && !isAdmin(session.role)) {
+
+    // Access control: templates require admin; designs require owner or admin
+    const isTemplate = existing.kind === 'booking_template';
+    const canAccess = isTemplate
+      ? isAdmin(session.role)
+      : existing.userId === session.id || isAdmin(session.role);
+    if (!canAccess) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
     }
 
@@ -54,19 +54,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'noFile' }, { status: 400 });
     }
 
-    // Upload to R2 under the thumbnails folder
+    // Tier 2 — explicit delete + re-add with the same key
     const key = generateThumbnailKey(id);
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentType = file.type || 'image/webp';
-    const result = await uploadToR2(key, buffer, contentType);
 
-    // Append a cache-busting query parameter so browsers/CDNs always fetch
-    // the latest thumbnail instead of serving a cached version. The R2 key
-    // is the same every time (design/thumbnails/{id}.webp), so without this
-    // the URL never changes and stale images are served indefinitely.
+    // 1. Delete old thumbnail (best-effort — ignore "not found")
+    try {
+      await deleteFromR2(key);
+    } catch {
+      // Object doesn't exist yet (first upload) — fine
+    }
+
+    // 2. Upload new thumbnail to the same key
+    const result = await uploadToR2(key, buffer, contentType, {
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    // 3. Update DB with cache-bust param
     const thumbnailUrl = `${result.url}?v=${Date.now()}`;
 
-    // Update the project's thumbnail field in MongoDB
+    const collection = await getProjectCollection(collectionName);
     await collection.updateOne(
       { id },
       { $set: { thumbnail: thumbnailUrl, updatedAt: Date.now() } }

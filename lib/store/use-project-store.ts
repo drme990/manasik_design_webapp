@@ -211,8 +211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const hasData = get().projects.length > 0;
     if (!hasData) set({ projectsLoading: true });
     try {
-      // The API already filters out source='order' designs by default,
-      // so this returns only user-created designs + templates.
+      // The API returns only kind='design' (user designs) + templates.
       const result = await fetchWithAuth('/api/projects');
       const projects = (result.data || []) as Project[];
       const designs = projects.filter((p) => p.kind === 'design');
@@ -434,7 +433,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projectMap: { ...state.projectMap, [saved.id]: saved },
       projects: upsertInArray(state.projects, saved),
       templates: upsertInArray(state.templates, saved),
-      orderDesigns: saved.source === 'order'
+      orderDesigns: saved.kind === 'order_design'
         ? sortByUpdated(upsertInArray(state.orderDesigns, saved))
         : state.orderDesigns,
     }));
@@ -453,7 +452,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // shared MongoDB (no HTTP call to the backend). The admin panel's
     // sync-designs endpoint is a safety net that catches up on window
     // focus if the direct write failed.
-    if (saved.source === 'order' && saved.orderDesignUrl) {
+    if (saved.kind === 'order_design' && saved.orderDesignUrl) {
       fetchWithAuth(`/api/projects/${saved.id}/re-render`, {
         method: 'POST',
         body: JSON.stringify({ project: saved }),

@@ -3,8 +3,8 @@ import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import type { BookingProduct, BookingProductUpdateInput, Project } from '@/types';
 
-const COLLECTION = 'booking_products';
-const PROJECTS_COLLECTION = 'projects';
+const COLLECTION = 'design_booking_products';
+const PROJECTS_COLLECTION = 'design_booking_templates';
 
 function isAdmin(role?: string) {
   return role === 'admin' || role === 'super_admin';
