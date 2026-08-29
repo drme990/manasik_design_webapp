@@ -32,7 +32,7 @@ import { getMongoClient, closeMongoClient } from '@/lib/db/mongodb';
 import type { Db } from 'mongodb';
 
 // Fallback for local dev (tsx doesn't load .env.local)
-const MONGODB_URI = process.env.DATA_BASE_URL || process.env.MONGODB_URI || 'mongodb+srv://manasik-new:50TqqpcXYArAI7nO@manasik.aclzyuu.mongodb.net/manasik';
+const MONGODB_URI = process.env.DATA_BASE_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017/manasik';
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
