@@ -1,8 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Project, ProjectCreateInput, ProjectUpdateInput, TemplateApp, BookingProduct } from '@/types';
-import { generateId } from '@/lib/utils/id';
+import type { Project, ProjectCreateInput, ProjectUpdateInput, TemplateApp } from '@/types';
 import { fetchWithAuth } from './fetch-with-auth';
 
 /**
@@ -510,20 +509,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = await get().getProject(id);
     if (!project) return null;
 
-    const result = await fetchWithAuth('/api/projects', {
+    // Use the dedicated duplicate endpoint so the BG file is copied
+    // to a new R2 key owned by the new project. This prevents the bug
+    // where deleting the duplicate deletes the original template's BG.
+    const result = await fetchWithAuth(`/api/projects/${id}/duplicate`, {
       method: 'POST',
       body: JSON.stringify({
         name: `${project.name} — نسخة`,
-        kind: project.kind,
-        canvasWidth: project.canvasWidth,
-        canvasHeight: project.canvasHeight,
-        backgroundColor: project.backgroundColor,
-        backgroundUri: project.backgroundUri,
-        layers: project.layers.map((layer) => ({ ...layer, id: generateId() })),
-        bookingMeta: project.bookingMeta,
-        templateType: project.templateType,
-        appSource: project.appSource,
-      } as ProjectCreateInput),
+      }),
     });
     const created = result.data as Project;
     set((state) => ({
@@ -543,20 +536,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!project) return null;
 
     const appLabel = targetApp === 'ghadaq' ? 'غدق' : 'مناسك';
-    const result = await fetchWithAuth('/api/projects', {
+    // Use the dedicated duplicate endpoint so the BG file is copied
+    // to a new R2 key owned by the new project, and product connections
+    // are copied to the target app's slot server-side.
+    const result = await fetchWithAuth(`/api/projects/${id}/duplicate`, {
       method: 'POST',
       body: JSON.stringify({
         name: `${project.name} — ${appLabel}`,
-        kind: project.kind,
-        canvasWidth: project.canvasWidth,
-        canvasHeight: project.canvasHeight,
-        backgroundColor: project.backgroundColor,
-        backgroundUri: project.backgroundUri,
-        layers: project.layers.map((layer) => ({ ...layer, id: generateId() })),
-        bookingMeta: project.bookingMeta,
-        templateType: project.templateType,
         appSource: targetApp,
-      } as ProjectCreateInput),
+        copyProductConnections: true,
+      }),
     });
     const created = result.data as Project;
     set((state) => ({
@@ -565,57 +554,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ? sortByUpdated(upsertInArray(state.templates, created))
         : state.templates,
     }));
-
-    // ── Copy product connections to the new app ──────────────────────
-    // The original template is connected to booking products via one of
-    // 4 slots depending on (templateType, appSource):
-    //   text+manasik  → templateId
-    //   image+manasik → imageTemplateId
-    //   text+ghadaq   → ghadaqTemplateId
-    //   image+ghadaq  → ghadaqImageTemplateId
-    //
-    // When copying to the other app, we map the source slot to the
-    // target slot and connect each product — but only if the target
-    // slot is empty (skip products that already have a template for
-    // the target app).
-    const sourceApp = project.appSource ?? 'manasik';
-    const tplType = project.templateType ?? 'text';
-
-    // Determine source + target slot field names
-    const sourceSlot: keyof BookingProduct | null =
-      sourceApp === 'ghadaq'
-        ? (tplType === 'image' ? 'ghadaqImageTemplateId' : 'ghadaqTemplateId')
-        : (tplType === 'image' ? 'imageTemplateId' : 'templateId');
-    const targetSlot: keyof BookingProduct | null =
-      targetApp === 'ghadaq'
-        ? (tplType === 'image' ? 'ghadaqImageTemplateId' : 'ghadaqTemplateId')
-        : (tplType === 'image' ? 'imageTemplateId' : 'templateId');
-
-    if (sourceSlot && targetSlot) {
-      try {
-        // Dynamic import to avoid circular dependency with booking-templates.ts
-        const { listBookingProducts, updateBookingProduct } = await import('./booking-templates');
-        const allBookingProducts = await listBookingProducts();
-        // Find products connected to the source template via the source slot
-        const connected = allBookingProducts.filter(
-          (bp) => bp[sourceSlot] === project.id,
-        );
-        // Connect each to the new template via the target slot —
-        // skip if the target slot already has a different template
-        for (const bp of connected) {
-          const existing = bp[targetSlot];
-          if (existing) {
-            // Already connected to another template — skip
-            continue;
-          }
-          await updateBookingProduct(bp.id, {
-            [targetSlot]: created.id,
-          } as Partial<BookingProduct>);
-        }
-      } catch (err) {
-        console.error('Failed to copy product connections:', err);
-      }
-    }
 
     return created;
   },

@@ -973,5 +973,9 @@ export function inflateTemplateToDesign(
     // Clear transient fields
     bgUploadStatus: undefined,
     bgPendingFile: undefined,
+
+    // Clear soft-delete flags — order designs are never soft-deleted
+    isDeleted: undefined,
+    deletedAt: undefined,
   };
 }

@@ -135,6 +135,17 @@ export interface Project extends SyncableDocument {
      */
     orderCreatedAt?: number;
   };
+  /**
+   * Soft-delete flag — only set on templates (kind='booking_template').
+   * When true, the template is hidden from all list queries and UI, but
+   * the document stays in MongoDB for recovery. The R2 assets (BG,
+   * layer images) are NOT deleted on soft-delete — they're only cleaned
+   * up if the template is ever hard-deleted (e.g. via a cleanup script).
+   * This prevents accidental data loss from template deletion.
+   */
+  isDeleted?: boolean;
+  /** Timestamp (ms since epoch) when the template was soft-deleted. */
+  deletedAt?: number;
 }
 
 export interface ProjectCreateInput {

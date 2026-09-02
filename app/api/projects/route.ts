@@ -86,6 +86,8 @@ export async function GET(request: NextRequest) {
       // Non-order queries require a user session (callback auth is
       // restricted to source=order only, checked above).
       query.userId = session!.id;
+      // Exclude soft-deleted templates from list queries
+      query.isDeleted = { $ne: true };
     } else {
       // User designs (kind='design') — exclude order designs
       query.userId = session!.id;

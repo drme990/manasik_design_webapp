@@ -25,11 +25,18 @@ function verifyCallback(request: NextRequest): boolean {
  * when the project is deleted. Shared/global assets (shapes, fonts) are
  * NOT included here — they're referenced by many projects and must never
  * be deleted as part of a single project's cleanup.
+ *
+ * `design/template-bg/` is included because order designs now get their
+ * OWN copy of the BG file (copied during generation in
+ * generate-design/route.ts). The copy uses the design instance's ID as
+ * the subfolder, so it's safe to delete — it won't affect the template
+ * or other order designs.
  */
 const PROJECT_SPECIFIC_PREFIXES = [
   'design/projects-images/',  // images uploaded to this project
   'design/thumbnails/',       // this project's thumbnail
   'design/orders-design/',    // generated order design JPGs
+  'design/template-bg/',      // per-design BG copies (owned by the design instance)
 ];
 
 /**
@@ -48,6 +55,22 @@ const PROJECT_SPECIFIC_PREFIXES = [
  */
 function isDesignOwnedKey(key: string): boolean {
   return PROJECT_SPECIFIC_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
+ * Check if a background image URL is owned by the given project.
+ * Background keys have the format: design/template-bg/{projectId}/{filename}
+ * Only delete BGs whose {projectId} subfolder matches the project being deleted.
+ */
+function isBackgroundOwnedByProject(bgUrl: string, projectId: string): boolean {
+  const key = extractKeyFromUrl(bgUrl);
+  if (!key) return false;
+  const parts = key.split('/');
+  if (parts.length < 4) return false;
+  if (parts[0] !== 'design' || parts[1] !== 'template-bg') return false;
+  const keyProjectId = parts[2];
+  const safeProjectId = projectId.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 40);
+  return keyProjectId === safeProjectId;
 }
 
 /**
@@ -93,15 +116,16 @@ export async function POST(request: NextRequest) {
       .find({ id: { $in: projectIds } })
       .toArray();
 
-    // Collect R2 keys: order design image, layer images.
+    // Collect R2 keys: order design image, layer images, per-design BG.
     // Only collect keys under the `design/` folder — customer photos
     // at `images/customers/...` are NOT deleted (owned by the backend).
     //
-    // IMPORTANT: Background images are NOT deleted here. These are
-    // design instances (kind='order_design') that share the template's bg URL.
-    // Deleting the bg would break the template and all other design
-    // instances that reference the same bg. The bg is only cleaned up
-    // when the template itself is deleted (see DELETE /api/projects/[id]).
+    // Background images: order designs now get their OWN copy of the BG
+    // file (copied during generation). We delete only BGs that belong to
+    // the design instance being deleted (verified by the {templateId}
+    // subfolder in the R2 key matching the design instance's ID).
+    // This prevents deleting a BG that belongs to the template or
+    // another design instance.
     //
     // IMPORTANT: Order designs do NOT have thumbnails. The design JPG
     // itself is used as the thumbnail (see ProjectCardPreview). Skip
@@ -112,6 +136,13 @@ export async function POST(request: NextRequest) {
       if (project.orderDesignUrl) {
         const key = extractKeyFromUrl(project.orderDesignUrl);
         if (key && isDesignOwnedKey(key)) r2Keys.push(key);
+      }
+      // Per-design BG copy (only if owned by this design instance)
+      if (project.backgroundUri) {
+        const key = extractKeyFromUrl(project.backgroundUri);
+        if (key && isDesignOwnedKey(key) && isBackgroundOwnedByProject(project.backgroundUri, project.id)) {
+          r2Keys.push(key);
+        }
       }
       // Layer image URIs
       for (const layer of project.layers) {

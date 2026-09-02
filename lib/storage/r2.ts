@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand, CopyObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
 const ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
@@ -209,6 +209,54 @@ export function extractKeyFromUrl(url: string): string | null {
   const path = url.slice(PUBLIC_URL.length + 1); // +1 for the '/'
   const queryIndex = path.search(/[?#]/);
   return queryIndex === -1 ? path : path.slice(0, queryIndex);
+}
+
+/**
+ * Copy an object within R2 from one key to another.
+ * Used when duplicating a template — the duplicate gets its own BG file
+ * so deleting the duplicate doesn't affect the original template's BG.
+ *
+ * The source object's content type and cache control are preserved.
+ * Returns the new public URL, or null if the copy fails.
+ */
+export async function copyR2Object(
+  sourceKey: string,
+  targetKey: string,
+): Promise<{ key: string; url: string } | null> {
+  if (!BUCKET_NAME) return null;
+  try {
+    const s3 = getClient();
+    // R2's CopyObject requires the CopySource to be the bucket name + key
+    await s3.send(
+      new CopyObjectCommand({
+        Bucket: BUCKET_NAME,
+        CopySource: `${BUCKET_NAME}/${sourceKey}`,
+        Key: targetKey,
+        // Preserve the metadata from the source object
+        MetadataDirective: 'COPY',
+      }),
+    );
+    return { key: targetKey, url: `${PUBLIC_URL}/${targetKey}` };
+  } catch (error) {
+    console.error(`[R2] Failed to copy "${sourceKey}" → "${targetKey}":`, error);
+    return null;
+  }
+}
+
+/**
+ * Check if an object exists in R2 by sending a HEAD request.
+ * Used by the BG integrity check script and the duplicate endpoint
+ * to verify a source BG file exists before copying.
+ */
+export async function r2ObjectExists(key: string): Promise<boolean> {
+  if (!BUCKET_NAME) return false;
+  try {
+    const s3 = getClient();
+    await s3.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

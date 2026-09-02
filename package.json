@@ -6,11 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "seed-user": "tsx scripts/seed-user.ts",
-    "cleanup-order-designs": "tsx scripts/cleanup-order-designs.ts",
-    "cleanup-order-designs:dry": "tsx scripts/cleanup-order-designs.ts --dry-run",
-    "setup-indexes": "tsx scripts/setup-indexes.ts"
+    "lint": "eslint"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1090.0",

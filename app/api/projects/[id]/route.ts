@@ -80,6 +80,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'notFound' }, { status: 404 });
     }
 
+    // Block edits to soft-deleted templates — they must be restored first
+    if (existing.isDeleted) {
+      return NextResponse.json(
+        { success: false, error: 'forbidden', message: 'Cannot edit a soft-deleted template' },
+        { status: 403 },
+      );
+    }
+
     // Access control: templates require admin; designs require owner or admin
     if (existing.kind === 'booking_template' && !isAdmin(session.role)) {
       return NextResponse.json({ success: false, error: 'forbidden' }, { status: 403 });
@@ -94,6 +102,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     delete safeBody._id;
     delete safeBody.id;
     delete safeBody.userId;
+    delete safeBody.isDeleted;
+    delete safeBody.deletedAt;
     const updates: Partial<Project> = {
       ...(safeBody as ProjectUpdateInput),
       updatedAt: Date.now(),
@@ -127,9 +137,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
  * NOT included here — they're referenced by many projects and must never
  * be deleted as part of a single project's cleanup.
  *
- * `design/template-bg/` is only deleted for booking_template projects —
- * design instances (kind='order_design') share the template's bg URL, so
- * deleting a design instance must NOT delete the bg (the template owns it).
+ * `design/template-bg/` is deleted for templates AND order designs that
+ * own their BG copy. Order designs get their own BG copy during generation
+ * (see generate-design/route.ts). The ownership check in
+ * isBackgroundOwnedByProject() ensures we only delete BGs whose
+ * {projectId} subfolder matches the project being deleted.
  */
 const PROJECT_SPECIFIC_PREFIXES = [
   'design/projects-images/',  // images uploaded to this project
@@ -156,6 +168,35 @@ function isDesignOwnedKey(key: string): boolean {
 }
 
 /**
+ * Check if a background image URL is owned by the given project.
+ *
+ * Background keys have the format:
+ *   design/template-bg/{templateId}/{filename}
+ *
+ * When a template is duplicated, the duplicate inherits the SAME
+ * backgroundUri URL (pointing to the original template's BG file in R2).
+ * Without this check, deleting the duplicate would delete the original
+ * template's BG file, breaking the original template and all order
+ * designs generated from it.
+ *
+ * This function verifies that the {templateId} segment in the R2 key
+ * matches the project being deleted. If it doesn't match, the BG file
+ * belongs to a different template and must NOT be deleted.
+ */
+function isBackgroundOwnedByProject(bgUrl: string, projectId: string): boolean {
+  const key = extractKeyFromUrl(bgUrl);
+  if (!key) return false;
+  // Key format: design/template-bg/{templateId}/{filename}
+  const parts = key.split('/');
+  if (parts.length < 4) return false;
+  if (parts[0] !== 'design' || parts[1] !== 'template-bg') return false;
+  const keyTemplateId = parts[2];
+  // Match the sanitization in generateBackgroundKey()
+  const safeProjectId = projectId.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 40);
+  return keyTemplateId === safeProjectId;
+}
+
+/**
  * Collect all R2 URLs from a project that should be deleted when the
  * project is deleted: background, thumbnail, image layer URIs, shape URIs,
  * and collage cell URIs.
@@ -179,7 +220,6 @@ function collectProjectR2Keys(project: Project): string[] {
   const keys: string[] = [];
 
   const isOrderDesign = project.kind === 'order_design';
-  const isTemplate = project.kind === 'booking_template';
 
   // Thumbnail — only for templates and user designs, NOT order designs.
   // Order designs use the design JPG itself as the thumbnail.
@@ -187,19 +227,30 @@ function collectProjectR2Keys(project: Project): string[] {
     keys.push(generateThumbnailKey(project.id));
   }
 
-  // Background image — only delete for templates, NOT for design instances.
-  // Design instances (kind='order_design') inherit the template's bg URL via
-  // the spread in inflateTemplateToDesign. Deleting it here would remove
-  // the bg from R2, breaking the template and every other design instance
-  // that shares the same bg.
-  if (isTemplate) {
-    if (project.backgroundUri) {
-      const key = extractKeyFromUrl(project.backgroundUri);
-      if (key && isDesignOwnedKey(key)) keys.push(key);
+  // Background image — delete for templates AND order designs that own
+  // their own BG copy. Order designs now get their own BG copy during
+  // generation (see generate-design/route.ts), so they own their BG file
+  // and it's safe to delete when the design instance is deleted.
+  //
+  // OWNERSHIP CHECK: When a template is duplicated, the duplicate inherits
+  // the SAME backgroundUri URL (pointing to the original template's BG file).
+  // We must NOT delete a BG file that belongs to a different template.
+  // isBackgroundOwnedByProject() verifies the {templateId} subfolder in the
+  // R2 key matches the project being deleted.
+  //
+  // User designs (kind='design') may also have BGs uploaded via the editor,
+  // which use generateBackgroundKey() with the project's own ID — so the
+  // ownership check passes and they're cleaned up correctly.
+  if (project.backgroundUri) {
+    const key = extractKeyFromUrl(project.backgroundUri);
+    if (key && isDesignOwnedKey(key) && isBackgroundOwnedByProject(project.backgroundUri, project.id)) {
+      keys.push(key);
     }
-    if (project.backgroundThumbnailUri) {
-      const key = extractKeyFromUrl(project.backgroundThumbnailUri);
-      if (key && isDesignOwnedKey(key)) keys.push(key);
+  }
+  if (project.backgroundThumbnailUri) {
+    const key = extractKeyFromUrl(project.backgroundThumbnailUri);
+    if (key && isDesignOwnedKey(key) && isBackgroundOwnedByProject(project.backgroundThumbnailUri, project.id)) {
+      keys.push(key);
     }
   }
 
@@ -284,30 +335,42 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Collect all R2 keys to delete (images, thumbnail, etc.)
-    const r2Keys = collectProjectR2Keys(existing);
+    // ── Soft-delete for templates, hard-delete for everything else ─────
+    // Templates are soft-deleted: the document stays in MongoDB with
+    // `isDeleted: true`, and R2 assets are NOT deleted. This prevents
+    // accidental data loss — the template can be recovered via DB if
+    // needed. A cleanup script can later hard-delete templates that have
+    // no order designs referencing them.
+    //
+    // Order designs and user designs are hard-deleted as before — they
+    // are standalone instances with no downstream dependents.
+    const isTemplate = existing.kind === 'booking_template';
 
     // Audit log: record what's being deleted and by whom
     const actor = isCallback
       ? 'backend-callback'
       : `${session!.id} (${session!.role})`;
-    console.log(
-      `[DELETE /api/projects/[id]] Deleting project ${id} (kind=${existing.kind}, source=${existing.source || 'n/a'}) by ${actor}. ` +
-      `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}`,
-    );
 
     const collection = await getProjectCollection(collectionName);
-    await collection.deleteOne({ id });
 
-    // If this is a booking template, disconnect it from all booking
-    // products that reference it via any of the 4 template slots.
-    // This prevents products from pointing to a deleted template.
-    if (existing.kind === 'booking_template') {
+    if (isTemplate && !isCallback) {
+      // ── Soft-delete: mark as deleted, keep document + R2 assets ────
+      const now = Date.now();
+      console.log(
+        `[DELETE /api/projects/[id]] Soft-deleting template ${id} by ${actor}. ` +
+        `R2 assets are preserved for recovery.`,
+      );
+      await collection.updateOne(
+        { id },
+        { $set: { isDeleted: true, deletedAt: now, updatedAt: now } },
+      );
+
+      // Disconnect the template from all booking products so products
+      // don't point to a "deleted" template. The template document stays
+      // for recovery, but product connections are cleared.
       const mongoClient = getMongoClient();
       const bpCollection = mongoClient.getCollection<BookingProduct>(BOOKING_PRODUCTS_COLLECTION);
       if (bpCollection) {
-        const now = Date.now();
-        // Clear all 4 possible slots that could reference this template
         await bpCollection.updateMany(
           { templateId: id },
           { $set: { templateId: null, updatedAt: now, localModifiedAt: now } },
@@ -325,7 +388,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
           { $set: { ghadaqImageTemplateId: null, updatedAt: now, localModifiedAt: now } },
         );
       }
+
+      return NextResponse.json({ success: true });
     }
+
+    // ── Hard-delete: remove document + R2 assets ─────────────────────
+    const r2Keys = collectProjectR2Keys(existing);
+    console.log(
+      `[DELETE /api/projects/[id]] Deleting project ${id} (kind=${existing.kind}, source=${existing.source || 'n/a'}) by ${actor}. ` +
+      `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}`,
+    );
+
+    await collection.deleteOne({ id });
 
     // Delete all R2 assets in the background (best-effort, non-blocking)
     if (r2Keys.length > 0) {

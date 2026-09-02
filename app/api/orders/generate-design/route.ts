@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMongoClient } from '@/lib/db/mongodb';
 import { getProjectCollection, DESIGN_PROJECTS_COLLECTION, BOOKING_TEMPLATES_COLLECTION } from '@/lib/db/project-collections';
-import { uploadToR2, deleteFromR2, generateOrderDesignKey } from '@/lib/storage/r2';
+import { uploadToR2, deleteFromR2, generateOrderDesignKey, generateBackgroundKey, extractKeyFromUrl, copyR2Object } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
 import { inflateTemplateToDesign } from '@/lib/render/inflate-template';
 import { renderLimiter } from '@/lib/utils/concurrency-limiter';
 import { createVersion, AUTO_ACTOR } from '@/lib/services/design-version-service';
-import type { BookingProduct,  TemplateType } from '@/types';
+import type { BookingProduct, TemplateType } from '@/types';
 
 const BOOKING_COLLECTION = 'design_booking_products';
 
@@ -304,10 +304,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Load the template project ─────────────────────────────────────
+    // Exclude soft-deleted templates — they should not be used to
+    // generate new order designs.
     const templatesCollection = await getProjectCollection(BOOKING_TEMPLATES_COLLECTION);
     const template = await templatesCollection.findOne({
       id: templateId,
       kind: 'booking_template',
+      isDeleted: { $ne: true },
     });
 
     if (!template) {
@@ -366,6 +369,29 @@ export async function POST(request: NextRequest) {
         productName,
         itemIndex: body.itemIndex,
       });
+
+      // ── Copy the template's BG to a per-design R2 key ─────────────────
+      // This makes each order design self-contained — deleting the
+      // template (or editing its BG) won't affect existing order designs.
+      // The design instance's backgroundUri is updated to point to the
+      // new copy. If the copy fails (e.g. R2 error), we fall back to the
+      // template's original URL — the design still renders, it just
+      // shares the template's BG (which is the pre-fix behavior).
+      if (designInstance.backgroundUri) {
+        const bgUrl = designInstance.backgroundUri;
+        if (!bgUrl.startsWith('data:') && !bgUrl.startsWith('blob:')) {
+          const sourceKey = extractKeyFromUrl(bgUrl);
+          if (sourceKey) {
+            const ext = sourceKey.split('.').pop() || 'jpg';
+            const fakeFile = { name: `bg.${ext}`, type: 'image/jpeg' };
+            const targetKey = generateBackgroundKey(designInstance.id, fakeFile);
+            const copied = await copyR2Object(sourceKey, targetKey);
+            if (copied) {
+              designInstance.backgroundUri = copied.url;
+            }
+          }
+        }
+      }
 
       // ── Render the design instance to JPG ─────────────────────────────
       // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
