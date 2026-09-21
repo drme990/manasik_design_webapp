@@ -3,6 +3,7 @@ import { verifySession } from '@/lib/auth/session';
 import { getMongoClient } from '@/lib/db/mongodb';
 import { findProjectById, getProjectCollection } from '@/lib/db/project-collections';
 import { deleteMultipleFromR2, extractKeyFromUrl, generateThumbnailKey } from '@/lib/storage/r2';
+import { filterUnreferencedKeys } from '@/lib/storage/r2-refs';
 import type { Project, ProjectUpdateInput, ImageLayer, ShapeLayer } from '@/types';
 import type { BookingProduct } from '@/types/booking';
 
@@ -164,6 +165,9 @@ const PROJECT_SPECIFIC_PREFIXES = [
  * referenced by design instances but not owned by them.
  */
 function isDesignOwnedKey(key: string): boolean {
+  // Never touch immutable version archives — they're referenced by
+  // design_order_versions docs used by "restore version".
+  if (key.startsWith('design/orders-design/versions/')) return false;
   return PROJECT_SPECIFIC_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
@@ -215,9 +219,15 @@ function isBackgroundOwnedByProject(bgUrl: string, projectId: string): boolean {
  * IMPORTANT: Order designs (kind='order_design') do NOT have thumbnails.
  * The design JPG itself is used as the thumbnail (see ProjectCardPreview).
  * Skip thumbnail key collection for order designs.
+ *
+ * Layer images/shapes are returned separately in `shared` — they use
+ * `design/projects-images/` keys with NO project-id segment, and the
+ * same URL is copied by reference into duplicates and order designs.
+ * They must go through filterUnreferencedKeys() before deletion.
  */
-function collectProjectR2Keys(project: Project): string[] {
+function collectProjectR2Keys(project: Project): { owned: string[]; shared: string[] } {
   const keys: string[] = [];
+  const shared: string[] = [];
 
   const isOrderDesign = project.kind === 'order_design';
 
@@ -254,28 +264,29 @@ function collectProjectR2Keys(project: Project): string[] {
     }
   }
 
-  // Layer URIs
+  // Layer URIs — shared by reference across duplicates/order designs,
+  // collected separately so the caller can reference-check them.
   for (const layer of project.layers) {
     if (layer.type === 'image') {
       const img = layer as ImageLayer;
       if (img.uri) {
         const key = extractKeyFromUrl(img.uri);
-        if (key && isDesignOwnedKey(key)) keys.push(key);
+        if (key && isDesignOwnedKey(key)) shared.push(key);
       }
       if (img.originalUri) {
         const key = extractKeyFromUrl(img.originalUri);
-        if (key && isDesignOwnedKey(key)) keys.push(key);
+        if (key && isDesignOwnedKey(key)) shared.push(key);
       }
       if (img.thumbnailUri) {
         const key = extractKeyFromUrl(img.thumbnailUri);
-        if (key && isDesignOwnedKey(key)) keys.push(key);
+        if (key && isDesignOwnedKey(key)) shared.push(key);
       }
       // Collage cell URIs
       if (img.collage?.cells) {
         for (const cell of img.collage.cells) {
           if (cell.uri) {
             const key = extractKeyFromUrl(cell.uri);
-            if (key && isDesignOwnedKey(key)) keys.push(key);
+            if (key && isDesignOwnedKey(key)) shared.push(key);
           }
         }
       }
@@ -284,17 +295,17 @@ function collectProjectR2Keys(project: Project): string[] {
       const shape = layer as ShapeLayer;
       if (shape.uri) {
         const key = extractKeyFromUrl(shape.uri);
-        if (key && isDesignOwnedKey(key)) keys.push(key);
+        if (key && isDesignOwnedKey(key)) shared.push(key);
       }
       if (shape.thumbnailUri) {
         const key = extractKeyFromUrl(shape.thumbnailUri);
-        if (key && isDesignOwnedKey(key)) keys.push(key);
+        if (key && isDesignOwnedKey(key)) shared.push(key);
       }
     }
   }
 
   // Deduplicate (a single image might be used multiple times)
-  return [...new Set(keys)];
+  return { owned: [...new Set(keys)], shared: [...new Set(shared)] };
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
@@ -393,10 +404,20 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // ── Hard-delete: remove document + R2 assets ─────────────────────
-    const r2Keys = collectProjectR2Keys(existing);
+    const { owned, shared } = collectProjectR2Keys(existing);
+
+    // Layer images are shared by reference — duplicates and order
+    // designs keep the same projects-images URLs. Only delete a shared
+    // key when NO other project/template still references it.
+    const unreferencedShared = shared.length > 0
+      ? await filterUnreferencedKeys(shared, [existing.id])
+      : [];
+    const r2Keys = [...owned, ...unreferencedShared];
+
     console.log(
       `[DELETE /api/projects/[id]] Deleting project ${id} (kind=${existing.kind}, source=${existing.source || 'n/a'}) by ${actor}. ` +
-      `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}`,
+      `R2 keys to delete (${r2Keys.length}): ${r2Keys.join(', ') || 'none'}. ` +
+      `Skipped ${shared.length - unreferencedShared.length} still-referenced shared key(s).`,
     );
 
     await collection.deleteOne({ id });

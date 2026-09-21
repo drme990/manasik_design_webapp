@@ -11,6 +11,18 @@ import type { BookingProduct, TemplateType } from '@/types';
 const BOOKING_COLLECTION = 'design_booking_products';
 
 /**
+ * Max time a request waits for a render slot before failing. The
+ * backend's auto-generation path aborts at 120s anyway, and a saturated
+ * queue means every queued request would time out upstream — failing
+ * fast here frees the connection sooner. Overridable via
+ * DESIGN_RENDER_ACQUIRE_TIMEOUT_MS.
+ */
+const RENDER_ACQUIRE_TIMEOUT_MS = parseInt(
+  process.env.DESIGN_RENDER_ACQUIRE_TIMEOUT_MS || '90000',
+  10,
+);
+
+/**
  * Shared secret for callback authentication.
  * The external backend must send this in the `x-callback-secret` header.
  * Configured via the CALLBACK_SECRET env var. If the env var is not set,
@@ -214,27 +226,24 @@ export async function POST(request: NextRequest) {
     const orderSizeIndex = orderItem?.sizeIndex ?? 0;
 
     const bookingCollection = await getBookingCollection();
-    let bookingProduct = orderSizeIndex > 0
-      ? await bookingCollection.findOne({
+    // Single round trip: fetch all candidate rows (exact size, size 0
+    // fallback, and legacy rows where sizeIndex is missing/null — `null`
+    // matches both in Mongo) and pick by precedence in memory.
+    const bookingCandidates = await bookingCollection
+      .find({
         backendProductId: body.productId,
-        sizeIndex: orderSizeIndex,
-      })
-      : null;
-
-    // Fallback to sizeIndex=0 if no size-specific booking product found
-    if (!bookingProduct) {
-      bookingProduct = await bookingCollection.findOne({
-        backendProductId: body.productId,
-        sizeIndex: 0,
-      });
-    }
-    // Last resort: legacy booking products without sizeIndex (treated as 0)
-    if (!bookingProduct) {
-      bookingProduct = await bookingCollection.findOne({
-        backendProductId: body.productId,
-        sizeIndex: { $in: [null, undefined] } as Record<string, unknown>,
-      } as Record<string, unknown>);
-    }
+        $or: [
+          { sizeIndex: orderSizeIndex },
+          { sizeIndex: 0 },
+          { sizeIndex: null },
+        ],
+      } as Record<string, unknown>)
+      .toArray();
+    const bookingProduct =
+      bookingCandidates.find((c) => c.sizeIndex === orderSizeIndex) ??
+      bookingCandidates.find((c) => c.sizeIndex === 0) ??
+      bookingCandidates[0] ??
+      null;
 
     if (!bookingProduct) {
       // No booking product exists for this backend product — the design
@@ -338,160 +347,166 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Render + upload (concurrency-limited) ─────────────────────────
-    // Canvas rendering via @napi-rs/canvas is CPU-bound. The
-    // renderLimiter caps how many renders run in parallel so a burst
-    // of paid orders doesn't overload the VPS CPU. Excess requests
-    // queue up and process when a slot frees.
+    // ── Create a design instance from the template ──────────────────────
+    // We don't render the template directly — instead we create a COPY
+    // of the template as a new `kind: 'design'` project, with all
+    // dynamic field layers inflated with the order's actual data
+    // (customer name, reservation photo, etc.).
     //
-    // The template lookup above is NOT limited (it's a fast DB read),
-    // but everything from inflation onward is CPU/IO-heavy.
-    return await renderLimiter.run(async () => {
-      // ── Create a design instance from the template ────────────────────
-      // We don't render the template directly — instead we create a COPY
-      // of the template as a new `kind: 'design'` project, with all
-      // dynamic field layers inflated with the order's actual data
-      // (customer name, reservation photo, etc.).
-      //
-      // This design instance is what gets:
-      //   1. Saved to MongoDB as a standalone project
-      //   2. Rendered to JPG via @napi-rs/canvas
-      //   3. Uploaded to R2
-      //   4. Opened in the editor when the admin clicks "edit design"
-      //
-      // The template itself is never modified — editing the design
-      // instance doesn't affect future orders. The template only changes
-      // when the user explicitly edits it in the design app's templates
-      // section.
-      const productName = resolveProductName(body.orderData);
-      const designInstance = inflateTemplateToDesign(template, body.orderData, {
+    // This design instance is what gets:
+    //   1. Saved to MongoDB as a standalone project
+    //   2. Rendered to JPG via @napi-rs/canvas
+    //   3. Uploaded to R2
+    //   4. Opened in the editor when the admin clicks "edit design"
+    //
+    // The template itself is never modified — editing the design
+    // instance doesn't affect future orders. The template only changes
+    // when the user explicitly edits it in the design app's templates
+    // section.
+    const productName = resolveProductName(body.orderData);
+    const designInstance = inflateTemplateToDesign(template, body.orderData, {
+      orderNumber: body.orderNumber,
+      productName,
+      itemIndex: body.itemIndex,
+    });
+
+    // ── Copy the template's BG to a per-design R2 key (in parallel) ─────
+    // This makes each order design self-contained — deleting the
+    // template (or editing its BG) won't affect existing order designs.
+    // The copy is a server-side R2 operation that's independent of the
+    // render, so it starts NOW and its result is awaited later.
+    //
+    // IMPORTANT: we still RENDER from the template's original BG URL.
+    // The per-design copy would be a unique URL per order, which defeats
+    // the shared image cache (every order would re-download the same BG
+    // bytes). Rendering the template URL lets all orders from this
+    // template share one cached decode; the saved instance still points
+    // at the owned copy for safety.
+    const templateBgUri = designInstance.backgroundUri;
+    const bgCopyPromise = (async (): Promise<string | null> => {
+      if (!templateBgUri) return null;
+      if (templateBgUri.startsWith('data:') || templateBgUri.startsWith('blob:')) return null;
+      const sourceKey = extractKeyFromUrl(templateBgUri);
+      if (!sourceKey) return null;
+      const ext = sourceKey.split('.').pop() || 'jpg';
+      const fakeFile = { name: `bg.${ext}`, type: 'image/jpeg' };
+      const targetKey = generateBackgroundKey(designInstance.id, fakeFile);
+      const copied = await copyR2Object(sourceKey, targetKey);
+      return copied?.url ?? null;
+    })().catch(() => null); // copy failure → keep template URL (pre-fix behavior)
+
+    // ── Render the design instance to JPG (concurrency-limited) ─────────
+    // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
+    // draw each layer directly — no browser, no HTML, no Puppeteer.
+    // Dynamic fields have already been inflated to concrete text/image
+    // layers by inflateTemplateToDesign above.
+    //
+    // Only the CPU-heavy render holds a limiter slot — the DB lookups,
+    // BG copy, and R2 uploads above/below run unbounded so a queued
+    // render doesn't stall unrelated I/O. The acquire timeout keeps a
+    // saturated queue from holding requests open forever.
+    const jpgBuffer = await renderLimiter.run(
+      () =>
+        renderTemplateToJpg(
+          { ...designInstance, backgroundUri: templateBgUri },
+          body.orderData,
+        ),
+      RENDER_ACQUIRE_TIMEOUT_MS,
+    );
+
+    // Apply the copied BG URL to the instance we save (never rendered).
+    const copiedBgUrl = await bgCopyPromise;
+    if (copiedBgUrl) designInstance.backgroundUri = copiedBgUrl;
+
+    // ── Upload to R2 ────────────────────────────────────────────────────
+    // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
+    // Tier 2 — explicit delete + re-add with the same key.
+    const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
+    // Delete old (best-effort — may not exist on first generation)
+    try { await deleteFromR2(key); } catch { /* first generation — fine */ }
+    // Use no-cache since this key gets overwritten when the admin
+    // edits + saves the design (re-render endpoint). Without this,
+    // Cloudflare CDN serves the stale cached version after overwrite.
+    const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
+      cacheControl: 'no-cache',
+    });
+
+    // Store the R2 URL on the design instance so the re-render endpoint
+    // (triggered when the admin edits + saves) can overwrite the same key.
+    designInstance.orderDesignUrl = result.url;
+
+    // ── Persist: project insert + immutable version snapshot (parallel) ─
+    // Every generation creates an append-only version. The trigger is
+    // determined by the backend ('auto' for webhook / status change,
+    // 'admin_regenerate' for the admin "Regenerate" button). The
+    // archived JPG is uploaded to a separate immutable R2 key (never
+    // overwritten) so historical previews stay correct even after the
+    // design is edited or regenerated.
+    //
+    // insertOne and createVersion are independent — the version snapshot
+    // embeds the full project data + its own archive upload, so both can
+    // run concurrently now that `orderDesignUrl`/`backgroundUri` are
+    // final.
+    //
+    // Idempotency: the backend sends a stable operationId for auto
+    // generation (derived from the webhook event / order identity) so
+    // retries don't create duplicate versions. For admin regeneration,
+    // the backend sends a fresh operationId per request.
+    const versionTrigger = body.trigger === 'admin_regenerate' ? 'admin_regenerate' : 'auto';
+    const versionOperationId =
+      body.operationId ||
+      `auto:${body.orderNumber}:${body.productId}:${body.itemIndex ?? 1}`;
+
+    const designsCollection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
+    const [, versionResult] = await Promise.all([
+      designsCollection.insertOne(designInstance),
+      createVersion({
         orderNumber: body.orderNumber,
-        productName,
+        productId: body.productId,
         itemIndex: body.itemIndex,
-      });
-
-      // ── Copy the template's BG to a per-design R2 key ─────────────────
-      // This makes each order design self-contained — deleting the
-      // template (or editing its BG) won't affect existing order designs.
-      // The design instance's backgroundUri is updated to point to the
-      // new copy. If the copy fails (e.g. R2 error), we fall back to the
-      // template's original URL — the design still renders, it just
-      // shares the template's BG (which is the pre-fix behavior).
-      if (designInstance.backgroundUri) {
-        const bgUrl = designInstance.backgroundUri;
-        if (!bgUrl.startsWith('data:') && !bgUrl.startsWith('blob:')) {
-          const sourceKey = extractKeyFromUrl(bgUrl);
-          if (sourceKey) {
-            const ext = sourceKey.split('.').pop() || 'jpg';
-            const fakeFile = { name: `bg.${ext}`, type: 'image/jpeg' };
-            const targetKey = generateBackgroundKey(designInstance.id, fakeFile);
-            const copied = await copyR2Object(sourceKey, targetKey);
-            if (copied) {
-              designInstance.backgroundUri = copied.url;
-            }
-          }
-        }
-      }
-
-      // ── Render the design instance to JPG ─────────────────────────────
-      // The renderer uses @napi-rs/canvas (native Rust canvas engine) to
-      // draw each layer directly — no browser, no HTML, no Puppeteer.
-      // Dynamic fields have already been inflated to concrete text/image
-      // layers by inflateTemplateToDesign above.
-      const jpgBuffer = await renderTemplateToJpg(designInstance, body.orderData);
-
-      // ── Upload to R2 ──────────────────────────────────────────────────
-      // Path: design/orders-design/{orderNumber}[-{itemIndex}].jpg
-      // Tier 2 — explicit delete + re-add with the same key.
-      const key = generateOrderDesignKey(body.orderNumber, body.itemIndex);
-      // Delete old (best-effort — may not exist on first generation)
-      try { await deleteFromR2(key); } catch { /* first generation — fine */ }
-      // Use no-cache since this key gets overwritten when the admin
-      // edits + saves the design (re-render endpoint). Without this,
-      // Cloudflare CDN serves the stale cached version after overwrite.
-      const result = await uploadToR2(key, jpgBuffer, 'image/jpeg', {
-        cacheControl: 'no-cache',
-      });
-
-      // Store the R2 URL on the design instance so the re-render endpoint
-      // (triggered when the admin edits + saves) can overwrite the same key.
-      designInstance.orderDesignUrl = result.url;
-
-      // Save the design instance to MongoDB (with the R2 URL)
-      const designsCollection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
-      await designsCollection.insertOne(designInstance);
-
-      // ── Save an immutable version snapshot ─────────────────────────────
-      // Every generation creates an append-only version. The trigger is
-      // determined by the backend ('auto' for webhook / status change,
-      // 'admin_regenerate' for the admin "Regenerate" button). The
-      // archived JPG is uploaded to a separate immutable R2 key (never
-      // overwritten) so historical previews stay correct even after the
-      // design is edited or regenerated.
-      //
-      // The archived URL is returned to the backend as the order's design
-      // URL — every version has a unique URL, so the admin panel always
-      // loads the correct image for the current version (no cache-busting
-      // needed, no stale CDN entries).
-      //
-      // Idempotency: the backend sends a stable operationId for auto
-      // generation (derived from the webhook event / order identity) so
-      // retries don't create duplicate versions. For admin regeneration,
-      // the backend sends a fresh operationId per request.
-      const versionTrigger = body.trigger === 'admin_regenerate' ? 'admin_regenerate' : 'auto';
-      const versionOperationId =
-        body.operationId ||
-        `auto:${body.orderNumber}:${body.productId}:${body.itemIndex ?? 1}`;
-      let versionResult;
-      try {
-        versionResult = await createVersion({
-          orderNumber: body.orderNumber,
-          productId: body.productId,
-          itemIndex: body.itemIndex,
-          projectId: designInstance.id,
-          jpgBuffer,
-          project: designInstance,
-          trigger: versionTrigger,
-          actor: AUTO_ACTOR,
-          operationId: versionOperationId,
-        });
-      } catch (versionError) {
+        projectId: designInstance.id,
+        jpgBuffer,
+        project: designInstance,
+        trigger: versionTrigger,
+        actor: AUTO_ACTOR,
+        operationId: versionOperationId,
+      }).catch((versionError) => {
         // Version creation is best-effort — the design itself was
         // generated and uploaded successfully. Don't fail the whole
         // request if history recording fails.
         console.error('[generate-design] createVersion failed:', versionError);
-        versionResult = undefined;
-      }
+        return undefined;
+      }),
+    ]);
 
-      // Use the archived (immutable) URL as the order's design URL when a
-      // version was created. Fall back to the mutable URL if version
-      // creation failed (best-effort — the design is still usable).
-      const orderDesignUrl = versionResult?.version?.archivedUrl || result.url;
+    // Use the archived (immutable) URL as the order's design URL when a
+    // version was created. Fall back to the mutable URL if version
+    // creation failed (best-effort — the design is still usable).
+    const orderDesignUrl = versionResult?.version?.archivedUrl || result.url;
 
-      return NextResponse.json({
-        success: true,
-        data: {
-          // Return the archived (immutable) URL — every version has a
-          // unique URL so the admin panel loads the right image instantly.
-          url: orderDesignUrl,
-          key: result.key,
-          orderNumber: body.orderNumber,
-          itemIndex: body.itemIndex,
-          // The design instance's project ID — the admin panel opens
-          // /editor/d/{projectId} to edit THIS design, not the template.
-          projectId: designInstance.id,
-          designName: designInstance.name,
-          // Keep the template ID for reference (e.g. logging)
-          templateId: template.id,
-          templateName: template.name,
-          templateType,
-          // The newly-created version number (or the existing one if this
-          // was a duplicate operation). The backend uses this to set
-          // `designUrls[].currentVersion` so the admin panel can mark the
-          // current version in the history UI.
-          version: versionResult?.version?.version,
-        },
-      });
+    return NextResponse.json({
+      success: true,
+      data: {
+        // Return the archived (immutable) URL — every version has a
+        // unique URL so the admin panel loads the right image instantly.
+        url: orderDesignUrl,
+        key: result.key,
+        orderNumber: body.orderNumber,
+        itemIndex: body.itemIndex,
+        // The design instance's project ID — the admin panel opens
+        // /editor/d/{projectId} to edit THIS design, not the template.
+        projectId: designInstance.id,
+        designName: designInstance.name,
+        // Keep the template ID for reference (e.g. logging)
+        templateId: template.id,
+        templateName: template.name,
+        templateType,
+        // The newly-created version number (or the existing one if this
+        // was a duplicate operation). The backend uses this to set
+        // `designUrls[].currentVersion` so the admin panel can mark the
+        // current version in the history UI.
+        version: versionResult?.version?.version,
+      },
     });
   } catch (error) {
     console.error('[POST /api/orders/generate-design]', error);

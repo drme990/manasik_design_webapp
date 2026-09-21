@@ -86,9 +86,15 @@ async function main() {
 
     // Strategy B: List + delete everything under design/orders-design/
     // This catches orphaned images too (e.g. from deleted projects).
+    //
+    // IMPORTANT: exclude `design/orders-design/versions/` — those are the
+    // immutable version archives referenced by `design_order_versions`
+    // documents (used by "restore version" in the admin panel). Deleting
+    // them would leave dead archivedUrl pointers on every version.
     console.log(`   Listing R2 objects under "${R2_ORDER_DESIGN_PREFIX}"...`);
-    const allKeys = await listR2KeysByPrefix(R2_ORDER_DESIGN_PREFIX);
-    console.log(`   Found ${allKeys.length} R2 object(s) under the prefix`);
+    const allKeys = (await listR2KeysByPrefix(R2_ORDER_DESIGN_PREFIX))
+      .filter((key) => !key.startsWith(`${R2_ORDER_DESIGN_PREFIX}versions/`));
+    console.log(`   Found ${allKeys.length} R2 object(s) under the prefix (excluding versions/)`);
 
     // Combine + dedupe
     const keysToDelete = Array.from(new Set([...specificKeys, ...allKeys]));

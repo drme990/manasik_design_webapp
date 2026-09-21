@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from '@/lib/db/project-collections';
 import { deleteMultipleFromR2, extractKeyFromUrl } from '@/lib/storage/r2';
+import { filterUnreferencedKeys } from '@/lib/storage/r2-refs';
 import type { ImageLayer, ShapeLayer } from '@/types';
 
 /**
@@ -17,7 +18,7 @@ function verifyCallback(request: NextRequest): boolean {
   if (!secret) return false;
   const provided = request.headers.get('x-callback-secret');
   if (!provided) return false;
-  return provided.length === secret.length && provided === secret;
+  return provided === secret;
 }
 
 /**
@@ -54,6 +55,9 @@ const PROJECT_SPECIFIC_PREFIXES = [
  * original customer photos.
  */
 function isDesignOwnedKey(key: string): boolean {
+  // Never touch immutable version archives — they're referenced by
+  // design_order_versions docs used by "restore version".
+  if (key.startsWith('design/orders-design/versions/')) return false;
   return PROJECT_SPECIFIC_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
@@ -131,6 +135,7 @@ export async function POST(request: NextRequest) {
     // itself is used as the thumbnail (see ProjectCardPreview). Skip
     // thumbnail key collection for order designs.
     const r2Keys: string[] = [];
+    const sharedKeys: string[] = [];
     for (const project of projects) {
       // The generated design JPG (stored on the project as orderDesignUrl)
       if (project.orderDesignUrl) {
@@ -144,23 +149,34 @@ export async function POST(request: NextRequest) {
           r2Keys.push(key);
         }
       }
-      // Layer image URIs
+      if (project.backgroundThumbnailUri) {
+        const key = extractKeyFromUrl(project.backgroundThumbnailUri);
+        if (key && isDesignOwnedKey(key) && isBackgroundOwnedByProject(project.backgroundThumbnailUri, project.id)) {
+          r2Keys.push(key);
+        }
+      }
+      // Layer image URIs — shared by reference with the template and
+      // sibling order designs; collected separately for reference-check.
       for (const layer of project.layers) {
         if (layer.type === 'image') {
           const img = layer as ImageLayer;
           if (img.uri) {
             const key = extractKeyFromUrl(img.uri);
-            if (key && isDesignOwnedKey(key)) r2Keys.push(key);
+            if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
+          }
+          if (img.originalUri) {
+            const key = extractKeyFromUrl(img.originalUri);
+            if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
           }
           if (img.thumbnailUri) {
             const key = extractKeyFromUrl(img.thumbnailUri);
-            if (key && isDesignOwnedKey(key)) r2Keys.push(key);
+            if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
           }
           if (img.collage?.cells) {
             for (const cell of img.collage.cells) {
               if (cell.uri) {
                 const key = extractKeyFromUrl(cell.uri);
-                if (key && isDesignOwnedKey(key)) r2Keys.push(key);
+                if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
               }
             }
           }
@@ -169,14 +185,23 @@ export async function POST(request: NextRequest) {
           const shape = layer as ShapeLayer;
           if (shape.uri) {
             const key = extractKeyFromUrl(shape.uri);
-            if (key && isDesignOwnedKey(key)) r2Keys.push(key);
+            if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
+          }
+          if (shape.thumbnailUri) {
+            const key = extractKeyFromUrl(shape.thumbnailUri);
+            if (key && isDesignOwnedKey(key)) sharedKeys.push(key);
           }
         }
       }
     }
 
+    // Only delete shared keys that no other project/template references
+    const unreferencedShared = sharedKeys.length > 0
+      ? await filterUnreferencedKeys([...new Set(sharedKeys)], projectIds)
+      : [];
+
     // Deduplicate
-    const uniqueKeys = [...new Set(r2Keys)];
+    const uniqueKeys = [...new Set([...r2Keys, ...unreferencedShared])];
 
     // Audit log: record what's being deleted
     console.log(

@@ -3,6 +3,17 @@ import { verifySession } from '@/lib/auth/session';
 import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from '@/lib/db/project-collections';
 import { uploadToR2, deleteFromR2, generateOrderDesignKey, extractKeyFromUrl } from '@/lib/storage/r2';
 import { renderTemplateToJpg } from '@/lib/render/canvas-renderer';
+import { renderLimiter } from '@/lib/utils/concurrency-limiter';
+
+/**
+ * Max time a re-render waits for a render slot. Re-renders are
+ * fire-and-forget from the editor — failing fast on a saturated queue
+ * is better than holding the request open past the proxy timeout.
+ */
+const RENDER_ACQUIRE_TIMEOUT_MS = parseInt(
+  process.env.DESIGN_RENDER_ACQUIRE_TIMEOUT_MS || '90000',
+  10,
+);
 import {
   createVersion,
   generateOperationId,
@@ -121,7 +132,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // No order meta — can't create a version. Just re-render to the
       // mutable key (backward compat) and return.
       if (mutableKey) {
-        const jpgBuffer = await renderTemplateToJpg(project, {});
+        const jpgBuffer = await renderLimiter.run(
+          () => renderTemplateToJpg(project, {}),
+          RENDER_ACQUIRE_TIMEOUT_MS,
+        );
         try { await deleteFromR2(mutableKey); } catch { /* first upload — fine */ }
         await uploadToR2(mutableKey, jpgBuffer, 'image/jpeg', {
           cacheControl: 'no-cache',
@@ -137,7 +151,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // This is the NEW design (with the admin's edits). The project data
     // comes from the request body (just saved by the client), so there's
     // no race condition with MongoDB.
-    const jpgBuffer = await renderTemplateToJpg(project, {});
+    const jpgBuffer = await renderLimiter.run(
+      () => renderTemplateToJpg(project, {}),
+      RENDER_ACQUIRE_TIMEOUT_MS,
+    );
 
     // ── 2. Create the version (allocate + upload + insert) ─────────────
     // The image is uploaded to R2 BEFORE the version document is inserted

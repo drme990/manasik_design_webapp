@@ -12,7 +12,7 @@
  * wait their turn.
  *
  * The concurrency limit is configurable via the
- * `DESIGN_RENDER_CONCURRENCY` env var (default: 10).
+ * `DESIGN_RENDER_CONCURRENCY` env var (default: 3).
  */
 
 type PendingRequest = {
@@ -33,15 +33,37 @@ export class ConcurrencyLimiter {
   /**
    * Acquire a slot. Returns a Promise that resolves when a slot is
    * available. The caller MUST call `release()` when done.
+   *
+   * `timeoutMs` bounds how long a caller waits in the queue — without
+   * it, a burst of renders could queue requests indefinitely (or until
+   * the upstream proxy/load balancer kills the connection). On timeout
+   * the queued entry is removed and the promise rejects.
    */
-  acquire(): Promise<void> {
+  acquire(timeoutMs?: number): Promise<void> {
     if (this.active < this.max) {
       this.active++;
       return Promise.resolve();
     }
 
     return new Promise<void>((resolve, reject) => {
-      this.queue.push({ resolve, reject });
+      const entry: PendingRequest = {
+        resolve: () => {
+          if (timer) clearTimeout(timer);
+          resolve();
+        },
+        reject: (e) => {
+          if (timer) clearTimeout(timer);
+          reject(e);
+        },
+      };
+      const timer = timeoutMs
+        ? setTimeout(() => {
+          const idx = this.queue.indexOf(entry);
+          if (idx >= 0) this.queue.splice(idx, 1);
+          reject(new Error(`Concurrency limiter acquire timed out after ${timeoutMs}ms`));
+        }, timeoutMs)
+        : null;
+      this.queue.push(entry);
     });
   }
 
@@ -63,9 +85,10 @@ export class ConcurrencyLimiter {
    * Run an async function with concurrency limiting.
    *
    * Acquires a slot before running, releases it after (even on error).
+   * `acquireTimeoutMs` bounds queue wait — see `acquire()`.
    */
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
+  async run<T>(fn: () => Promise<T>, acquireTimeoutMs?: number): Promise<T> {
+    await this.acquire(acquireTimeoutMs);
     try {
       return await fn();
     } finally {
@@ -92,5 +115,5 @@ export class ConcurrencyLimiter {
  * at module load time (default: 3).
  */
 export const renderLimiter = new ConcurrencyLimiter(
-  parseInt(process.env.DESIGN_RENDER_CONCURRENCY || '10', 10),
+  parseInt(process.env.DESIGN_RENDER_CONCURRENCY || '3', 10),
 );

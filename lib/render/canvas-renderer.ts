@@ -1048,18 +1048,24 @@ function fillTextOrSymbol(
 
 // ─── Image loading ────────────────────────────────────────────────────────
 
+type LoadedImage = Awaited<ReturnType<typeof loadImage>>;
+
 /**
- * Cache loaded images by URL, shared across all renders. Images are
- * keyed by URL so the same background/shape is fetched once and reused.
- * The cache persists for the lifetime of the process — safe for
- * concurrent renders since it only grows (never cleared).
+ * Cache of in-flight/resolved image loads keyed by URL, shared across
+ * all renders. Storing the PROMISE (not just the decoded image) means
+ * concurrent renders and the parallel preload pass automatically
+ * deduplicate — the same URL is only fetched once.
+ *
+ * Bounded LRU: decoded images are large (a 2000×2000 bitmap ≈ 16MB), so
+ * an unbounded cache grows forever on a long-lived process (shared VPS).
+ * Oldest entries are evicted when the cap is exceeded; unique per-order
+ * images (reservation photos) age out naturally. Failed loads are
+ * removed so a transient failure doesn't poison the cache.
  */
-const imageCache = new Map<string, Awaited<ReturnType<typeof loadImage>>>();
+const IMAGE_CACHE_MAX = 50;
+const imageCache = new Map<string, Promise<LoadedImage>>();
 
-async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof loadImage>>> {
-  const cached = imageCache.get(url);
-  if (cached) return cached;
-
+async function fetchAndDecodeImage(url: string): Promise<LoadedImage> {
   let buffer: Buffer | null = null;
 
   // Timeout for each individual fetch attempt. If the CDN is slow or
@@ -1116,9 +1122,93 @@ async function loadImageFromUrl(url: string): Promise<Awaited<ReturnType<typeof 
     throw new Error(`Failed to fetch image: ${url}`);
   }
 
-  const image = await loadImage(buffer);
-  imageCache.set(url, image);
-  return image;
+  return loadImage(buffer);
+}
+
+async function loadImageFromUrl(url: string): Promise<LoadedImage> {
+  const cached = imageCache.get(url);
+  if (cached) {
+    // LRU touch — reinsert at the end so the hottest entries survive.
+    imageCache.delete(url);
+    imageCache.set(url, cached);
+    return cached;
+  }
+
+  const promise = fetchAndDecodeImage(url);
+  imageCache.set(url, promise);
+
+  // Evict the oldest entry when over capacity.
+  if (imageCache.size > IMAGE_CACHE_MAX) {
+    const oldest = imageCache.keys().next().value;
+    if (oldest !== undefined && oldest !== url) imageCache.delete(oldest);
+  }
+
+  try {
+    return await promise;
+  } catch (err) {
+    // Don't cache failures — a transient CDN/R2 error should be retried
+    // on the next render, not permanently skipped.
+    if (imageCache.get(url) === promise) imageCache.delete(url);
+    throw err;
+  }
+}
+
+/**
+ * Collect every image URL the render pass will need: the background,
+ * image layers, collage cells, PNG shapes, and dynamic image fields
+ * (resolved against the order data). Deduplicated — the same URL is
+ * often referenced by multiple layers.
+ *
+ * Used to warm the image cache in PARALLEL before the serial draw loop,
+ * so per-layer `loadImageFromUrl` calls resolve instantly instead of
+ * fetching one-by-one mid-render.
+ */
+function collectRenderImageUrls(template: Project, orderData: OrderDataPayload): string[] {
+  const urls = new Set<string>();
+  const add = (u: string | undefined | null) => {
+    if (u && !u.startsWith('blob:')) urls.add(u);
+  };
+
+  add(template.backgroundUri);
+
+  for (const layer of template.layers) {
+    if (!layer.visible) continue;
+
+    if (layer.type === 'image') {
+      const il = layer as ImageLayer;
+      add(il.uri);
+      if (il.collage) {
+        for (const cell of il.collage.cells) add(cell?.uri);
+      }
+    } else if (layer.type === 'shape') {
+      const sl = layer as ShapeLayer;
+      if (sl.shape === 'png') add(sl.uri);
+    } else if (layer.type === 'dynamic_field') {
+      const dl = layer as DynamicFieldLayer;
+      if (dl.fieldType === 'image' && shouldDisplayField(dl.variableId, orderData)) {
+        const value = resolveFieldValue(dl.variableId, orderData);
+        if (!isEmptyValue(value)) {
+          const v = value!;
+          if (v.trim().startsWith('[')) {
+            try {
+              const parsed = JSON.parse(v);
+              if (Array.isArray(parsed)) {
+                for (const u of parsed) add(typeof u === 'string' ? u : undefined);
+              } else {
+                add(v);
+              }
+            } catch {
+              add(v);
+            }
+          } else {
+            add(v);
+          }
+        }
+      }
+    }
+  }
+
+  return [...urls];
 }
 
 // ─── Transform helpers ────────────────────────────────────────────────────
@@ -2505,11 +2595,23 @@ export async function renderTemplateToJpg(
   // Loaded once per process — subsequent renders reuse the cached images.
   await preloadGenderSymbols();
 
-  // Render at 3x resolution for sharp, high-quality output.
-  // The canvas is created at 3x dimensions, and we scale the context so
-  // all drawing code can use the original (logical) coordinates.
-  // For a 1080×1080 template, the output is 3240×3240 — crisp even
-  // when displayed on high-DPI screens or printed.
+  // ── Parallel image preload ───────────────────────────────────────
+  // Warm the shared image cache with every URL this render needs —
+  // background, image layers, collage cells, PNG shapes, and resolved
+  // dynamic-image fields — all fetched in parallel. Without this the
+  // serial draw loop fetches each image one-by-one (up to ~30s each on
+  // CDN failure). Individual failures are ignored here — the draw loop
+  // retries via the cache and skips images that still fail.
+  await Promise.allSettled(
+    collectRenderImageUrls(template, orderData as OrderDataPayload).map(
+      (url) => loadImageFromUrl(url),
+    ),
+  );
+
+  // Render at RENDER_SCALE (currently 1x — see the constant's comment
+  // for the quality/size tradeoff). The canvas is created at scale×
+  // dimensions and the context is scaled so all drawing code uses
+  // logical coordinates.
   const canvas = createCanvas(
     template.canvasWidth * RENDER_SCALE,
     template.canvasHeight * RENDER_SCALE,
@@ -2569,7 +2671,7 @@ export async function renderTemplateToJpg(
 
   // ── Export as JPEG ───────────────────────────────────────────────
   // @napi-rs/canvas uses a 0-100 quality scale (NOT 0-1 like browser
-  // canvas or node-canvas). 100 = max quality. Combined with 3x render
-  // scale, this produces sharp output with no JPEG artifacts.
+  // canvas or node-canvas). 40 keeps file sizes small enough for fast
+  // admin-panel loading while remaining visually clean for print.
   return canvas.toBuffer('image/jpeg', 40);
 }

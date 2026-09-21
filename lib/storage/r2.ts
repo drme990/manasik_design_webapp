@@ -35,6 +35,25 @@ export interface UploadResult {
   contentType: string;
 }
 
+/**
+ * True when an S3/R2 error means "the object does not exist"
+ * (NoSuchKey / 404). Missing objects are data issues, not system
+ * failures — callers should log them as a one-line warning instead of
+ * dumping the full AWS error + stack trace.
+ */
+function isNoSuchKey(error: unknown): boolean {
+  const e = error as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  } | null;
+  return (
+    e?.name === 'NoSuchKey' ||
+    e?.Code === 'NoSuchKey' ||
+    e?.$metadata?.httpStatusCode === 404
+  );
+}
+
 export async function uploadToR2(
   key: string,
   body: Buffer | Uint8Array,
@@ -238,7 +257,14 @@ export async function copyR2Object(
     );
     return { key: targetKey, url: `${PUBLIC_URL}/${targetKey}` };
   } catch (error) {
-    console.error(`[R2] Failed to copy "${sourceKey}" → "${targetKey}":`, error);
+    if (isNoSuchKey(error)) {
+      console.warn(
+        `[R2] Copy skipped — source object not found: "${sourceKey}" ` +
+        `(bucket: ${BUCKET_NAME}, target: "${targetKey}")`,
+      );
+    } else {
+      console.error(`[R2] Failed to copy "${sourceKey}" → "${targetKey}":`, error);
+    }
     return null;
   }
 }
@@ -332,7 +358,13 @@ export async function downloadFromR2(key: string): Promise<Buffer | null> {
     const bytes = await response.Body.transformToByteArray();
     return Buffer.from(bytes);
   } catch (error) {
-    console.error(`[R2] Failed to download key "${key}":`, error);
+    if (isNoSuchKey(error)) {
+      console.warn(
+        `[R2] Object not found: "${key}" (bucket: ${BUCKET_NAME})`,
+      );
+    } else {
+      console.error(`[R2] Failed to download key "${key}":`, error);
+    }
     return null;
   }
 }
