@@ -49,7 +49,6 @@ export const reservedCollections: readonly string[] = [
     'supplierorders',
     'supplierpayouts',
     'suppliers',
-    'terminallogs',
     'transactions',
     'usertiers',
     'users_admin_panel',
