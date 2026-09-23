@@ -3,19 +3,16 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query';
 
 /**
- * Shared TanStack Query client — the single cache for all list/identity
- * fetches that are NOT owned by the zustand project store.
+ * Shared TanStack Query client — the single cache for ALL server state
+ * (projects, templates, booking/backend products, PDF projects, auth
+ * user, editor colors/shapes/fonts).
  *
- * (The project store IS the documented cache for design/template lists —
- * see AGENTS.md — so those stay in zustand with a freshness TTL rather
- * than maintaining a second cache that would fight optimistic updates.)
- *
- * The same queries are used imperatively (stores call `ensureQueryData`)
- * and declaratively (components call `useQuery`) — both share this cache,
- * so a list fetched by one page is free for any later caller.
+ * The same queries are used imperatively (stores call `fetchQuery`)
+ * and declaratively (components call `useQuery`) — both share this
+ * cache, so a list fetched by one page is free for any later caller.
  */
 
-const DEFAULT_STALE_TIME = 60_000; // 60s — lists are cheap to revalidate
+export const DEFAULT_STALE_TIME = 60_000; // 60s — lists are cheap to revalidate
 const GC_TIME = 5 * 60_000;
 
 let browserClient: QueryClient | undefined;

@@ -26,7 +26,7 @@ import { queryKeys } from '@/lib/query/client';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import type { ProjectSummary } from '@/types';
 
-export default function ProjectsPage({ initialProjects }: { initialProjects?: ProjectSummary[] }) {
+export default function ProjectsPage({ initialProjects, seedIsPartial }: { initialProjects?: ProjectSummary[]; seedIsPartial?: boolean }) {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
   const uiT = useTranslations('ui');
@@ -36,7 +36,7 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
   // seed the query so the first paint already shows real cards; when
   // absent (SSR prefetch failed), the query fetches on mount. Mutations
   // write through to this cache — the list is always in sync.
-  const { data: projects = [], isPending, isError: designsError, refetch: refetchDesigns } = useDesigns(initialProjects);
+  const { data: projects = [], isPending, isError: designsError, refetch: refetchDesigns } = useDesigns(initialProjects, seedIsPartial);
   // loading is true only when we have no data at all yet
   const loading = isPending && projects.length === 0;
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);

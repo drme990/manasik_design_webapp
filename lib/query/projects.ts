@@ -9,7 +9,7 @@ import type {
   TemplateApp,
 } from '@/types';
 import { fetchWithAuth } from '@/lib/store/fetch-with-auth';
-import { getQueryClient, queryKeys } from './client';
+import { DEFAULT_STALE_TIME, getQueryClient, queryKeys } from './client';
 
 /**
  * Project data access — designs + booking templates.
@@ -52,14 +52,23 @@ export async function fetchProject(id: string): Promise<Project> {
  * `seededAt` is captured once per mount: the SSR payload is fresh at
  * mount time, but a per-render `Date.now()` would let stale props
  * clobber mutations made after mounting.
+ *
+ * `seedIsPartial` — the SSR seed is bounded (DESIGN_SEED_LIMIT) to keep
+ * the RSC payload small. When partial, the seed is backdated past
+ * staleTime so the query refetches the FULL list in the background on
+ * mount — instant paint from the seed, complete data moments later.
  */
-export function useDesigns(initialData?: ProjectSummary[]) {
+export function useDesigns(initialData?: ProjectSummary[], seedIsPartial = false) {
   const [seededAt] = useState(() => Date.now());
   return useQuery({
     queryKey: queryKeys.designsList,
     queryFn: fetchDesignSummaries,
     initialData,
-    initialDataUpdatedAt: initialData ? seededAt : undefined,
+    initialDataUpdatedAt: initialData
+      ? seedIsPartial
+        ? seededAt - DEFAULT_STALE_TIME - 1
+        : seededAt
+      : undefined,
     select: sortByUpdated,
   });
 }

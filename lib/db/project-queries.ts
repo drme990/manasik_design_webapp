@@ -11,15 +11,21 @@ import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from './project-coll
 import type { ProjectSummary } from '@/types';
 
 /**
- * List a user's designs (kind='design'), newest first, without `layers`.
- * Mirrors the `GET /api/projects?summary=1` response for the default
- * (non-order, non-template) query.
+ * List a user's most recent designs (kind='design'), newest first,
+ * without `layers`. The result is serialized into the RSC payload as
+ * `initialProjects` — bounding it keeps that payload small (~KBs
+ * instead of MBs for users with hundreds of designs) so client-side
+ * navigations to `/` stay fast. The client refetches the full list in
+ * the background after mount.
  */
-export async function listUserDesignSummaries(userId: string): Promise<ProjectSummary[]> {
+export const DESIGN_SEED_LIMIT = 50;
+
+export async function listUserDesignSummaries(userId: string, limit = DESIGN_SEED_LIMIT): Promise<ProjectSummary[]> {
   const collection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
   const docs = await collection
     .find({ userId, kind: 'design' }, { projection: { layers: 0 } })
     .sort({ updatedAt: -1 })
+    .limit(limit)
     .allowDiskUse(true)
     .toArray();
   // Convert MongoDB ObjectId _id to string so the docs are serializable

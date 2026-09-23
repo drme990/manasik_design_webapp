@@ -21,6 +21,27 @@ const nextConfig: NextConfig = {
   // at runtime on Vercel serverless functions.
   serverExternalPackages: ['@napi-rs/canvas'],
   allowedDevOrigins: ['192.168.1.16'],
+  experimental: {
+    // Cache dynamic RSC payloads in the client router for 30s — without
+    // this (default 0), every <Link> navigation back to "/" refetches
+    // the entire RSC payload, making back-navigation as slow as the
+    // initial load.
+    staleTimes: { dynamic: 30 },
+  },
+  // The app sits behind Nginx (proxy_buffering on by default), which
+  // buffers streamed responses — a Suspense boundary's shell would only
+  // reach the browser after the whole RSC stream finishes, defeating
+  // streaming entirely. X-Accel-Buffering: no tells Nginx to flush each
+  // chunk immediately so navigations commit as soon as the shell
+  // arrives instead of hanging on the slowest DB query.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [{ key: 'X-Accel-Buffering', value: 'no' }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

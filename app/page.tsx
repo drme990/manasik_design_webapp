@@ -4,7 +4,7 @@ import { verifySession } from '@/lib/auth/session';
 import DesignShell from '@/components/layout/DesignShell';
 import ProjectsPage from './(design)/page';
 import ProjectsPageSkeleton from '@/components/projects/ProjectsPageSkeleton';
-import { listUserDesignSummaries } from '@/lib/db/project-queries';
+import { listUserDesignSummaries, DESIGN_SEED_LIMIT } from '@/lib/db/project-queries';
 import type { ProjectSummary } from '@/types';
 
 /**
@@ -13,6 +13,10 @@ import type { ProjectSummary } from '@/types';
  * login → "/") until MongoDB responds — the Suspense boundary lets the
  * shell stream instantly while the query resolves. On failure the client
  * component falls back to its normal /api/projects fetch.
+ *
+ * The seed is bounded to DESIGN_SEED_LIMIT so the RSC payload stays
+ * small; when it hits the limit the client treats the seed as partial
+ * and refetches the full list in the background.
  */
 async function ProjectsPageData({ userId }: { userId: string }) {
   let initialProjects: ProjectSummary[] | undefined;
@@ -23,7 +27,12 @@ async function ProjectsPageData({ userId }: { userId: string }) {
     // component falls back to its normal /api/projects fetch.
     console.error('[RootPage] Failed to prefetch designs:', error);
   }
-  return <ProjectsPage initialProjects={initialProjects} />;
+  return (
+    <ProjectsPage
+      initialProjects={initialProjects}
+      seedIsPartial={(initialProjects?.length ?? 0) >= DESIGN_SEED_LIMIT}
+    />
+  );
 }
 
 // Root route "/" — renders the projects page (main page) with the design
