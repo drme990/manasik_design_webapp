@@ -76,22 +76,28 @@ export default function ProjectsPage({ initialProjects, seedIsPartial }: { initi
     const naturalHeight = img.naturalHeight;
     URL.revokeObjectURL(url);
 
-    // Convert to data URL for the background
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = event.target?.result as string;
-      // Create project with the image's aspect ratio and set it as background
+    // Upload the image to R2 and store the URL — never a base64 data
+    // URI. A data URI in backgroundUri would live in the MongoDB doc and
+    // get serialized into every list payload (megabytes per project).
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: form });
+      if (!uploadRes.ok) throw new Error('upload_failed');
+      const uploadJson = await uploadRes.json();
       const project = await createProject({
         name: `${t('custom')} — ${naturalWidth}×${naturalHeight}`,
         kind: 'design',
         canvasWidth: naturalWidth,
         canvasHeight: naturalHeight,
-        backgroundUri: dataUrl,
+        backgroundUri: uploadJson.data.url,
       });
       setDrawerOpen(false);
       router.push(`/editor/d/${project.id}`);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Failed to create project from image:', err);
+      toast.showToast({ message: t('createFailed'), variant: 'error' });
+    }
     // Reset input so the same file can be picked again
     e.target.value = '';
   };

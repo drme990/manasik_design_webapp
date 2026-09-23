@@ -20,6 +20,22 @@ import type { ProjectSummary } from '@/types';
  */
 export const DESIGN_SEED_LIMIT = 50;
 
+/**
+ * Strip embedded `data:` URIs from list payloads. Projects created via
+ * "pick from gallery" used to store the image as a base64 data URI in
+ * `backgroundUri` — a single doc can carry megabytes, and the
+ * `layers: 0` projection doesn't catch it. Real R2 URLs stay (they're
+ * ~100 bytes and the card preview uses them); only data: URIs are
+ * dropped — the preview falls back to backgroundColor for those cards.
+ */
+export function stripSummaryDataUris<T extends { backgroundUri?: string; backgroundThumbnailUri?: string }>(doc: T): T {
+  return {
+    ...doc,
+    backgroundUri: doc.backgroundUri?.startsWith('data:') ? undefined : doc.backgroundUri,
+    backgroundThumbnailUri: doc.backgroundThumbnailUri?.startsWith('data:') ? undefined : doc.backgroundThumbnailUri,
+  };
+}
+
 export async function listUserDesignSummaries(userId: string, limit = DESIGN_SEED_LIMIT): Promise<ProjectSummary[]> {
   const collection = await getProjectCollection(DESIGN_PROJECTS_COLLECTION);
   const docs = await collection
@@ -30,5 +46,5 @@ export async function listUserDesignSummaries(userId: string, limit = DESIGN_SEE
     .toArray();
   // Convert MongoDB ObjectId _id to string so the docs are serializable
   // across the Server→Client component boundary.
-  return docs.map((doc) => ({ ...doc, _id: doc._id?.toString() }));
+  return docs.map((doc) => stripSummaryDataUris({ ...doc, _id: doc._id?.toString() }));
 }

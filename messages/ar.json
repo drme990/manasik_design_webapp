@@ -30,6 +30,7 @@
     "duplicate": "نسخ",
     "duplicateSuccess": "تم نسخ التصميم",
     "duplicateFailed": "فشل نسخ التصميم",
+    "createFailed": "فشل إنشاء التصميم",
     "delete": "حذف",
     "renameTitle": "إعادة تسمية التصميم",
     "renamePlaceholder": "اسم التصميم",
@@ -140,7 +141,8 @@
     "copying": "جاري النسخ...",
     "propertiesSaved": "تم حفظ الخصائص",
     "copySuccess": "تم نسخ القالب",
-    "copyFailed": "فشل نسخ القالب"
+    "copyFailed": "فشل نسخ القالب",
+    "createFailed": "فشل إنشاء القالب"
   },
   "home": {
     "hero": {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
 import { getProjectCollection, DESIGN_PROJECTS_COLLECTION, BOOKING_TEMPLATES_COLLECTION } from '@/lib/db/project-collections';
+import { stripSummaryDataUris } from '@/lib/db/project-queries';
 import type { Project, ProjectCreateInput } from '@/types';
 
 function isAdmin(role?: string) {
@@ -202,10 +203,13 @@ export async function GET(request: NextRequest) {
     const docs = await cursor.toArray();
 
     // Convert MongoDB ObjectId _id to string for JSON serialization.
-    const projects = docs.map((doc) => ({
-      ...doc,
-      _id: doc._id?.toString(),
-    }));
+    // For summary payloads, also strip embedded data: URIs — projects
+    // created via "pick from gallery" historically stored base64 images
+    // in backgroundUri, which can be megabytes per doc.
+    const projects = docs.map((doc) => {
+      const serialized = { ...doc, _id: doc._id?.toString() };
+      return isSummary ? stripSummaryDataUris(serialized) : serialized;
+    });
 
     // If paginated, also return total count + pagination metadata
     if (isPaginated) {
