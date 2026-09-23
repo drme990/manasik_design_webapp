@@ -28,6 +28,8 @@
     "menu": "خيارات",
     "rename": "إعادة تسمية",
     "duplicate": "نسخ",
+    "duplicateSuccess": "تم نسخ التصميم",
+    "duplicateFailed": "فشل نسخ التصميم",
     "delete": "حذف",
     "renameTitle": "إعادة تسمية التصميم",
     "renamePlaceholder": "اسم التصميم",

@@ -12,13 +12,14 @@ import {
     type BulkChangeInput,
 } from '@/lib/store/booking-templates';
 import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
-import type { BookingProduct, Project } from '@/types';
+import type { BookingProduct, ProjectSummary } from '@/types';
 
 interface ConnectProductsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    /** The template to assign products to. */
-    template: Project | null;
+    /** The template to assign products to. A summary doc is fine — only
+     *  id, name, templateType and appSource are read. */
+    template: ProjectSummary | null;
     /** Called after a successful save with the refreshed booking products. */
     onSaved?: (products: BookingProduct[]) => void;
 }

@@ -12,6 +12,7 @@ import Modal from '@/components/ui/Modal';
 import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
+import { useToast } from '@/components/providers/ToastProvider';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
@@ -21,6 +22,7 @@ export default function ProjectsPage() {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
   const router = useRouter();
+  const toast = useToast();
   // Subscribe to the zustand store — projects list is always in sync
   const projects = useProjectStore((s) => s.projects);
   const projectsLoading = useProjectStore((s) => s.projectsLoading);
@@ -135,8 +137,14 @@ export default function ProjectsPage() {
   };
 
   const handleDuplicate = async (projectId: string) => {
-    // Optimistic: store adds the duplicate to the list immediately
-    await storeDuplicateProject(projectId);
+    try {
+      const created = await storeDuplicateProject(projectId);
+      if (!created) throw new Error('duplicate returned null');
+      toast.showToast({ message: t('duplicateSuccess'), variant: 'success' });
+    } catch (err) {
+      console.error('Failed to duplicate project:', err);
+      toast.showToast({ message: t('duplicateFailed'), variant: 'error' });
+    }
   };
 
   const handleDeletePdfProject = async () => {

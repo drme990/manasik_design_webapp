@@ -55,7 +55,14 @@ export interface SafeArea {
 
 export const DEFAULT_SAFE_AREA: SafeArea = { top: 5, right: 5, bottom: 5, left: 5 };
 
-export interface Project extends SyncableDocument {
+/**
+ * All project fields EXCEPT `layers`. Shared base for `Project` (full doc,
+ * required layers) and `ProjectSummary` (list doc, layers omitted).
+ * Split out because `Omit<Project, 'layers'>` collapses every named prop
+ * to `unknown` — `SyncableDocument` carries a `[key: string]: unknown`
+ * index signature that survives Omit.
+ */
+export interface ProjectBase extends SyncableDocument {
   id: string;
   _id?: string; // MongoDB ObjectId
   name: string;
@@ -78,7 +85,6 @@ export interface Project extends SyncableDocument {
   /** The original File for retry. Transient — not persisted. */
   bgPendingFile?: File;
   safeArea?: SafeArea;
-  layers: AnyLayer[];
   thumbnail?: string;
   createdAt: number;
   updatedAt: number;
@@ -146,6 +152,24 @@ export interface Project extends SyncableDocument {
   isDeleted?: boolean;
   /** Timestamp (ms since epoch) when the template was soft-deleted. */
   deletedAt?: number;
+}
+
+/** Full project document — `layers` always present. Used by the editor. */
+export interface Project extends ProjectBase {
+  layers: AnyLayer[];
+}
+
+/**
+ * List-card shape returned by `GET /api/projects?summary=1` — identical to
+ * `Project` but `layers` is omitted to keep list payloads small (layers are
+ * the dominant field). A full `Project` is assignable to this type (required
+ * `layers` satisfies the optional one), so editor-fetched docs can be
+ * upserted into summary arrays — but a summary can never be passed where a
+ * full `Project` is required (e.g. the editor), which prevents a layer-less
+ * doc from being opened and saved back empty.
+ */
+export interface ProjectSummary extends ProjectBase {
+  layers?: AnyLayer[];
 }
 
 export interface ProjectCreateInput {

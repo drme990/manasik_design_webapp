@@ -37,6 +37,12 @@ export async function GET(request: NextRequest) {
     // Optional ?fromDate= and ?toDate= for date range filter (ISO date
     //   strings, e.g. 2026-08-14). Filters by updatedAt.
     // Optional ?search= for substring match on project name
+    // Optional ?summary=1 — list-card mode: returns everything EXCEPT the
+    //   `layers` array. Layers are the dominant payload (full layer styling
+    //   + image URIs per project) and list pages render cards from
+    //   thumbnail/orderDesignUrl, so stripping them cuts the response from
+    //   megabytes to kilobytes. The editor always fetches full docs via
+    //   GET /api/projects/[id], so it is unaffected.
     const kindFilter = request.nextUrl.searchParams.get('kind');
     const sourceFilter = request.nextUrl.searchParams.get('source');
     const pageParam = request.nextUrl.searchParams.get('page');
@@ -44,6 +50,7 @@ export async function GET(request: NextRequest) {
     const fromDate = request.nextUrl.searchParams.get('fromDate');
     const toDate = request.nextUrl.searchParams.get('toDate');
     const search = request.nextUrl.searchParams.get('search');
+    const isSummary = request.nextUrl.searchParams.get('summary') === '1';
 
     // Callback secret auth can ONLY access source=order (order designs).
     // This prevents the backend from reading user-private projects.
@@ -183,7 +190,7 @@ export async function GET(request: NextRequest) {
     const sortDir: 1 | -1 = isOrderQuery ? 1 : -1;
 
     let cursor = collection
-      .find(query)
+      .find(query, isSummary ? { projection: { layers: 0 } } : undefined)
       .sort({ [sortField]: sortDir })
       .allowDiskUse(true);
 

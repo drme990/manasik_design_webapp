@@ -17,7 +17,8 @@ import { useProjectStore } from '@/lib/store/use-project-store';
 import { listBookingProducts } from '@/lib/store/booking-templates';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import ConnectProductsModal from '@/components/templates/ConnectProductsModal';
-import type { BookingProduct, Project, TemplateApp } from '@/types';
+import { useToast } from '@/components/providers/ToastProvider';
+import type { BookingProduct, ProjectSummary, TemplateApp } from '@/types';
 
 type TabId = 'text' | 'image';
 type AppFilter = 'all' | TemplateApp;
@@ -56,6 +57,7 @@ export default function TemplatesPage() {
     const t = useTranslations('templates');
     const router = useRouter();
     const uiT = useTranslations('ui');
+    const toast = useToast();
     // Subscribe to the zustand store — templates list is always in sync
     const templates = useProjectStore((s) => s.templates);
     const templatesLoading = useProjectStore((s) => s.templatesLoading);
@@ -81,10 +83,10 @@ export default function TemplatesPage() {
     const [customHeight, setCustomHeight] = useState('1080');
     const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
-    const [connectModalTemplate, setConnectModalTemplate] = useState<Project | null>(null);
+    const [connectModalTemplate, setConnectModalTemplate] = useState<ProjectSummary | null>(null);
     const galleryInputRef = useRef<HTMLInputElement>(null);
     // Properties edit modal state
-    const [editPropsTemplate, setEditPropsTemplate] = useState<Project | null>(null);
+    const [editPropsTemplate, setEditPropsTemplate] = useState<ProjectSummary | null>(null);
     const [editPropsName, setEditPropsName] = useState('');
     const [editPropsApp, setEditPropsApp] = useState<TemplateApp>('manasik');
     const [editPropsLoading, setEditPropsLoading] = useState(false);
@@ -239,7 +241,7 @@ export default function TemplatesPage() {
     };
 
     // ── Properties edit handlers ───────────────────────────────────────
-    const openEditProps = (template: Project) => {
+    const openEditProps = (template: ProjectSummary) => {
         setEditPropsTemplate(template);
         setEditPropsName(template.name);
         setEditPropsApp(template.appSource ?? 'manasik');
@@ -264,23 +266,26 @@ export default function TemplatesPage() {
     };
 
     // ── Copy to another app handler ────────────────────────────────────
-    const handleCopyToApp = async (template: Project, targetApp: TemplateApp) => {
+    const handleCopyToApp = async (template: ProjectSummary, targetApp: TemplateApp) => {
         setCopyingTemplateId(template.id);
         try {
-            await storeDuplicateTemplateToApp(template.id, targetApp);
+            const created = await storeDuplicateTemplateToApp(template.id, targetApp);
+            if (!created) throw new Error('duplicate returned null');
+            toast.showToast({ message: t('copySuccess'), variant: 'success' });
             // Refresh booking products so product counts reflect the
             // newly copied connections
             const products = await listBookingProducts();
             setBookingProducts(products);
         } catch (err) {
             console.error('Failed to copy template:', err);
+            toast.showToast({ message: t('copyFailed'), variant: 'error' });
         } finally {
             setCopyingTemplateId(null);
         }
     };
 
     // ── Template card grid ──────────────────────────────────────────────
-    const renderTemplateGrid = (list: Project[]) => {
+    const renderTemplateGrid = (list: ProjectSummary[]) => {
         if (list.length === 0) return null;
         return (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Project, ProjectCreateInput, ProjectUpdateInput, TemplateApp } from '@/types';
+import type { Project, ProjectCreateInput, ProjectSummary, ProjectUpdateInput, TemplateApp } from '@/types';
 import { fetchWithAuth } from './fetch-with-auth';
 
 /**
@@ -24,13 +24,14 @@ import { fetchWithAuth } from './fetch-with-auth';
 
 interface ProjectState {
   // ── State ──────────────────────────────────────────────────────────
-  /** All design projects (kind='design'). */
-  projects: Project[];
+  /** All design projects (kind='design'). List items may be summaries —
+   *  `layers` is only present after the project is opened in the editor. */
+  projects: ProjectSummary[];
   /** All booking-template projects (kind='booking_template'). */
-  templates: Project[];
+  templates: ProjectSummary[];
   /** Order-generated designs (kind='design', source='order'). Shown in
    *  a separate /orders-designs section, not in the main projects list. */
-  orderDesigns: Project[];
+  orderDesigns: ProjectSummary[];
   /** True while the projects list is being fetched for the first time. */
   projectsLoading: boolean;
   /** True while the templates list is being fetched for the first time. */
@@ -62,7 +63,7 @@ interface ProjectState {
    * between days or pages is instant when the data was already fetched.
    * Entries expire after 60 seconds to stay fresh.
    */
-  orderDesignsCache: Map<string, { data: Project[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } | undefined; ts: number }>;
+  orderDesignsCache: Map<string, { data: ProjectSummary[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } | undefined; ts: number }>;
 
   // ── Actions: reads ────────────────────────────────────────────────
   /** Fetch the full projects list from the API. */
@@ -137,7 +138,7 @@ function sortByUpdated<T extends { updatedAt: number }>(items: T[]): T[] {
 }
 
 /** Upsert a project into an array, replacing if the id matches. */
-function upsertInArray(arr: Project[], project: Project): Project[] {
+function upsertInArray(arr: ProjectSummary[], project: ProjectSummary): ProjectSummary[] {
   const idx = arr.findIndex((p) => p.id === project.id);
   if (idx >= 0) {
     const copy = [...arr];
@@ -148,7 +149,7 @@ function upsertInArray(arr: Project[], project: Project): Project[] {
 }
 
 /** Remove a project from an array by id. */
-function removeFromArray(arr: Project[], id: string): Project[] {
+function removeFromArray(arr: ProjectSummary[], id: string): ProjectSummary[] {
   return arr.filter((p) => p.id !== id);
 }
 
@@ -210,17 +211,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const hasData = get().projects.length > 0;
     if (!hasData) set({ projectsLoading: true });
     try {
-      // The API returns only kind='design' (user designs) + templates.
-      const result = await fetchWithAuth('/api/projects');
-      const projects = (result.data || []) as Project[];
-      const designs = projects.filter((p) => p.kind === 'design');
-      const templates = projects.filter((p) => p.kind === 'booking_template');
-      const map: Record<string, Project> = {};
-      for (const p of projects) map[p.id] = p;
+      // summary=1 — the API omits `layers` (the dominant payload) since
+      // list cards render from `thumbnail`. Summary docs are NOT written
+      // to projectMap — the editor needs the full doc and always fetches
+      // it via getProject / GET /api/projects/[id].
+      // NOTE: this endpoint returns only kind='design' — templates are a
+      // separate endpoint/fetch, so we must NOT touch state.templates
+      // here (writing [] would wipe the templates cache and force every
+      // /templates visit to cold-fetch).
+      const result = await fetchWithAuth('/api/projects?summary=1');
+      const projects = (result.data || []) as ProjectSummary[];
       set({
-        projects: sortByUpdated(designs),
-        templates: sortByUpdated(templates),
-        projectMap: { ...get().projectMap, ...map },
+        projects: sortByUpdated(projects),
         projectsLoading: false,
       });
     } catch (error) {
@@ -233,13 +235,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const hasData = get().orderDesigns.length > 0;
     if (!hasData) set({ orderDesignsLoading: true });
     try {
-      const result = await fetchWithAuth('/api/projects?source=order');
-      const orderDesigns = (result.data || []) as Project[];
-      const map: Record<string, Project> = {};
-      for (const p of orderDesigns) map[p.id] = p;
+      const result = await fetchWithAuth('/api/projects?source=order&summary=1');
+      const orderDesigns = (result.data || []) as ProjectSummary[];
       set({
         orderDesigns: sortByUpdated(orderDesigns),
-        projectMap: { ...get().projectMap, ...map },
         orderDesignsLoading: false,
       });
     } catch (error) {
@@ -269,11 +268,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
       const orderDesigns = cached.data;
       const pagination = cached.pagination;
-      const map: Record<string, Project> = {};
-      for (const p of orderDesigns) map[p.id] = p;
       set({
         orderDesigns,
-        projectMap: { ...get().projectMap, ...map },
         orderDesignsPaginatedLoading: false,
         orderDesignsPage: pagination?.page ?? page,
         orderDesignsPageSize: pagination?.limit ?? limit,
@@ -290,6 +286,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const qs = new URLSearchParams({
         source: 'order',
+        summary: '1',
         page: String(page),
         limit: String(limit),
       });
@@ -298,7 +295,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (search) qs.set('search', search);
 
       const result = await fetchWithAuth(`/api/projects?${qs.toString()}`);
-      const orderDesigns = (result.data || []) as Project[];
+      const orderDesigns = (result.data || []) as ProjectSummary[];
       const pagination = result.pagination as {
         page: number;
         limit: number;
@@ -308,11 +305,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         hasPrev: boolean;
       } | undefined;
 
-      const map: Record<string, Project> = {};
-      for (const p of orderDesigns) map[p.id] = p;
       set({
         orderDesigns,
-        projectMap: { ...get().projectMap, ...map },
         orderDesignsPaginatedLoading: false,
         orderDesignsPage: pagination?.page ?? page,
         orderDesignsPageSize: pagination?.limit ?? limit,
@@ -342,13 +336,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const hasData = get().templates.length > 0;
     if (!hasData) set({ templatesLoading: true });
     try {
-      const result = await fetchWithAuth('/api/projects?kind=booking_template');
-      const templates = (result.data || []) as Project[];
-      const map: Record<string, Project> = {};
-      for (const t of templates) map[t.id] = t;
+      const result = await fetchWithAuth('/api/projects?kind=booking_template&summary=1');
+      const templates = (result.data || []) as ProjectSummary[];
       set({
         templates: sortByUpdated(templates),
-        projectMap: { ...get().projectMap, ...map },
         templatesLoading: false,
       });
     } catch (error) {
@@ -358,9 +349,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   getProject: async (id) => {
-    // Return cached value immediately if we have it
+    // Return cached value immediately if we have it — but ONLY if it's a
+    // full document with `layers`. Summary docs (from ?summary=1 list
+    // fetches) are never written to projectMap, but guard anyway: handing
+    // a layer-less doc to the editor would render a blank canvas, and
+    // saving it would wipe the project's layers.
     const cached = get().projectMap[id];
-    if (cached) {
+    if (cached && Array.isArray(cached.layers)) {
       // Refresh in background so the next call has fresh data
       fetchWithAuth(`/api/projects/${id}`)
         .then((result) => {

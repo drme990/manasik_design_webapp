@@ -2,18 +2,21 @@
 
 import { memo, useMemo, useState } from 'react';
 import { LuImage } from 'react-icons/lu';
-import type { Project } from '@/types';
+import type { ProjectSummary } from '@/types';
 import LayerRenderer from '@/components/editor/LayerRenderer';
 
 interface ProjectCardPreviewProps {
-  project: Project;
+  project: ProjectSummary;
   className?: string;
 }
 
 function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps) {
   // Always call hooks first — before any conditional returns.
+  // `layers` may be absent on summary docs (list fetches omit it) — the
+  // thumbnail/orderDesignUrl fast path above doesn't need layers at all;
+  // this is only the live-render fallback.
   const layers = useMemo(
-    () => [...project.layers].filter((l) => l.visible).sort((a, b) => a.zIndex - b.zIndex),
+    () => [...(project.layers ?? [])].filter((l) => l.visible).sort((a, b) => a.zIndex - b.zIndex),
     [project.layers]
   );
 
