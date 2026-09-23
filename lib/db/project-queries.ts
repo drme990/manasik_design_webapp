@@ -7,8 +7,9 @@
  * ship the first paint with real data (no client fetch waterfall).
  */
 
+import { getMongoClient } from './mongodb';
 import { getProjectCollection, DESIGN_PROJECTS_COLLECTION } from './project-collections';
-import type { ProjectSummary } from '@/types';
+import type { PdfProject, ProjectSummary } from '@/types';
 
 /**
  * List a user's most recent designs (kind='design'), newest first,
@@ -47,4 +48,29 @@ export async function listUserDesignSummaries(userId: string, limit = DESIGN_SEE
   // Convert MongoDB ObjectId _id to string so the docs are serializable
   // across the Server→Client component boundary.
   return docs.map((doc) => stripSummaryDataUris({ ...doc, _id: doc._id?.toString() }));
+}
+
+const PDF_PROJECTS_COLLECTION = 'design_pdf_projects';
+
+/**
+ * List a user's PDF projects, newest first. Mirrors
+ * `GET /api/pdf-projects` — separate `design_pdf_projects` collection,
+ * so this query is independent of `design_projects` load and streams
+ * into its own Suspense boundary on `/`.
+ */
+export async function listUserPdfProjects(userId: string): Promise<PdfProject[]> {
+  const client = getMongoClient();
+  if (!client.isConnected()) {
+    await client.connect();
+  }
+  const collection = client.getCollection<PdfProject>(PDF_PROJECTS_COLLECTION);
+  if (!collection) {
+    throw new Error('PDF projects collection not available');
+  }
+  const docs = await collection
+    .find({ userId })
+    .sort({ updatedAt: -1 })
+    .allowDiskUse(true)
+    .toArray();
+  return docs.map((doc) => ({ ...doc, _id: doc._id?.toString() }));
 }
