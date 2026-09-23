@@ -1,46 +1,33 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getQueryClient, queryKeys } from '@/lib/query/client';
 
 /**
- * Session-cached hook for managing saved colors.
+ * Hook for managing saved colors.
  *
- * - Fetches once per session (not every time the color picker opens).
+ * - Server list is cached by the shared TanStack Query client
+ *   (staleTime: Infinity — fetched once per session, cleared on logout).
  * - addColor/removeColor update local state only (deferred).
  * - saveColors() persists the current local list to the API.
  * - persistColor() adds + saves immediately (used by color picker).
  */
 
-// Module-level cache — survives across hook instances within the same session
-let cachedColors: string[] | null = null;
-let fetchPromise: Promise<string[]> | null = null;
-
-async function fetchColors(): Promise<string[]> {
-  if (cachedColors !== null) return cachedColors;
-  if (fetchPromise) return fetchPromise;
-
-  fetchPromise = (async () => {
-    try {
-      const res = await fetch('/api/saved-colors');
-      if (!res.ok) return [];
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        cachedColors = json.data as string[];
-        return cachedColors;
-      }
-      return [];
-    } catch {
-      return [];
-    } finally {
-      fetchPromise = null;
-    }
-  })();
-
-  return fetchPromise;
+async function fetchSavedColors(): Promise<string[]> {
+  try {
+    const res = await fetch('/api/saved-colors');
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.success && Array.isArray(json.data) ? (json.data as string[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function persistColors(colors: string[]): Promise<void> {
-  cachedColors = colors;
+  // Write through to the query cache immediately (optimistic), then POST.
+  getQueryClient().setQueryData(queryKeys.savedColors, colors);
   try {
     await fetch('/api/saved-colors', {
       method: 'POST',
@@ -53,29 +40,24 @@ async function persistColors(colors: string[]): Promise<void> {
 }
 
 export function useSavedColors() {
-  const [savedColors, setSavedColors] = useState<string[]>(cachedColors ?? []);
+  const { data } = useQuery({
+    queryKey: queryKeys.savedColors,
+    queryFn: fetchSavedColors,
+    staleTime: Infinity,
+  });
+  const [savedColors, setSavedColors] = useState<string[]>(data ?? []);
   // Tracks the last persisted state so we can detect unsaved changes
-  const [persistedColors, setPersistedColors] = useState<string[]>(cachedColors ?? []);
-  // Sync with module cache if another hook instance populated it
-  const [prevCached, setPrevCached] = useState(cachedColors);
-  if (cachedColors !== prevCached) {
-    setPrevCached(cachedColors);
-    setSavedColors(cachedColors ?? []);
-    setPersistedColors(cachedColors ?? []);
+  const [persistedColors, setPersistedColors] = useState<string[]>(data ?? []);
+  // Sync local state when server data arrives (first load) or changes
+  // via persistColors — React's "adjust state during render" pattern.
+  const [prevData, setPrevData] = useState(data);
+  if (data !== prevData) {
+    setPrevData(data);
+    if (data) {
+      setSavedColors(data);
+      setPersistedColors(data);
+    }
   }
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    if (cachedColors !== null) return;
-    fetchColors().then((colors) => {
-      if (mountedRef.current) {
-        setSavedColors(colors);
-        setPersistedColors(colors);
-      }
-    });
-    return () => { mountedRef.current = false; };
-  }, []);
 
   // Add color locally only (deferred — call saveColors() to persist)
   const addColor = useCallback((color: string) => {

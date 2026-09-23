@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuImage, LuBoxes, LuArrowLeft, LuCopy } from 'react-icons/lu';
 import { LuSmartphone } from 'react-icons/lu';
@@ -13,8 +14,15 @@ import Drawer from '@/components/ui/Drawer';
 import Modal from '@/components/ui/Modal';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
-import { useProjectStore } from '@/lib/store/use-project-store';
-import { listBookingProducts } from '@/lib/store/booking-templates';
+import {
+    useTemplates,
+    createProject,
+    deleteProject,
+    updateProjectRemote,
+    duplicateTemplateToApp,
+} from '@/lib/query/projects';
+import { fetchBookingProducts, invalidateBookingProductsList } from '@/lib/store/booking-templates';
+import { getQueryClient, queryKeys } from '@/lib/query/client';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
 import ConnectProductsModal from '@/components/templates/ConnectProductsModal';
 import { useToast } from '@/components/providers/ToastProvider';
@@ -58,17 +66,19 @@ export default function TemplatesPage() {
     const router = useRouter();
     const uiT = useTranslations('ui');
     const toast = useToast();
-    // Subscribe to the zustand store — templates list is always in sync
-    const templates = useProjectStore((s) => s.templates);
-    const templatesLoading = useProjectStore((s) => s.templatesLoading);
-    const fetchTemplates = useProjectStore((s) => s.fetchTemplates);
-    const storeCreateProject = useProjectStore((s) => s.createProject);
-    const storeDeleteProject = useProjectStore((s) => s.deleteProject);
-    const storeUpdateProjectRemote = useProjectStore((s) => s.updateProjectRemote);
-    const storeDuplicateTemplateToApp = useProjectStore((s) => s.duplicateTemplateToApp);
+    // Templates list — TanStack Query cache. Cached data renders
+    // instantly on remount; the query revalidates in the background when
+    // stale. Mutations write through to this cache.
+    const { data: templates = [], isPending: templatesLoading, isError: templatesError, refetch: refetchTemplates } = useTemplates();
+    // Booking products — shared TanStack Query cache. Deduped across
+    // mounts and shared with ConnectProductsModal (same query key), so
+    // opening the modal never re-fetches this list.
+    const { data: bookingProducts = [] } = useQuery({
+        queryKey: queryKeys.bookingProductsList,
+        queryFn: fetchBookingProducts,
+    });
     // loading is true only on the very first fetch (no data yet)
     const loading = templatesLoading && templates.length === 0;
-    const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
     const [drawerOpen, setDrawerOpen] = useState(false);
     // Which tab the create drawer is targeting — set when the + button is
     // clicked so the created template gets the right templateType.
@@ -132,7 +142,7 @@ export default function TemplatesPage() {
         reader.onload = async (event) => {
             const dataUrl = event.target?.result as string;
             // Create template with the image's aspect ratio and set it as background
-            const project = await storeCreateProject({
+            const project = await createProject({
                 name: `${t('newTemplate')} — ${naturalWidth}×${naturalHeight}`,
                 kind: 'booking_template',
                 canvasWidth: naturalWidth,
@@ -148,15 +158,6 @@ export default function TemplatesPage() {
         // Reset input so the same file can be picked again
         e.target.value = '';
     };
-
-    useEffect(() => {
-        const load = async () => {
-            fetchTemplates();
-            const products = await listBookingProducts();
-            setBookingProducts(products);
-        };
-        load();
-    }, [fetchTemplates]);
 
     // Persist filters to localStorage whenever they change
     useEffect(() => {
@@ -174,7 +175,7 @@ export default function TemplatesPage() {
         ).length;
 
     const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
-        const project = await storeCreateProject({
+        const project = await createProject({
             name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
             kind: 'booking_template',
             canvasWidth: preset.width,
@@ -190,7 +191,7 @@ export default function TemplatesPage() {
         const width = Number(customWidth);
         const height = Number(customHeight);
         if (width <= 0 || height <= 0) return;
-        const project = await storeCreateProject({
+        const project = await createProject({
             name: `${t('newTemplate')} — ${width}×${height}`,
             kind: 'booking_template',
             canvasWidth: width,
@@ -206,12 +207,14 @@ export default function TemplatesPage() {
         if (!deleteTemplateId) return;
         setDeleteLoading(true);
         try {
-            await storeDeleteProject(deleteTemplateId);
+            await deleteProject(deleteTemplateId);
             // Optimistically disconnect this template from all booking
-            // products in the local state. The server-side DELETE handler
-            // also does this, but we update locally for instant UI feedback.
-            setBookingProducts((prev) =>
-                prev.map((bp) =>
+            // products in the cached list — instant UI feedback. The
+            // server-side DELETE handler also clears the slots, so the
+            // invalidation below just confirms the server state.
+            const qc = getQueryClient();
+            qc.setQueryData<BookingProduct[]>(queryKeys.bookingProductsList, (prev) =>
+                prev?.map((bp) =>
                     bp.templateId === deleteTemplateId ||
                         bp.imageTemplateId === deleteTemplateId ||
                         bp.ghadaqTemplateId === deleteTemplateId ||
@@ -226,6 +229,7 @@ export default function TemplatesPage() {
                         : bp,
                 ),
             );
+            invalidateBookingProductsList();
         } catch (err) {
             console.error('Failed to delete template:', err);
         }
@@ -253,7 +257,7 @@ export default function TemplatesPage() {
         if (!trimmed) return;
         setEditPropsLoading(true);
         try {
-            await storeUpdateProjectRemote(editPropsTemplate.id, {
+            await updateProjectRemote(editPropsTemplate.id, {
                 name: trimmed,
                 appSource: editPropsApp,
             });
@@ -269,13 +273,13 @@ export default function TemplatesPage() {
     const handleCopyToApp = async (template: ProjectSummary, targetApp: TemplateApp) => {
         setCopyingTemplateId(template.id);
         try {
-            const created = await storeDuplicateTemplateToApp(template.id, targetApp);
+            const created = await duplicateTemplateToApp(template.id, targetApp);
             if (!created) throw new Error('duplicate returned null');
             toast.showToast({ message: t('copySuccess'), variant: 'success' });
             // Refresh booking products so product counts reflect the
-            // newly copied connections
-            const products = await listBookingProducts();
-            setBookingProducts(products);
+            // newly copied connections — invalidation refetches the
+            // shared query, updating this page automatically.
+            invalidateBookingProductsList();
         } catch (err) {
             console.error('Failed to copy template:', err);
             toast.showToast({ message: t('copyFailed'), variant: 'error' });
@@ -623,6 +627,15 @@ export default function TemplatesPage() {
 
                 {loading ? (
                     renderSkeletons()
+                ) : templatesError && templates.length === 0 ? (
+                    <EmptyState
+                        title={uiT('loadFailed')}
+                        action={
+                            <Button variant="outline" onClick={() => refetchTemplates()}>
+                                {uiT('retry')}
+                            </Button>
+                        }
+                    />
                 ) : activeTab === 'text' ? (
                     textTemplates.length === 0 ? (
                         <EmptyState
@@ -672,7 +685,6 @@ export default function TemplatesPage() {
                 isOpen={!!connectModalTemplate}
                 onClose={() => setConnectModalTemplate(null)}
                 template={connectModalTemplate}
-                onSaved={(refreshed) => setBookingProducts(refreshed)}
             />
 
             {/* Edit properties modal (name + app) */}

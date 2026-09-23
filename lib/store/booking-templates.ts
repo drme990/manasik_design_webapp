@@ -1,43 +1,53 @@
 import type { BookingProduct, BookingProductCreateInput, BookingProductUpdateInput, Project } from '@/types';
 import { fetchWithAuth } from './fetch-with-auth';
-import { createResourceCache } from './cache';
-import { useProjectStore } from './use-project-store';
+import { getQueryClient, queryKeys } from '@/lib/query/client';
+import { getProject, createProject } from '@/lib/query/projects';
 import type { BackendProduct } from './backend-products';
 
 /**
- * Booking product store — API-first architecture (same pattern as
- * lib/store/projects.ts). Booking products live in MongoDB (via
- * /api/booking-products). No IndexedDB, no localStorage mirror — the
- * database is the single source of truth. An in-memory cache avoids
- * redundant API calls when navigating between pages within the same
- * session.
+ * Booking product store — API-first architecture. Booking products live
+ * in MongoDB (via /api/booking-products). No IndexedDB, no localStorage
+ * mirror — the database is the single source of truth.
+ *
+ * Caching is handled by the shared TanStack Query client (lib/query):
+ * `fetchQuery` dedupes in-flight calls and serves cached data within
+ * `staleTime` (refetching when stale); mutations update the item entries
+ * and invalidate the list.
  */
 
-const CACHE_TTL_MS = 60_000; // 60 seconds
-const cache = createResourceCache<BookingProduct>(CACHE_TTL_MS);
+export async function fetchBookingProducts(): Promise<BookingProduct[]> {
+  const result = await fetchWithAuth('/api/booking-products');
+  return (result.data || []) as BookingProduct[];
+}
+
+/** Invalidate the list cache — e.g. after server-side slot changes that
+ *  bypass these store functions (template duplication with
+ *  copyProductConnections). */
+export function invalidateBookingProductsList(): void {
+  void getQueryClient().invalidateQueries({ queryKey: queryKeys.bookingProductsList });
+}
 
 export async function listBookingProducts(): Promise<BookingProduct[]> {
-  const cached = cache.getList();
-  if (cached) return cached;
-
-  const result = await fetchWithAuth('/api/booking-products');
-  const products = (result.data || []) as BookingProduct[];
-  cache.setList(products);
-  return products;
+  return getQueryClient().fetchQuery({
+    queryKey: queryKeys.bookingProductsList,
+    queryFn: fetchBookingProducts,
+  });
 }
 
 export async function getBookingProduct(id: string): Promise<BookingProduct | null> {
-  const cached = cache.getItem(id);
-  if (cached) return cached;
-
+  const qc = getQueryClient();
   try {
-    const result = await fetchWithAuth(`/api/booking-products/${id}`);
-    const product = result.data as BookingProduct;
-    cache.setItem(product);
-    return product;
+    return await qc.fetchQuery({
+      queryKey: queryKeys.bookingProduct(id),
+      queryFn: async () => {
+        const result = await fetchWithAuth(`/api/booking-products/${id}`);
+        return result.data as BookingProduct;
+      },
+    });
   } catch (error) {
     console.warn('Failed to fetch booking product from API:', error);
-    return cache.getStaleItem(id);
+    // Last-resort: cached item even if stale
+    return qc.getQueryData(queryKeys.bookingProduct(id)) ?? null;
   }
 }
 
@@ -47,8 +57,9 @@ export async function createBookingProduct(input: BookingProductCreateInput): Pr
     body: JSON.stringify(input),
   });
   const product = result.data as BookingProduct;
-  cache.setItem(product);
-  cache.invalidateList();
+  const qc = getQueryClient();
+  qc.setQueryData(queryKeys.bookingProduct(product.id), product);
+  await qc.invalidateQueries({ queryKey: queryKeys.bookingProductsList });
   return product;
 }
 
@@ -58,8 +69,9 @@ export async function updateBookingProduct(id: string, updates: BookingProductUp
     body: JSON.stringify(updates),
   });
   const updated = result.data as BookingProduct;
-  cache.setItem(updated);
-  cache.invalidateList();
+  const qc = getQueryClient();
+  qc.setQueryData(queryKeys.bookingProduct(id), updated);
+  await qc.invalidateQueries({ queryKey: queryKeys.bookingProductsList });
   return updated;
 }
 
@@ -90,15 +102,17 @@ export async function bulkUpdateBookingProducts(
     body: JSON.stringify({ slotKey, changes }),
   });
   const products = (result.data || []) as BookingProduct[];
-  for (const p of products) cache.setItem(p);
-  cache.invalidateList();
+  const qc = getQueryClient();
+  for (const p of products) qc.setQueryData(queryKeys.bookingProduct(p.id), p);
+  await qc.invalidateQueries({ queryKey: queryKeys.bookingProductsList });
   return products;
 }
 
 export async function deleteBookingProduct(id: string): Promise<void> {
   await fetchWithAuth(`/api/booking-products/${id}`, { method: 'DELETE' });
-  cache.removeItem(id);
-  cache.invalidateList();
+  const qc = getQueryClient();
+  qc.removeQueries({ queryKey: queryKeys.bookingProduct(id) });
+  await qc.invalidateQueries({ queryKey: queryKeys.bookingProductsList });
 }
 
 /**
@@ -162,7 +176,7 @@ export async function getOrCreateTemplateProject(
       : (templateType === 'image' ? product.imageTemplateId : product.templateId);
 
   if (existingId) {
-    const project = await useProjectStore.getState().getProject(existingId);
+    const project = await getProject(existingId);
     if (project) {
       return project;
     }
@@ -172,7 +186,7 @@ export async function getOrCreateTemplateProject(
   const appLabel = appSource === 'ghadaq' ? 'غدق' : 'مناسك';
   const projectName = `${product.name} — ${variantLabel} (${appLabel})`;
 
-  const project = await useProjectStore.getState().createProject({
+  const project = await createProject({
     name: projectName,
     kind: 'booking_template',
     canvasWidth: product.defaultCanvas.width,

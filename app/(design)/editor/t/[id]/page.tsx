@@ -31,7 +31,13 @@ import FontDrawer from '@/components/editor/EditorPage/FontDrawer';
 import TextEditDrawer from '@/components/editor/EditorPage/TextEditDrawer';
 import LeaveModal from '@/components/editor/EditorPage/LeaveModal';
 import MobileEyeDropper from '@/components/editor/EditorPage/MobileEyeDropper';
-import { useProjectStore } from '@/lib/store/use-project-store';
+import {
+    getProject,
+    saveProject,
+    deleteProjectOptimistic,
+    updateProjectRemote,
+    invalidateThumbnail,
+} from '@/lib/query/projects';
 import { useToast } from '@/components/providers/ToastProvider';
 import { uploadImageWithProgress, createInstantPreview, uploadImageInBackground, captureProjectThumbnailBlob, uploadProjectThumbnailBlob } from '@/lib/storage/upload';
 import {
@@ -123,11 +129,13 @@ export default function EditorPage() {
     const t = useTranslations('editor');
     const uiT = useTranslations('ui');
     // Zustand store actions — stable references, no re-renders from calling them
-    const storeGetProject = useProjectStore((s) => s.getProject);
-    const storeSaveProject = useProjectStore((s) => s.saveProject);
-    const storeDeleteProjectOptimistic = useProjectStore((s) => s.deleteProjectOptimistic);
-    const storeUpdateProjectRemote = useProjectStore((s) => s.updateProjectRemote);
-    const storeInvalidateThumbnail = useProjectStore((s) => s.invalidateThumbnail);
+    // Project data functions — module-level, stable references, no
+    // re-renders from calling them (backed by the TanStack Query cache).
+    const storeGetProject = getProject;
+    const storeSaveProject = saveProject;
+    const storeDeleteProjectOptimistic = deleteProjectOptimistic;
+    const storeUpdateProjectRemote = updateProjectRemote;
+    const storeInvalidateThumbnail = invalidateThumbnail;
     const fileInputRef = useRef<HTMLInputElement>(null);
     const shapeFileInputRef = useRef<HTMLInputElement>(null);
     const bgFileInputRef = useRef<HTMLInputElement>(null);

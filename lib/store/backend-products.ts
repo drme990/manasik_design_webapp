@@ -1,5 +1,5 @@
 import { fetchWithAuth } from './fetch-with-auth';
-import { createResourceCache } from './cache';
+import { getQueryClient, queryKeys } from '@/lib/query/client';
 
 /**
  * Backend product store — fetches real products from the backend's
@@ -40,9 +40,6 @@ export interface BackendProduct {
   sizes: BackendProductSize[];
 }
 
-const CACHE_TTL_MS = 60_000; // 60 seconds
-const cache = createResourceCache<BackendProduct>(CACHE_TTL_MS);
-
 /**
  * The "Manual Order" pseudo-product — injected into the backend products
  * list so the admin can connect it to templates in the ConnectProductsModal,
@@ -56,21 +53,17 @@ const MANUAL_ORDER_PRODUCT: BackendProduct = {
   sizes: [{ index: 0, name: 'Default' }],
 };
 
-export async function listBackendProducts(): Promise<BackendProduct[]> {
-  const cached = cache.getList();
-  if (cached) return cached;
-
+/** Raw fetcher — the queryFn behind `queryKeys.backendProductsList`. */
+export async function fetchBackendProducts(): Promise<BackendProduct[]> {
   const result = await fetchWithAuth('/api/backend/products');
   const products = (result.data || []) as BackendProduct[];
   // Inject the "Manual Order" pseudo-product at the top so the admin
   // can connect it to templates. This product doesn't exist in the
   // backend's `products` collection — it's a design-app-only placeholder
   // for manual orders with custom product names.
-  const withManual = [MANUAL_ORDER_PRODUCT, ...products];
-  cache.setList(withManual);
-  return withManual;
+  return [MANUAL_ORDER_PRODUCT, ...products];
 }
 
 export function invalidateBackendProductsCache(): void {
-  cache.invalidateList();
+  void getQueryClient().invalidateQueries({ queryKey: queryKeys.backendProductsList });
 }

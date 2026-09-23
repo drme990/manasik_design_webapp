@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPlus, LuPencil, LuTrash2, LuPalette, LuFileText, LuCopy, LuImage, LuDownload, LuLoaderCircle } from 'react-icons/lu';
 import { Button } from '@/components/ui/Button';
@@ -13,32 +14,31 @@ import Drawer from '@/components/ui/Drawer';
 import AlertDialog from '@/components/ui/AlertDialog';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import { useToast } from '@/components/providers/ToastProvider';
-import { useProjectStore } from '@/lib/store/use-project-store';
-import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
+import {
+  useDesigns,
+  createProject,
+  deleteProject,
+  renameProject,
+  duplicateProject,
+} from '@/lib/query/projects';
+import { fetchPdfProjects, deletePdfProject } from '@/lib/store/pdf-projects';
+import { queryKeys } from '@/lib/query/client';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { PdfProject, ProjectSummary } from '@/types';
+import type { ProjectSummary } from '@/types';
 
 export default function ProjectsPage({ initialProjects }: { initialProjects?: ProjectSummary[] }) {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
+  const uiT = useTranslations('ui');
   const router = useRouter();
   const toast = useToast();
-  // Subscribe to the zustand store — projects list is always in sync
-  const projects = useProjectStore((s) => s.projects);
-  const projectsLoading = useProjectStore((s) => s.projectsLoading);
-  const projectsHydrated = useProjectStore((s) => s.projectsHydrated);
-  const fetchProjects = useProjectStore((s) => s.fetchProjects);
-  const hydrateProjects = useProjectStore((s) => s.hydrateProjects);
-  const storeCreateProject = useProjectStore((s) => s.createProject);
-  const storeDeleteProject = useProjectStore((s) => s.deleteProject);
-  const storeRenameProject = useProjectStore((s) => s.renameProject);
-  const storeDuplicateProject = useProjectStore((s) => s.duplicateProject);
-  // Before hydration, render `initialProjects` (SSR data) so the first
-  // paint already shows real cards instead of a skeleton. Once hydrated,
-  // the store is the source of truth.
-  const displayProjects = projectsHydrated ? projects : (initialProjects ?? projects);
+  // Designs list — TanStack Query cache. SSR-provided initialProjects
+  // seed the query so the first paint already shows real cards; when
+  // absent (SSR prefetch failed), the query fetches on mount. Mutations
+  // write through to this cache — the list is always in sync.
+  const { data: projects = [], isPending, isError: designsError, refetch: refetchDesigns } = useDesigns(initialProjects);
   // loading is true only when we have no data at all yet
-  const loading = projectsLoading && displayProjects.length === 0;
+  const loading = isPending && projects.length === 0;
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -46,10 +46,17 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
-  const [pdfProjects, setPdfProjects] = useState<PdfProject[]>(() => {
-    const stale = getStalePdfProjects();
-    return stale ? [...stale].sort((a, b) => b.updatedAt - a.updatedAt) : [];
+  // PDF projects — shared TanStack Query cache. Deduped across mounts;
+  // deletePdfProject writes through to this cache so the list updates
+  // without a manual setState.
+  const { data: pdfData, isPending: pdfPending, isError: pdfError, refetch: refetchPdf } = useQuery({
+    queryKey: queryKeys.pdfProjectsList,
+    queryFn: fetchPdfProjects,
   });
+  const pdfProjects = useMemo(
+    () => [...(pdfData ?? [])].sort((a, b) => b.updatedAt - a.updatedAt),
+    [pdfData],
+  );
   const [deletePdfProjectId, setDeletePdfProjectId] = useState<string | null>(null);
   const [deletePdfLoading, setDeletePdfLoading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -74,7 +81,7 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
     reader.onload = async (event) => {
       const dataUrl = event.target?.result as string;
       // Create project with the image's aspect ratio and set it as background
-      const project = await storeCreateProject({
+      const project = await createProject({
         name: `${t('custom')} — ${naturalWidth}×${naturalHeight}`,
         kind: 'design',
         canvasWidth: naturalWidth,
@@ -89,27 +96,8 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
     e.target.value = '';
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    // Server-rendered initial data: seed the store — no client fetch
-    // needed (the data came from the DB milliseconds ago). Without
-    // initialProjects (e.g. unexpected standalone render), fall back to
-    // the normal client fetch.
-    if (initialProjects) {
-      hydrateProjects(initialProjects);
-    } else {
-      fetchProjects();
-    }
-    listPdfProjects().then((data) => {
-      if (cancelled) return;
-      const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
-      setPdfProjects(sorted);
-    });
-    return () => { cancelled = true; };
-  }, [fetchProjects, hydrateProjects, initialProjects]);
-
   const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
-    const project = await storeCreateProject({
+    const project = await createProject({
       name: `${preset.label} ${preset.name} — ${new Date().toLocaleDateString()}`,
       kind: 'design',
       canvasWidth: preset.width,
@@ -123,7 +111,7 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
     const width = Number(customWidth);
     const height = Number(customHeight);
     if (width <= 0 || height <= 0) return;
-    const project = await storeCreateProject({
+    const project = await createProject({
       name: `${t('custom')} — ${width}×${height}`,
       kind: 'design',
       canvasWidth: width,
@@ -136,7 +124,7 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
   const handleRename = async () => {
     if (!renameProjectId || !renameValue.trim()) return;
     // Optimistic: store updates the list immediately
-    await storeRenameProject(renameProjectId, renameValue.trim());
+    await renameProject(renameProjectId, renameValue.trim());
     setRenameProjectId(null);
   };
 
@@ -144,14 +132,14 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
     if (!deleteProjectId) return;
     setDeleteLoading(true);
     // Optimistic: store removes from the list immediately
-    await storeDeleteProject(deleteProjectId);
+    await deleteProject(deleteProjectId);
     setDeleteLoading(false);
     setDeleteProjectId(null);
   };
 
   const handleDuplicate = async (projectId: string) => {
     try {
-      const created = await storeDuplicateProject(projectId);
+      const created = await duplicateProject(projectId);
       if (!created) throw new Error('duplicate returned null');
       toast.showToast({ message: t('duplicateSuccess'), variant: 'success' });
     } catch (err) {
@@ -163,8 +151,9 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
   const handleDeletePdfProject = async () => {
     if (!deletePdfProjectId) return;
     setDeletePdfLoading(true);
+    // Removes the project from the shared query cache — the list
+    // re-renders automatically, no manual state update needed.
     await deletePdfProject(deletePdfProjectId);
-    setPdfProjects((prev) => prev.filter((p) => p.id !== deletePdfProjectId));
     setDeletePdfLoading(false);
     setDeletePdfProjectId(null);
   };
@@ -256,14 +245,23 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
                 </div>
               ))}
             </div>
-          ) : displayProjects.length === 0 ? (
+          ) : designsError && projects.length === 0 ? (
+            <EmptyState
+              title={uiT('loadFailed')}
+              action={
+                <Button variant="outline" onClick={() => refetchDesigns()}>
+                  {uiT('retry')}
+                </Button>
+              }
+            />
+          ) : projects.length === 0 ? (
             <EmptyState
               title={t('emptyTitle')}
               description={t('emptyDescription')}
             />
           ) : (
             <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
-              {displayProjects.map((project) => (
+              {projects.map((project) => (
                 <div
                   key={project.id}
                   className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
@@ -320,7 +318,28 @@ export default function ProjectsPage({ initialProjects }: { initialProjects?: Pr
         {/* Recent PDF projects — always visible, shows empty state when none */}
         <section className="mb-10">
           <h2 className="mb-4 text-lg font-semibold text-foreground">{t('recentPdfProjects')}</h2>
-          {pdfProjects.length === 0 ? (
+          {pdfPending && pdfProjects.length === 0 ? (
+            <div className="flex gap-4 overflow-x-auto pb-2">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex w-48 shrink-0 flex-col sm:w-56">
+                  <div className="aspect-4/3 w-full animate-pulse rounded-xl bg-muted" />
+                  <div className="px-3 pt-2.5">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                    <div className="mt-1.5 h-3 w-1/2 animate-pulse rounded bg-muted/70" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : pdfError && pdfProjects.length === 0 ? (
+            <EmptyState
+              title={uiT('loadFailed')}
+              action={
+                <Button variant="outline" onClick={() => refetchPdf()}>
+                  {uiT('retry')}
+                </Button>
+              }
+            />
+          ) : pdfProjects.length === 0 ? (
             <EmptyState
               title={t('emptyPdfTitle')}
               description={t('emptyPdfDescription')}

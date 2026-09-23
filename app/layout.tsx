@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from 'next/font/local';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { ToastProvider } from '@/components/providers/ToastProvider';
+import QueryProvider from '@/components/providers/QueryProvider';
 import SmoothScroll from '@/components/providers/SmoothScroll';
 import { editorFontVariables } from '@/lib/constants/fonts';
 import "./globals.css";
@@ -69,7 +70,9 @@ export default function RootLayout({
         <ThemeProvider>
           <SmoothScroll>
             <ToastProvider>
-              {children}
+              <QueryProvider>
+                {children}
+              </QueryProvider>
             </ToastProvider>
           </SmoothScroll>
         </ThemeProvider>

@@ -83,19 +83,25 @@ in this app. MongoDB (via the Next.js API routes) is always the source of
 truth.
 
 - `lib/store/fetch-with-auth.ts` — shared authenticated `fetch` wrapper.
-- `lib/store/use-project-store.ts` — **Zustand** store for projects (designs
-  + booking templates). This is the single client-side source of truth for
-  project data. The store state IS the cache — components subscribe to
-  slices of it and get instant re-renders when data changes, with no manual
-  cache invalidation needed. All mutations are optimistic: the store
-  updates immediately so the UI reflects the change before the server
-  confirms it. Access outside React components via
-  `useProjectStore.getState()`.
-- `lib/store/cache.ts` — `createResourceCache<T>(ttlMs)`, still used by
-  `pdf-projects.ts`, `booking-templates.ts`, and `backend-products.ts`.
-  Don't reintroduce IndexedDB, localStorage, or a bespoke cache per store.
-- `lib/store/projects.ts` — **deprecated**. Replaced by
-  `use-project-store.ts`. Kept as dead code; do not import from it.
+- `lib/query/client.ts` — shared **TanStack Query** client + `queryKeys`.
+  The single client-side cache for ALL server data. Provider:
+  `components/providers/QueryProvider.tsx` (mounted in `app/layout.tsx`).
+- `lib/query/projects.ts` — project data access (designs + booking
+  templates). `useDesigns`/`useTemplates` hooks for components;
+  `getProject` + mutation functions (`createProject`, `saveProject`,
+  `updateProjectRemote`, `deleteProject`, `deleteProjectOptimistic`,
+  `duplicateProject`, `duplicateTemplateToApp`, `renameProject`,
+  `invalidateThumbnail`) are plain async functions usable anywhere.
+  List queries hold `ProjectSummary[]` (no `layers`); item queries hold
+  full docs — summaries never enter the item cache. Mutations write
+  through via `setQueryData`, kind-aware (a template can never leak into
+  the designs list).
+- `pdf-projects.ts`, `booking-templates.ts`, `backend-products.ts` —
+  store modules that delegate caching to the same query client
+  (`fetchQuery`/`setQueryData`/`invalidateQueries`).
+- No zustand, no IndexedDB, no localStorage mirror, no bespoke cache per
+  store. Server state lives in TanStack Query; `useState` is for local
+  UI state only.
 - The editor page keeps in-progress edits in React state (and
   sessionStorage only for crash recovery); it writes to the DB only on
   explicit Save or the leave-modal "Yes" action.

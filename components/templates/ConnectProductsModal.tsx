@@ -1,17 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuImage, LuCheck, LuType, LuSearch } from 'react-icons/lu';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import ProjectCardPreview from '@/components/projects/ProjectCardPreview';
 import {
-    listBookingProducts,
+    fetchBookingProducts,
     bulkUpdateBookingProducts,
     type BulkChangeInput,
 } from '@/lib/store/booking-templates';
-import { listBackendProducts, type BackendProduct } from '@/lib/store/backend-products';
+import { fetchBackendProducts } from '@/lib/store/backend-products';
+import { queryKeys } from '@/lib/query/client';
 import type { BookingProduct, ProjectSummary } from '@/types';
 
 interface ConnectProductsModalProps {
@@ -20,7 +22,9 @@ interface ConnectProductsModalProps {
     /** The template to assign products to. A summary doc is fine — only
      *  id, name, templateType and appSource are read. */
     template: ProjectSummary | null;
-    /** Called after a successful save with the refreshed booking products. */
+    /** Called after a successful save with the refreshed booking products.
+     *  Optional — the shared query cache already propagates updates to
+     *  all subscribers, so callers rarely need it. */
     onSaved?: (products: BookingProduct[]) => void;
 }
 
@@ -71,9 +75,22 @@ export default function ConnectProductsModal({
     const t = useTranslations('templates');
     const ui = useTranslations('ui');
 
-    const [bookingProducts, setBookingProducts] = useState<BookingProduct[]>([]);
-    const [backendProducts, setBackendProducts] = useState<BackendProduct[]>([]);
-    const [loading, setLoading] = useState(true);
+    // Shared TanStack Query cache — the templates page already holds
+    // bookingProducts on the same key, so opening the modal is instant
+    // (cached data, background revalidation only when stale).
+    const bookingQuery = useQuery({
+        queryKey: queryKeys.bookingProductsList,
+        queryFn: fetchBookingProducts,
+        enabled: isOpen,
+    });
+    const backendQuery = useQuery({
+        queryKey: queryKeys.backendProductsList,
+        queryFn: fetchBackendProducts,
+        enabled: isOpen,
+    });
+    const bookingProducts = useMemo(() => bookingQuery.data ?? [], [bookingQuery.data]);
+    const backendProducts = useMemo(() => backendQuery.data ?? [], [backendQuery.data]);
+    const loading = isOpen && (bookingQuery.isPending || backendQuery.isPending);
     const [saving, setSaving] = useState(false);
     const [search, setSearch] = useState('');
     // Staged changes keyed by row key (`${backendProductId}:${sizeIndex}`) →
@@ -120,28 +137,8 @@ export default function ConnectProductsModal({
         return result;
     }, [backendProducts]);
 
-    // Load data when modal opens
-    useEffect(() => {
-        if (!isOpen || !template) return;
-        let cancelled = false;
-        const load = async () => {
-            setLoading(true);
-            setStagedChanges({});
-            setSearch('');
-            const [products, backend] = await Promise.all([
-                listBookingProducts(),
-                listBackendProducts(),
-            ]);
-            if (cancelled) return;
-            setBookingProducts(products);
-            setBackendProducts(backend);
-            setLoading(false);
-        };
-        load();
-        return () => {
-            cancelled = true;
-        };
-    }, [isOpen, template]);
+    // Staged changes + search are cleared on close (handleClose) and on
+    // successful save, so each open starts clean — no reset effect needed.
 
     // Find the booking product for a (backendProductId, sizeIndex) pair
     const getBookingForRow = (
@@ -229,17 +226,18 @@ export default function ConnectProductsModal({
                     };
                 },
             );
-            // Single request for all changes
+            // Single request for all changes. The store writes each
+            // updated product into the shared query cache and invalidates
+            // the list, so all subscribers refresh automatically.
             const updatedProducts = await bulkUpdateBookingProducts(slotKey, changes);
-            // Merge returned products into state
+            // Merge for the optional onSaved callback
             const updatedMap = new Map<string, BookingProduct>();
             for (const p of updatedProducts) updatedMap.set(p.id, p);
             const refreshed = [
                 ...bookingProducts.map((bp) => updatedMap.get(bp.id) ?? bp),
-                // Add newly created products not already in state
+                // Add newly created products not already in the list
                 ...updatedProducts.filter((p) => !bookingProducts.some((bp) => bp.id === p.id)),
             ];
-            setBookingProducts(refreshed);
             setStagedChanges({});
             onSaved?.(refreshed);
             onClose();
@@ -253,6 +251,7 @@ export default function ConnectProductsModal({
     const handleClose = () => {
         if (saving) return;
         setStagedChanges({});
+        setSearch('');
         onClose();
     };
 

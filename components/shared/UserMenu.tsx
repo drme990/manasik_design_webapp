@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@/lib/i18n/strings';
 import { useClickOutside } from '@/lib/hooks/use-click-outside';
+import { getQueryClient, queryKeys } from '@/lib/query/client';
 import { cn } from '@/lib/utils/cn';
 import { LuLogOut, LuChevronDown } from 'react-icons/lu';
 import ThemeToggle from './ThemeToggle';
@@ -33,27 +35,28 @@ export default function UserMenu({ className }: UserMenuProps) {
   const router = useRouter();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [user, setUser] = useState<CurrentUser | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(menuRef, () => setIsOpen(false));
 
-  // Fetch the current user once on mount
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/auth/me', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.success && data?.data) {
-          setUser(data.data as CurrentUser);
-        }
-      })
-      .catch(() => {
+  // Current user — cached + deduplicated across every UserMenu mount
+  // (each page used to fire its own /api/auth/me request).
+  const { data: user } = useQuery<CurrentUser | null>({
+    queryKey: queryKeys.authMe,
+    queryFn: async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data?.success && data?.data ? (data.data as CurrentUser) : null;
+      } catch {
         // Not logged in or network error — menu still works for theme
-      });
-    return () => { cancelled = true; };
-  }, []);
+        return null;
+      }
+    },
+    staleTime: 5 * 60_000,
+  });
 
   const handleLogout = useCallback(async () => {
     if (loggingOut) return;
@@ -63,6 +66,8 @@ export default function UserMenu({ className }: UserMenuProps) {
         method: 'POST',
         credentials: 'same-origin',
       });
+      // Drop all cached data — the next session must not see it.
+      getQueryClient().clear();
       router.replace('/login');
     } catch {
       setLoggingOut(false);

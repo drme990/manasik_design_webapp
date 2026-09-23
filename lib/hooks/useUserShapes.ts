@@ -1,136 +1,91 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/client';
+import { fetchWithAuth } from '@/lib/store/fetch-with-auth';
+import type { UserShape } from '@/components/editor/EditorPage/ShapesDrawer';
+
+const MAX_SIZE = 500 * 1024; // 500 KB
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 
 /**
- * Shape of a user-uploaded PNG shape, matching the API response.
+ * Hook for managing user-uploaded shapes (PNG/SVG/etc.).
+ *
+ * The list lives in the shared TanStack Query client (staleTime: Infinity —
+ * fetched once per session, cleared on logout). Upload/delete write through
+ * to the cache so every hook consumer stays in sync.
  */
-export interface UserShape {
-  id: string;
-  userId: string;
-  name: string;
-  url: string;
-  thumbnailUrl?: string;
-  naturalWidth: number;
-  naturalHeight: number;
-  contentType: string;
-  size: number;
-  createdAt: number;
-}
-
-// Module-level cache — survives across hook instances within the same session.
-let cachedShapes: UserShape[] | null = null;
-let fetchPromise: Promise<UserShape[]> | null = null;
-
-/** Maximum shape upload size — must match the server-side limit. */
-export const MAX_SHAPE_SIZE = 500 * 1024; // 500 KB
 
 async function fetchShapes(): Promise<UserShape[]> {
-  if (cachedShapes !== null) return cachedShapes;
-  if (fetchPromise) return fetchPromise;
-
-  fetchPromise = (async () => {
-    try {
-      const res = await fetch('/api/shapes');
-      if (!res.ok) return [];
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        cachedShapes = json.data as UserShape[];
-        return cachedShapes;
-      }
-      return [];
-    } catch {
-      return [];
-    } finally {
-      fetchPromise = null;
-    }
-  })();
-
-  return fetchPromise;
-}
-
-function invalidateCache() {
-  cachedShapes = null;
-}
-
-/**
- * Hook for managing user-uploaded PNG shapes.
- *
- * - Fetches the shape list once per session (cached at module level).
- * - uploadShape() uploads a PNG file and adds it to the list.
- * - deleteShape() removes a shape from the server and the list.
- */
-export function useUserShapes() {
-  const [shapes, setShapes] = useState<UserShape[]>(cachedShapes ?? []);
-  const [loading, setLoading] = useState(cachedShapes === null);
-  const [uploading, setUploading] = useState(false);
-  // Sync with module cache if another hook instance populated it
-  const [prevCached, setPrevCached] = useState(cachedShapes);
-  if (cachedShapes !== prevCached) {
-    setPrevCached(cachedShapes);
-    setShapes(cachedShapes ?? []);
-    setLoading(false);
+  try {
+    const json = (await fetchWithAuth('/api/shapes')) as { data?: UserShape[] };
+    return json.data ?? [];
+  } catch {
+    return [];
   }
-  const mountedRef = useRef(false);
+}
 
-  useEffect(() => {
-    mountedRef.current = true;
-    if (cachedShapes !== null) return;
-    fetchShapes().then((list) => {
-      if (!mountedRef.current) return;
-      setShapes(list);
-      setLoading(false);
-    });
-    return () => { mountedRef.current = false; };
-  }, []);
+export function useUserShapes() {
+  const queryClient = useQueryClient();
+  const { data, refetch } = useQuery({
+    queryKey: queryKeys.userShapes,
+    queryFn: fetchShapes,
+    staleTime: Infinity,
+  });
+  const shapes = data ?? [];
+  const [uploading, setUploading] = useState(false);
 
-  const uploadShape = useCallback(async (file: File): Promise<UserShape | null> => {
-    if (file.size > MAX_SHAPE_SIZE) {
-      throw new Error('fileTooLarge');
-    }
+  // Write-through to the cache — but only once the list has loaded.
+  // Returning undefined leaves an unseeded query untouched so a
+  // first upload doesn't mask the real list (staleTime: Infinity
+  // would otherwise treat the partial list as fresh forever).
+  const setCached = useCallback(
+    (updater: (prev: UserShape[]) => UserShape[]) => {
+      queryClient.setQueryData<UserShape[]>(queryKeys.userShapes, (prev) =>
+        prev === undefined ? undefined : updater(prev)
+      );
+    },
+    [queryClient]
+  );
+
+  const uploadShape = useCallback(async (file: File): Promise<UserShape> => {
+    if (!ALLOWED_TYPES.includes(file.type)) throw new Error('unsupported_type');
+    if (file.size > MAX_SIZE) throw new Error('file_too_large');
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/shapes', { method: 'POST', body: formData });
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/shapes', { method: 'POST', body: form });
       if (!res.ok) {
-        const json = await res.json().catch(() => ({ error: 'unknown' }));
-        throw new Error(json.error || 'uploadFailed');
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? 'upload_failed');
       }
       const json = await res.json();
-      if (!json.success || !json.data) throw new Error('uploadFailed');
       const shape = json.data as UserShape;
-      // Update cache + state
-      if (cachedShapes) {
-        cachedShapes = [...cachedShapes, shape];
-      } else {
-        cachedShapes = [shape];
-      }
-      if (mountedRef.current) setShapes(cachedShapes);
+      setCached((prev) => [shape, ...prev]);
       return shape;
     } finally {
-      if (mountedRef.current) setUploading(false);
+      setUploading(false);
     }
-  }, []);
+  }, [setCached]);
 
   const deleteShape = useCallback(async (id: string): Promise<boolean> => {
     try {
       const res = await fetch(`/api/shapes/${id}`, { method: 'DELETE' });
       if (!res.ok) return false;
-      cachedShapes = (cachedShapes ?? []).filter((s) => s.id !== id);
-      if (mountedRef.current) setShapes(cachedShapes ?? []);
+      setCached((prev) => prev.filter((s) => s.id !== id));
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [setCached]);
 
   return {
     shapes,
-    loading,
     uploading,
     uploadShape,
     deleteShape,
-    refresh: () => { invalidateCache(); return fetchShapes(); },
+    refresh: () => void refetch(),
   };
 }
