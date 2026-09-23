@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { verifySession } from '@/lib/auth/session';
 import DesignShell from '@/components/layout/DesignShell';
 import ProjectsPage from './(design)/page';
+import { listUserDesignSummaries } from '@/lib/db/project-queries';
 
 // Root route "/" — renders the projects page (main page) with the design
 // shell + auth check. We can't rely on the (design) layout here because
@@ -12,9 +13,13 @@ export default async function RootPage() {
   if (!session) {
     redirect('/login');
   }
+  // Fetch the designs list server-side so the initial HTML renders with
+  // real cards — the client component hydrates the store from this data
+  // and skips the client-side fetch entirely on first load.
+  const initialProjects = await listUserDesignSummaries(session.id);
   return (
     <DesignShell>
-      <ProjectsPage />
+      <ProjectsPage initialProjects={initialProjects} />
     </DesignShell>
   );
 }

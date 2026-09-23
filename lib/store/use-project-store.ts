@@ -34,6 +34,10 @@ interface ProjectState {
   orderDesigns: ProjectSummary[];
   /** True while the projects list is being fetched for the first time. */
   projectsLoading: boolean;
+  /** True once `projects` has been populated this session — via SSR
+   *  hydration or a completed fetch. Distinguishes "not loaded yet" from
+   *  "loaded and genuinely empty". */
+  projectsHydrated: boolean;
   /** True while the templates list is being fetched for the first time. */
   templatesLoading: boolean;
   /** True while the order designs list is being fetched for the first time. */
@@ -68,6 +72,12 @@ interface ProjectState {
   // ── Actions: reads ────────────────────────────────────────────────
   /** Fetch the full projects list from the API. */
   fetchProjects: () => Promise<void>;
+  /**
+   * Seed `projects` from server-rendered initial data. Used by the main
+   * page when the server component already fetched the list — hydrates
+   * the store without a network request or loading state.
+   */
+  hydrateProjects: (projects: ProjectSummary[]) => void;
   /** Fetch the full templates list from the API. */
   fetchTemplates: () => Promise<void>;
   /** Fetch order-generated designs (source='order') from the API. */
@@ -186,6 +196,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   templates: [],
   orderDesigns: [],
   projectsLoading: false,
+  projectsHydrated: false,
   templatesLoading: false,
   orderDesignsLoading: false,
   projectMap: {},
@@ -224,11 +235,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({
         projects: sortByUpdated(projects),
         projectsLoading: false,
+        projectsHydrated: true,
       });
     } catch (error) {
       console.error('Failed to fetch projects:', error);
       set({ projectsLoading: false });
     }
+  },
+
+  hydrateProjects: (projects) => {
+    set({ projects: sortByUpdated(projects), projectsLoading: false, projectsHydrated: true });
   },
 
   fetchOrderDesigns: async () => {

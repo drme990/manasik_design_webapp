@@ -16,9 +16,9 @@ import { useToast } from '@/components/providers/ToastProvider';
 import { useProjectStore } from '@/lib/store/use-project-store';
 import { listPdfProjects, deletePdfProject, getStalePdfProjects } from '@/lib/store/pdf-projects';
 import { ASPECT_RATIOS } from '@/lib/constants/presets';
-import type { PdfProject } from '@/types';
+import type { PdfProject, ProjectSummary } from '@/types';
 
-export default function ProjectsPage() {
+export default function ProjectsPage({ initialProjects }: { initialProjects?: ProjectSummary[] }) {
   const t = useTranslations('projects');
   const navT = useTranslations('navigation');
   const router = useRouter();
@@ -26,13 +26,19 @@ export default function ProjectsPage() {
   // Subscribe to the zustand store — projects list is always in sync
   const projects = useProjectStore((s) => s.projects);
   const projectsLoading = useProjectStore((s) => s.projectsLoading);
+  const projectsHydrated = useProjectStore((s) => s.projectsHydrated);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
+  const hydrateProjects = useProjectStore((s) => s.hydrateProjects);
   const storeCreateProject = useProjectStore((s) => s.createProject);
   const storeDeleteProject = useProjectStore((s) => s.deleteProject);
   const storeRenameProject = useProjectStore((s) => s.renameProject);
   const storeDuplicateProject = useProjectStore((s) => s.duplicateProject);
-  // loading is true only on the very first fetch (no data yet)
-  const loading = projectsLoading && projects.length === 0;
+  // Before hydration, render `initialProjects` (SSR data) so the first
+  // paint already shows real cards instead of a skeleton. Once hydrated,
+  // the store is the source of truth.
+  const displayProjects = projectsHydrated ? projects : (initialProjects ?? projects);
+  // loading is true only when we have no data at all yet
+  const loading = projectsLoading && displayProjects.length === 0;
   const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
@@ -85,15 +91,22 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // Fetch projects from the store (uses cache if available)
-    fetchProjects();
+    // Server-rendered initial data: seed the store — no client fetch
+    // needed (the data came from the DB milliseconds ago). Without
+    // initialProjects (e.g. unexpected standalone render), fall back to
+    // the normal client fetch.
+    if (initialProjects) {
+      hydrateProjects(initialProjects);
+    } else {
+      fetchProjects();
+    }
     listPdfProjects().then((data) => {
       if (cancelled) return;
       const sorted = [...data].sort((a, b) => b.updatedAt - a.updatedAt);
       setPdfProjects(sorted);
     });
     return () => { cancelled = true; };
-  }, [fetchProjects]);
+  }, [fetchProjects, hydrateProjects, initialProjects]);
 
   const handleCreate = async (preset: typeof ASPECT_RATIOS[number]) => {
     const project = await storeCreateProject({
@@ -243,14 +256,14 @@ export default function ProjectsPage() {
                 </div>
               ))}
             </div>
-          ) : projects.length === 0 ? (
+          ) : displayProjects.length === 0 ? (
             <EmptyState
               title={t('emptyTitle')}
               description={t('emptyDescription')}
             />
           ) : (
             <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
-              {projects.map((project) => (
+              {displayProjects.map((project) => (
                 <div
                   key={project.id}
                   className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
