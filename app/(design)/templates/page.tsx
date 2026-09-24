@@ -100,8 +100,11 @@ export default function TemplatesPage() {
     const [editPropsName, setEditPropsName] = useState('');
     const [editPropsApp, setEditPropsApp] = useState<TemplateApp>('manasik');
     const [editPropsLoading, setEditPropsLoading] = useState(false);
-    // Copy to app state
+    // Copy-to-app state — the template whose copy modal is open, plus
+    // which target app is in-flight (so "copying" shows only there)
+    const [copyTemplate, setCopyTemplate] = useState<ProjectSummary | null>(null);
     const [copyingTemplateId, setCopyingTemplateId] = useState<string | null>(null);
+    const [copyTargetApp, setCopyTargetApp] = useState<TemplateApp | null>(null);
 
     // Split templates by templateType. Legacy templates (undefined) are
     // treated as 'text' — the more restrictive option — so they show up in
@@ -275,22 +278,30 @@ export default function TemplatesPage() {
         }
     };
 
-    // ── Copy to another app handler ────────────────────────────────────
+    // ── Copy to a chosen app handler ─────────────────────────────────
+    // The modal lets the user pick manasik OR ghadaq — including the
+    // same source as the template. Same-source copies skip product
+    // connections entirely (that slot is already occupied by the
+    // original); cross-app copies carry them over server-side.
     const handleCopyToApp = async (template: ProjectSummary, targetApp: TemplateApp) => {
         setCopyingTemplateId(template.id);
+        setCopyTargetApp(targetApp);
         try {
             const created = await duplicateTemplateToApp(template.id, targetApp);
             if (!created) throw new Error('duplicate returned null');
             toast.showToast({ message: t('copySuccess'), variant: 'success' });
-            // Refresh booking products so product counts reflect the
-            // newly copied connections — invalidation refetches the
-            // shared query, updating this page automatically.
-            invalidateBookingProductsList();
+            // Product connections only change on cross-app copies —
+            // refresh the shared list so counts reflect the new slots.
+            if (targetApp !== (template.appSource ?? 'manasik')) {
+                invalidateBookingProductsList();
+            }
+            setCopyTemplate(null);
         } catch (err) {
             console.error('Failed to copy template:', err);
             toast.showToast({ message: t('copyFailed'), variant: 'error' });
         } finally {
             setCopyingTemplateId(null);
+            setCopyTargetApp(null);
         }
     };
 
@@ -365,37 +376,18 @@ export default function TemplatesPage() {
                                     >
                                         <LuPencil className="h-4 w-4" />
                                     </button>
-                                    {/* Copy to the other app — only show if the template
-                                        is for one app (not both/undefined). Copies to the
-                                        opposite app. */}
-                                    {(template.appSource ?? 'manasik') === 'manasik' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCopyToApp(template, 'ghadaq')}
-                                            disabled={copyingTemplateId === template.id}
-                                            className="flex items-center justify-center rounded-lg border border-stroke p-2 text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            aria-label={t('copyToGhadaq')}
-                                            title={t('copyToGhadaq')}
-                                        >
-                                            {copyingTemplateId === template.id
-                                                ? <span className="text-xs">...</span>
-                                                : <LuCopy className="h-4 w-4" />}
-                                        </button>
-                                    )}
-                                    {(template.appSource ?? 'manasik') === 'ghadaq' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCopyToApp(template, 'manasik')}
-                                            disabled={copyingTemplateId === template.id}
-                                            className="flex items-center justify-center rounded-lg border border-stroke p-2 text-blue-600 transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            aria-label={t('copyToManasik')}
-                                            title={t('copyToManasik')}
-                                        >
-                                            {copyingTemplateId === template.id
-                                                ? <span className="text-xs">...</span>
-                                                : <LuCopy className="h-4 w-4" />}
-                                        </button>
-                                    )}
+                                    {/* Copy — opens a modal to pick the target
+                                        app source (manasik or ghadaq, including
+                                        the same source for a plain duplicate). */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setCopyTemplate(template)}
+                                        className="flex items-center justify-center rounded-lg border border-stroke p-2 text-foreground transition-colors hover:border-brand-primary hover:bg-brand-primary-light/10"
+                                        aria-label={t('copyToApp')}
+                                        title={t('copyToApp')}
+                                    >
+                                        <LuCopy className="h-4 w-4" />
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => setDeleteTemplateId(template.id)}
@@ -692,6 +684,47 @@ export default function TemplatesPage() {
                 onClose={() => setConnectModalTemplate(null)}
                 template={connectModalTemplate}
             />
+
+            {/* Copy template — pick the target app source */}
+            <Modal
+                isOpen={!!copyTemplate}
+                onClose={() => setCopyTemplate(null)}
+                title={t('copyToApp')}
+            >
+                {copyTemplate && (
+                    <div className="grid grid-cols-2 gap-3">
+                        {(['manasik', 'ghadaq'] as const).map((app) => {
+                            const isSource = (copyTemplate.appSource ?? 'manasik') === app;
+                            const busy = copyingTemplateId === copyTemplate.id;
+                            const copyingThis = busy && copyTargetApp === app;
+                            return (
+                                <button
+                                    key={app}
+                                    type="button"
+                                    onClick={() => handleCopyToApp(copyTemplate, app)}
+                                    disabled={busy}
+                                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 px-4 py-4 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isSource
+                                        ? 'border-brand-primary/40 bg-brand-primary-light/10'
+                                        : 'border-stroke bg-card-bg hover:border-brand-primary'
+                                        }`}
+                                >
+                                    <span className="flex items-center gap-2 text-foreground">
+                                        <LuSmartphone className="h-4 w-4" />
+                                        {app === 'ghadaq' ? t('appGhadaq') : t('appManasik')}
+                                    </span>
+                                    <span className="text-xs font-normal text-secondary">
+                                        {copyingThis
+                                            ? t('copying')
+                                            : app === 'ghadaq'
+                                                ? t('appGhadaqDesc')
+                                                : t('appManasikDesc')}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </Modal>
 
             {/* Edit properties modal (name + app) */}
             <Modal

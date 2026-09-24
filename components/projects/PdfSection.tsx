@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@/lib/i18n/strings';
 import { LuPencil, LuTrash2, LuFileText, LuDownload, LuLoaderCircle } from 'react-icons/lu';
@@ -120,7 +121,7 @@ export default function PdfSection({ initialProjects }: { initialProjects?: PdfP
         />
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
-          {pdfProjects.map((pdf) => (
+          {pdfProjects.map((pdf, index) => (
             <div
               key={pdf.id}
               className="flex w-48 shrink-0 snap-start flex-col overflow-hidden sm:w-56"
@@ -129,12 +130,23 @@ export default function PdfSection({ initialProjects }: { initialProjects?: PdfP
               <Link href={`/pdf-tool?id=${pdf.id}`} className="block shrink-0">
                 <div className="relative aspect-4/3 w-full overflow-hidden bg-muted rounded-xl">
                   {pdf.images[0]?.uri ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={pdf.images[0].thumbnailUri || pdf.images[0].uri}
-                      alt={pdf.name}
-                      className="h-full w-full object-cover"
-                    />
+                    /^https?:\/\//.test(pdf.images[0].thumbnailUri || pdf.images[0].uri) ? (
+                      <Image
+                        src={pdf.images[0].thumbnailUri || pdf.images[0].uri}
+                        alt={pdf.name}
+                        fill
+                        sizes="(max-width: 640px) 192px, 224px"
+                        className="object-cover"
+                        priority={index < 6}
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={pdf.images[0].thumbnailUri || pdf.images[0].uri}
+                        alt={pdf.name}
+                        className="h-full w-full object-cover"
+                      />
+                    )
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
                       <LuFileText className="h-10 w-10 text-secondary" />

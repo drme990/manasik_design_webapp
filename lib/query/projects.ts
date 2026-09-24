@@ -283,21 +283,28 @@ export async function duplicateProject(id: string): Promise<Project | null> {
 }
 
 /**
- * Duplicate a template to a different app (manasik → ghadaq or vice
- * versa). Product connections are copied to the target app's slot
+ * Duplicate a template to a chosen app (manasik or ghadaq — the caller
+ * asks the user which source the copy is for).
+ *
+ * Cross-app: product connections are copied to the target app's slot
  * server-side — callers should invalidate the booking-products list.
+ * Same-app: connections are NOT copied — each product slot holds one
+ * template and it's already occupied by the source template, so there
+ * is nothing to copy (and the server's sourceSlot !== targetSlot guard
+ * would no-op anyway).
  */
 export async function duplicateTemplateToApp(id: string, targetApp: TemplateApp): Promise<Project | null> {
   const project = await getProject(id);
   if (!project) return null;
 
+  const sameApp = targetApp === (project.appSource ?? 'manasik');
   const appLabel = targetApp === 'ghadaq' ? 'غدق' : 'مناسك';
   const result = await fetchWithAuth(`/api/projects/${id}/duplicate`, {
     method: 'POST',
     body: JSON.stringify({
-      name: `${project.name} — ${appLabel}`,
+      name: sameApp ? `${project.name} — نسخة` : `${project.name} — ${appLabel}`,
       appSource: targetApp,
-      copyProductConnections: true,
+      copyProductConnections: !sameApp,
     }),
   });
   const created = result.data as Project;

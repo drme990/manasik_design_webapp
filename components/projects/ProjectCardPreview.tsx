@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { LuImage } from 'react-icons/lu';
 import type { ProjectSummary } from '@/types';
 import LayerRenderer from '@/components/editor/LayerRenderer';
@@ -8,9 +9,18 @@ import LayerRenderer from '@/components/editor/LayerRenderer';
 interface ProjectCardPreviewProps {
   project: ProjectSummary;
   className?: string;
+  /** Eager-load + high fetch priority — pass for above-the-fold cards. */
+  priority?: boolean;
 }
 
-function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps) {
+// Card widths: w-48 (192px) mobile, sm:w-56 (224px) desktop.
+const CARD_SIZES = '(max-width: 640px) 192px, 224px';
+
+function isRemoteUrl(src: string | undefined): src is string {
+  return !!src && /^https?:\/\//.test(src);
+}
+
+function ProjectCardPreviewInner({ project, className, priority }: ProjectCardPreviewProps) {
   // Always call hooks first — before any conditional returns.
   // `layers` may be absent on summary docs (list fetches omit it) — the
   // thumbnail/orderDesignUrl fast path above doesn't need layers at all;
@@ -54,6 +64,9 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
 
   // If the project has a preview image URL (from R2), render it as an
   // image. This is the fast path — no layer rendering needed.
+  // next/image resizes to card size through the optimizer (R2 serves
+  // originals, which can be multi-MB) — much cheaper on cold loads.
+  // data:/blob: URIs bypass the optimizer and use a plain <img>.
   // Shows a skeleton shimmer while loading and falls back to the
   // placeholder icon on error.
   if (previewImageUrl && !imgError) {
@@ -68,15 +81,28 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
         {!imgLoaded && (
           <div className="absolute inset-0 animate-pulse bg-muted" />
         )}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imgSrc}
-          alt={project.name}
-          className={`h-full w-full object-contain transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
-          loading="lazy"
-          onLoad={() => setImgLoaded(true)}
-          onError={() => setImgError(true)}
-        />
+        {isRemoteUrl(imgSrc) ? (
+          <Image
+            src={imgSrc}
+            alt={project.name}
+            fill
+            sizes={CARD_SIZES}
+            className={`object-contain transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+            priority={priority}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imgSrc}
+            alt={project.name}
+            className={`h-full w-full object-contain transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+            loading="lazy"
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+          />
+        )}
       </div>
     );
   }
@@ -95,16 +121,33 @@ function ProjectCardPreviewInner({ project, className }: ProjectCardPreviewProps
 
   // No thumbnail — render layers live as a fallback.
   // This is slower but ensures the preview works even before the first save.
+  // The background renders via next/image (optimizer-resized) instead of
+  // a CSS background — gallery backgrounds are full-resolution uploads,
+  // and a CSS background-image would download the whole original.
   return (
     <div
       className={`relative h-full w-full overflow-hidden ${className}`}
-      style={{
-        backgroundColor: project.backgroundColor ?? '#ffffff',
-        backgroundImage: bg ? `url(${bg})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
+      style={{ backgroundColor: project.backgroundColor ?? '#ffffff' }}
     >
+      {isRemoteUrl(bg) ? (
+        <Image
+          src={bg}
+          alt=""
+          fill
+          sizes={CARD_SIZES}
+          className="object-cover"
+          priority={priority}
+        />
+      ) : bg ? (
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url(${bg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+      ) : null}
       <div
         className="pointer-events-none absolute left-1/2 top-1/2"
         style={{
@@ -131,7 +174,8 @@ const ProjectCardPreview = memo(ProjectCardPreviewInner, (prev, next) =>
   prev.project.backgroundUri === next.project.backgroundUri &&
   prev.project.backgroundThumbnailUri === next.project.backgroundThumbnailUri &&
   prev.project.backgroundColor === next.project.backgroundColor &&
-  prev.className === next.className
+  prev.className === next.className &&
+  prev.priority === next.priority
 );
 
 export default ProjectCardPreview;

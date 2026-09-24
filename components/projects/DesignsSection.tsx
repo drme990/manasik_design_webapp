@@ -89,7 +89,7 @@ export default function DesignsSection({
         />
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none [scroll-snap-type:x_mandatory] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
-          {projects.map((project) => (
+          {projects.map((project, index) => (
             <div
               key={project.id}
               className="flex w-48 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-stroke bg-card-bg shadow-sm transition-shadow hover:shadow-md sm:w-56"
@@ -97,7 +97,7 @@ export default function DesignsSection({
               {/* Preview */}
               <Link href={`/editor/d/${project.id}`} className="block shrink-0">
                 <div className="relative aspect-4/3 w-full overflow-hidden rounded-t-2xl">
-                  <ProjectCardPreview project={project} className="h-full w-full" />
+                  <ProjectCardPreview project={project} className="h-full w-full" priority={index < 6} />
                 </div>
               </Link>
               {/* Name + date */}
