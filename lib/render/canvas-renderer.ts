@@ -41,6 +41,8 @@ interface OrderDataPayload {
     sizeIndex?: number;
     sizeName?: { ar?: string; en?: string };
     sizeDesignName?: string;
+    /** Share campaign number for this item — from the backend */
+    campaignCode?: string;
   }>;
   item?: {
     productId?: string;
@@ -49,6 +51,8 @@ interface OrderDataPayload {
     sizeIndex?: number;
     sizeName?: { ar?: string; en?: string };
     sizeDesignName?: string;
+    /** Share campaign number for this item — from the backend */
+    campaignCode?: string;
   };
   reservationData?: Array<{ key: string; value: string }>;
   reservation?: Record<string, string>;
@@ -452,6 +456,50 @@ function formatExecutionDate(raw: string): string {
   return `${weekday} ${day}/${month}/${year}`;
 }
 
+const ARABIC_MONTHS = [
+  'يناير',
+  'فبراير',
+  'مارس',
+  'أبريل',
+  'مايو',
+  'يونيو',
+  'يوليو',
+  'أغسطس',
+  'سبتمبر',
+  'أكتوبر',
+  'نوفمبر',
+  'ديسمبر',
+];
+
+/**
+ * Format an execution date (YYYY-MM-DD) as "Month Year" with the Arabic
+ * month name — e.g. "2026-09-25" → "سبتمبر 2026".
+ *
+ * Returns undefined when the value isn't a recognizable date so the
+ * field hides instead of rendering a raw fallback.
+ */
+function formatMonthYear(raw: string): string | undefined {
+  const match = raw.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return undefined;
+  const month = parseInt(match[2], 10);
+  if (month < 1 || month > 12) return undefined;
+  return `${ARABIC_MONTHS[month - 1]} ${match[1]}`;
+}
+
+/**
+ * Read a reservation value (executionDate etc.) from either payload
+ * shape: the flat `reservation` map or the `reservationData` array.
+ */
+function getReservationValue(
+  orderData: OrderDataPayload,
+  key: string,
+): string | undefined {
+  if (orderData.reservation && orderData.reservation[key]) {
+    return orderData.reservation[key];
+  }
+  return orderData.reservationData?.find((r) => r.key === key)?.value;
+}
+
 /**
  * Resolve the gender value to a symbol (letter or icon).
  *
@@ -656,6 +704,19 @@ function resolveFieldValue(
     }
     if (key === 'deceased') {
       return resolveDeceasedText(orderData);
+    }
+    if (key === 'monthYear') {
+      // Derive from the execution date — "2026-09-25" → "سبتمبر 2026"
+      const raw = getReservationValue(orderData, 'executionDate');
+      return raw ? formatMonthYear(raw) : undefined;
+    }
+    if (key === 'campaignCode') {
+      // The backend resolves items[].shareCampaignId → campaignNumber
+      // and sends it on the current item. Rendered with the label:
+      // "كود الحملة (14)"
+      const item = orderData.item || orderData.items?.[0];
+      const code = item?.campaignCode?.toString().trim();
+      return code ? `كود الحملة (${code})` : undefined;
     }
     return undefined;
   }

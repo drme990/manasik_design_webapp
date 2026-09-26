@@ -120,6 +120,18 @@ const GENDER_FIELDS: OrderField[] = [
 ];
 
 /**
+ * - custom.monthYear: execution date rendered as "Month Year" only
+ *   ("2026-09-25" → "سبتمبر 2026"), Arabic month names
+ * - custom.campaignCode: the current item's share campaign number,
+ *   resolved by the backend from items[].shareCampaignId and sent on
+ *   orderData.item.campaignCode
+ */
+const EXTRA_CUSTOM_FIELDS: OrderField[] = [
+  { id: 'custom.monthYear', label: 'الشهر والسنة', type: 'text', placeholder: 'سبتمبر 2026', category: 'custom' },
+  { id: 'custom.campaignCode', label: 'كود الحملة', type: 'text', placeholder: 'كود الحملة (14)', category: 'custom' },
+];
+
+/**
  * The canonical list of all dynamic fields derived from the backend
  * Order model. Add new fields here when the order schema grows.
  */
@@ -131,6 +143,7 @@ export const ORDER_FIELDS: OrderField[] = [
   ...RESERVATION_FIELDS,
   ...REFERRAL_FIELDS,
   ...GENDER_FIELDS,
+  ...EXTRA_CUSTOM_FIELDS,
 ];
 
 /** Quick lookup by id */
@@ -158,5 +171,5 @@ export const CATEGORY_LABELS: Record<OrderFieldCategory, string> = {
 export const ORDER_FIELDS_BY_CATEGORY: { category: OrderFieldCategory; label: string; fields: OrderField[] }[] = [
   { category: 'order', label: CATEGORY_LABELS.order, fields: [...BILLING_FIELDS, ...ORDER_FIELDS_LIST, ...ITEM_FIELDS, REFERRAL_ID_FIELD] },
   { category: 'reservation', label: CATEGORY_LABELS.reservation, fields: RESERVATION_FIELDS },
-  { category: 'custom', label: CATEGORY_LABELS.custom, fields: [...REFERRAL_FIELDS, ...GENDER_FIELDS] },
+  { category: 'custom', label: CATEGORY_LABELS.custom, fields: [...REFERRAL_FIELDS, ...GENDER_FIELDS, ...EXTRA_CUSTOM_FIELDS] },
 ];
